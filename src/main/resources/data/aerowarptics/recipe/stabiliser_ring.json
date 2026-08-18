@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "C": {
+      "item": "create:cogwheel"
+    },
+    "L": {
+      "item": "aeronautics:levitite"
+    }
+  },
+  "pattern": [
+    "BLB",
+    "L L",
+    "BCB"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:stabiliser_ring"
+  }
+}

@@ -1,0 +1,148 @@
+{
+  "drive_charging": {
+    "subtitle": "aerowarptics.subtitle.drive_charging",
+    "sounds": [
+      {
+        "name": "minecraft:block/beacon/ambient",
+        "stream": false,
+        "volume": 0.7,
+        "pitch": 1.4
+      },
+      {
+        "name": "minecraft:block/conduit/ambient",
+        "stream": false,
+        "volume": 0.4,
+        "pitch": 1.6
+      }
+    ]
+  },
+  "drive_charged": {
+    "subtitle": "aerowarptics.subtitle.drive_charged",
+    "sounds": [
+      {
+        "name": "minecraft:block/beacon/activate",
+        "stream": false,
+        "volume": 0.8,
+        "pitch": 1.5
+      }
+    ]
+  },
+  "stabilizing": {
+    "subtitle": "aerowarptics.subtitle.stabilizing",
+    "sounds": [
+      {
+        "name": "minecraft:block/conduit/activate",
+        "stream": false,
+        "volume": 0.8,
+        "pitch": 0.9
+      },
+      {
+        "name": "minecraft:block/piston/in",
+        "stream": false,
+        "volume": 0.6,
+        "pitch": 0.6
+      }
+    ]
+  },
+  "destination_lock": {
+    "subtitle": "aerowarptics.subtitle.destination_lock",
+    "sounds": [
+      {
+        "name": "minecraft:block/note_block/bell",
+        "stream": false,
+        "volume": 0.9,
+        "pitch": 0.7
+      },
+      {
+        "name": "minecraft:block/piston/out",
+        "stream": false,
+        "volume": 0.5,
+        "pitch": 0.5
+      }
+    ]
+  },
+  "rift_open": {
+    "subtitle": "aerowarptics.subtitle.rift_open",
+    "sounds": [
+      {
+        "name": "minecraft:entity/endermen/portal",
+        "stream": false,
+        "volume": 1.0,
+        "pitch": 0.6
+      },
+      {
+        "name": "minecraft:block/beacon/power_select",
+        "stream": false,
+        "volume": 0.8,
+        "pitch": 0.5
+      }
+    ]
+  },
+  "warp_travel": {
+    "subtitle": "aerowarptics.subtitle.warp_travel",
+    "sounds": [
+      {
+        "name": "minecraft:block/portal/travel",
+        "stream": true,
+        "volume": 0.8,
+        "pitch": 1.2
+      }
+    ]
+  },
+  "warp_exit": {
+    "subtitle": "aerowarptics.subtitle.warp_exit",
+    "sounds": [
+      {
+        "name": "minecraft:entity/generic/explode1",
+        "stream": false,
+        "volume": 0.7,
+        "pitch": 1.6
+      },
+      {
+        "name": "minecraft:block/beacon/deactivate",
+        "stream": false,
+        "volume": 0.9,
+        "pitch": 1.3
+      }
+    ]
+  },
+  "warp_failed": {
+    "subtitle": "aerowarptics.subtitle.warp_failed",
+    "sounds": [
+      {
+        "name": "minecraft:block/conduit/deactivate",
+        "stream": false,
+        "volume": 0.9,
+        "pitch": 0.7
+      },
+      {
+        "name": "minecraft:block/note_block/didgeridoo",
+        "stream": false,
+        "volume": 0.6,
+        "pitch": 0.5
+      }
+    ]
+  },
+  "drive_cooldown": {
+    "subtitle": "aerowarptics.subtitle.drive_cooldown",
+    "sounds": [
+      {
+        "name": "minecraft:block/lava/extinguish",
+        "stream": false,
+        "volume": 0.6,
+        "pitch": 1.2
+      }
+    ]
+  },
+  "anchor_configured": {
+    "subtitle": "aerowarptics.subtitle.anchor_configured",
+    "sounds": [
+      {
+        "name": "minecraft:block/note_block/chime",
+        "stream": false,
+        "volume": 0.7,
+        "pitch": 1.4
+      }
+    ]
+  }
+}

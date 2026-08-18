@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "aerowarptics:block/warp_anchor"
+    },
+    "facing=east": {
+      "model": "aerowarptics:block/warp_anchor",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "aerowarptics:block/warp_anchor",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "aerowarptics:block/warp_anchor",
+      "y": 270
+    }
+  }
+}

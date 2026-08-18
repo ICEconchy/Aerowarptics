@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "aerowarptics:rift_drive_mk_i",
+    "aerowarptics:rift_drive_mk_ii",
+    "aerowarptics:rift_drive_mk_iii",
+    "aerowarptics:rift_drive_singularity",
+    "aerowarptics:warp_anchor"
+  ]
+}

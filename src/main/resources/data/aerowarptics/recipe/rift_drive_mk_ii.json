@@ -1,0 +1,32 @@
+{
+  "type": "create:mechanical_crafting",
+  "accept_mirrored": false,
+  "category": "misc",
+  "key": {
+    "D": {
+      "item": "aerowarptics:rift_drive_mk_i"
+    },
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    },
+    "L": {
+      "item": "aerowarptics:rift_lens"
+    },
+    "B": {
+      "item": "create:brass_casing"
+    },
+    "P": {
+      "item": "create:precision_mechanism"
+    }
+  },
+  "pattern": [
+    " SLS ",
+    "BPDPB",
+    " SLS "
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_drive_mk_ii"
+  },
+  "show_notification": true
+}

@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "create:brass_ingot"
+    },
+    "L": {
+      "item": "aeronautics:levitite"
+    },
+    "P": {
+      "item": "create:precision_mechanism"
+    },
+    "E": {
+      "item": "create:electron_tube"
+    }
+  },
+  "pattern": [
+    "BEB",
+    "LPL",
+    "BEB"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_core"
+  }
+}

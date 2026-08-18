@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "L": {
+      "item": "minecraft:lodestone"
+    },
+    "C": {
+      "item": "aerowarptics:rift_core"
+    },
+    "S": {
+      "item": "create:copper_casing"
+    }
+  },
+  "pattern": [
+    "BCB",
+    "BLB",
+    "SSS"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:warp_anchor"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "type": "create:mechanical_crafting",
+  "accept_mirrored": false,
+  "category": "misc",
+  "key": {
+    "P": {
+      "item": "aeronautics:pearlescent_levitite"
+    },
+    "R": {
+      "item": "create:refined_radiance"
+    },
+    "S": {
+      "item": "create:shadow_steel"
+    },
+    "C": {
+      "item": "aerowarptics:rift_core"
+    }
+  },
+  "pattern": [
+    " PRP ",
+    "PSCSP",
+    "RCCCR",
+    "PSCSP",
+    " PRP "
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:singularity_core"
+  },
+  "show_notification": true
+}

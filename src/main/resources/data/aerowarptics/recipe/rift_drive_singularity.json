@@ -1,0 +1,39 @@
+{
+  "type": "create:mechanical_crafting",
+  "accept_mirrored": false,
+  "category": "misc",
+  "key": {
+    "D": {
+      "item": "aerowarptics:rift_drive_mk_iii"
+    },
+    "G": {
+      "item": "aerowarptics:singularity_core"
+    },
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    },
+    "P": {
+      "item": "aeronautics:pearlescent_levitite"
+    },
+    "T": {
+      "item": "create:railway_casing"
+    },
+    "H": {
+      "item": "create:shadow_steel"
+    }
+  },
+  "pattern": [
+    "  PHP  ",
+    " PSGSP ",
+    "PSTDTSP",
+    "HGDGDGH",
+    "PSTDTSP",
+    " PSGSP ",
+    "  PHP  "
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_drive_singularity"
+  },
+  "show_notification": true
+}

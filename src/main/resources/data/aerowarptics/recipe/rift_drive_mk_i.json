@@ -1,0 +1,30 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    },
+    "C": {
+      "item": "aerowarptics:rift_core"
+    },
+    "L": {
+      "item": "aerowarptics:rift_lens"
+    },
+    "B": {
+      "item": "create:brass_casing"
+    },
+    "H": {
+      "item": "create:shaft"
+    }
+  },
+  "pattern": [
+    "BSB",
+    "HCL",
+    "BSB"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_drive_mk_i"
+  }
+}

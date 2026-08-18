@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": {
+      "item": "minecraft:amethyst_shard"
+    },
+    "G": {
+      "item": "minecraft:glass_pane"
+    },
+    "E": {
+      "item": "aeronautics:end_stone_powder"
+    },
+    "B": {
+      "item": "create:brass_sheet"
+    }
+  },
+  "pattern": [
+    " A ",
+    "GEG",
+    " B "
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_lens"
+  }
+}

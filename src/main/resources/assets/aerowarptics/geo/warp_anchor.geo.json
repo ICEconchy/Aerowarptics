@@ -1,0 +1,283 @@
+{
+  "format_version": "1.12.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.warp_anchor",
+        "texture_width": 128,
+        "texture_height": 128,
+        "visible_bounds_width": 2,
+        "visible_bounds_height": 2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "base",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8,
+                0,
+                -8
+              ],
+              "size": [
+                16,
+                2,
+                16
+              ],
+              "uv": [
+                0,
+                0
+              ]
+            },
+            {
+              "origin": [
+                -6,
+                2,
+                -6
+              ],
+              "size": [
+                12,
+                1,
+                12
+              ],
+              "uv": [
+                64,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "name": "housing",
+          "pivot": [
+            0,
+            3,
+            0
+          ],
+          "parent": "base",
+          "cubes": [
+            {
+              "origin": [
+                -4,
+                3,
+                -4
+              ],
+              "size": [
+                8,
+                6,
+                8
+              ],
+              "uv": [
+                0,
+                18
+              ]
+            },
+            {
+              "origin": [
+                -7,
+                3,
+                -7
+              ],
+              "size": [
+                2,
+                6,
+                2
+              ],
+              "uv": [
+                32,
+                18
+              ]
+            },
+            {
+              "origin": [
+                5,
+                3,
+                -7
+              ],
+              "size": [
+                2,
+                6,
+                2
+              ],
+              "uv": [
+                40,
+                18
+              ]
+            },
+            {
+              "origin": [
+                -7,
+                3,
+                5
+              ],
+              "size": [
+                2,
+                6,
+                2
+              ],
+              "uv": [
+                48,
+                18
+              ]
+            },
+            {
+              "origin": [
+                5,
+                3,
+                5
+              ],
+              "size": [
+                2,
+                6,
+                2
+              ],
+              "uv": [
+                56,
+                18
+              ]
+            }
+          ]
+        },
+        {
+          "name": "ring",
+          "pivot": [
+            0,
+            12,
+            0
+          ],
+          "parent": "base",
+          "cubes": [
+            {
+              "origin": [
+                -7,
+                11,
+                -7
+              ],
+              "size": [
+                14,
+                2,
+                2
+              ],
+              "uv": [
+                64,
+                18
+              ]
+            },
+            {
+              "origin": [
+                -7,
+                11,
+                5
+              ],
+              "size": [
+                14,
+                2,
+                2
+              ],
+              "uv": [
+                96,
+                18
+              ]
+            },
+            {
+              "origin": [
+                -7,
+                11,
+                -5
+              ],
+              "size": [
+                2,
+                2,
+                10
+              ],
+              "uv": [
+                0,
+                32
+              ]
+            },
+            {
+              "origin": [
+                5,
+                11,
+                -5
+              ],
+              "size": [
+                2,
+                2,
+                10
+              ],
+              "uv": [
+                24,
+                32
+              ]
+            }
+          ]
+        },
+        {
+          "name": "beacon",
+          "pivot": [
+            0,
+            9,
+            0
+          ],
+          "parent": "base",
+          "cubes": [
+            {
+              "origin": [
+                -2,
+                9,
+                -2
+              ],
+              "size": [
+                4,
+                6,
+                4
+              ],
+              "uv": [
+                48,
+                32
+              ]
+            }
+          ]
+        },
+        {
+          "name": "lens",
+          "pivot": [
+            0,
+            15,
+            0
+          ],
+          "parent": "base",
+          "cubes": [
+            {
+              "origin": [
+                -1,
+                15,
+                -1
+              ],
+              "size": [
+                2,
+                2,
+                2
+              ],
+              "uv": [
+                64,
+                32
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
