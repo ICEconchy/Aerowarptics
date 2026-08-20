@@ -1,10 +1,13 @@
 {
   "replace": false,
   "values": [
+    "aerowarptics:astrolabe",
+    "aerowarptics:rift_drive_creative",
     "aerowarptics:rift_drive_mk_i",
     "aerowarptics:rift_drive_mk_ii",
     "aerowarptics:rift_drive_mk_iii",
     "aerowarptics:rift_drive_singularity",
+    "aerowarptics:spatial_siphon",
     "aerowarptics:warp_anchor"
   ]
 }

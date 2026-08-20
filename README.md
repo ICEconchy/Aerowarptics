@@ -52,8 +52,83 @@ needs a minimum RPM before it will charge at all.
 | Mk II | 96 / 192 | 24 su | 24,000 | 90 s | 90 s | 1.6× |
 | Mk III | 128 / 256 | 32 su | 120,000 | 70 s | 70 s | 2.4× |
 | Singularity | 192 / 256 | 48 su | 2,000,000 | 60 s | 300 s | 3.2×, unstable exit |
+| Creative | 1 / 1 | none | 100,000,000 | instant | none | no cost |
 
 Every number above is a config default, not a constant.
+
+Right-clicking a drive opens its **console**, which is a diagnostic panel and nothing else: speed
+against requirement, stress, charge, hull mass, the bow setting, and a checklist of everything a jump
+needs with each item either met or not. There is no destination list and no launch button, because a
+drive is a machine rather than a control — you set a course at a chart table and fire it with a signal.
+What the console is for is answering "why has this not gone anywhere", which it does by naming the
+condition that is missing.
+
+The **Creative Rift Drive** has nothing made it and nothing stops it: no recipe, no stress, no
+cooldown, no charge time, no minimum speed, and no range cap. Almost all of that is just its own tier
+numbers rather than a fork through the drive — one RPM to run, one tick to charge, no cooldown - so it
+behaves like a drive in every way that matters for testing. The two things numbers cannot express are
+handled explicitly: it never stalls for want of rotation mid-warp, and the server-wide range limit does
+not apply to it, because that setting is a statement about what players may do.
+
+### Astrolabe Cartography Table
+
+Nine blocks in a three-by-three square, laid flat. Until all nine are square it is a stack of loose
+brass panels that does nothing; complete it and it becomes one table with one chart.
+
+A formed table projects a **relief map of where the ship actually is** above itself: eighty blocks
+square, **one sample per block**, given height and lit by a scan line that travels across it. That
+projection is built entirely on the client, because the ground being shown is ground the player's own
+client already has loaded.
+
+Right-click any of the nine cells to open the **chart**. It lists every anchor you may see with its
+distance, cost and whether the drive on this hull can actually reach it, and it shows the selected
+destination **from above**: a 129×129 survey of the ground around the anchor, one pixel to a block,
+with **contour lines every 8 blocks** so you can read a valley off it before you arrive. That half
+cannot be done on the client — those chunks have never been sent to it — so the server surveys the
+ground once per destination looked at and sends the picture back. Only chunks that are already loaded
+are read, so a chart can never drag terrain off disk on the server's tick thread; unexplored ground
+comes back blank and the panel says what fraction that was, because blank means *nobody has been
+there*, not *flat*.
+
+Choosing a destination sets the course and stops there. Nothing on the table launches anything.
+
+#### Why both maps look like maps
+
+Both are drawn by [`TerrainPalette`](src/main/java/uk/co/iceconchy/aerowarptics/astrolabe/TerrainPalette.java),
+which is vanilla's own rules and not an approximation of them: the same 62-entry `MapColor` table a
+filled map uses, and the same **north-facing slope shading** — a cell is lit when it stands above the
+cell behind it and shadowed when it falls away, with vanilla's checkerboard dither on the threshold so
+large flats do not band. That one rule is most of what makes any Minecraft map legible; without it
+terrain is a wash of flat colours with no shape in it. Open water has no slope to shade, so it is
+shaded by **depth** instead, which is what gives a coastline its edge.
+
+Two things had to be got right to make a sample per block affordable:
+
+- **The wire.** A destination survey travels as one byte a cell, packed exactly as vanilla packs a map
+  — six bits of palette index, two of brightness — plus one byte of height for the contours. A whole
+  129×129 survey is about 33 KB, sent once when the player clicks a different anchor.
+- **The draw.** The chart bakes that into a `DynamicTexture` once and blits it. Painting sixteen
+  thousand cells as sixteen thousand rectangles every frame, to redraw a picture that only changes on
+  a click, is not a thing worth doing.
+
+There was also a plain bug in the old version worth naming, because it is the kind that hides in plain
+sight: `MapColor.calculateRGBColor` returns **ABGR**, the byte order vanilla's map *texture* wants, and
+both maps were reading it as ARGB. Red and blue were swapped everywhere — grass came out blue-green and
+water came out orange — which reads as "the projection looks wrong" rather than as a one-line mistake in
+a shift. `TerrainPalette` scales the colour's own channels instead, and
+[`TerrainPaletteTest`](src/test/java/uk/co/iceconchy/aerowarptics/TerrainPaletteTest.java) asserts that
+grass is greener than it is blue and water is bluer than it is red.
+
+### Spatial Siphon
+
+A glass vessel on a brass foot. Every time the ship it is bolted to comes out of a rift, it catches a
+draught of **Rift Essence** — a random amount, with a longer jump widening the odds rather than
+guaranteeing anything. Several aboard one hull each roll separately.
+
+Nothing consumes the essence yet. It is a real fluid with a bucket and a fluid-handler capability, so
+Create's pipes can drain it into a tank, and it is there to be the raw material dimensional travel gets
+built on later. The yield is deliberately a lottery rather than a rate: it should be a by-product of
+travelling, not a reason to bounce a ship between two anchors.
 
 ### Warp Anchor
 
@@ -68,16 +143,27 @@ inside Sable's plot grid, which nobody can navigate to.
 
 ## The warp
 
-A warp is flown, not cut to. The ship makes a run at an aperture, crosses it, runs the corridor, and
-comes out of a second aperture at the far end still moving.
+A warp is flown, not cut to. The ship makes a run at an aperture, goes *through* it, keeps flying
+down the throat behind it, and comes back out of a second aperture at the far end still moving.
 
 ```
-        APPROACH                  CORRIDOR                     EMERGE
- ┌────┐                       ╔══════════════╗                         ┌─────┐
- │ship│──▶──▶──▶ ((entry))    ║ ▶▶▶ ship ▶▶▶ ║    ((exit)) ──▶──▶ ship │ rest│
- └────┘   opens off the bow   ╚══════════════╝    opens at the anchor  └─────┘
-                                 y ≈ 900, above everything built
+   APPROACH          TRANSIT + CORRIDOR           BREACH        EMERGE
+ ┌────┐          ((entry))                     ((exit))
+ │ship│──▶──▶──▶ ─┃═══ ship ══▶ ═══════════┓  ┏━━━━┃ship┃──▶──▶  ┌─────┐
+ └────┘            hidden, inside the throat     the far throat  │ rest│
+                                  │                              └─────┘
+                        one teleport, in here
 ```
+
+`┃ship┃` is the hull inside an aperture, hidden by it. **Nothing is teleported until it is**, and the
+one teleport there is happens deep inside a throat at both ends.
+
+The whole journey is a single continuous motion. The run at the aperture eases down so the bow reaches
+the plane already doing passage speed; the passage and the corridor hold that speed; the teleport
+carries the momentum across unchanged, and both apertures face the same way so the direction survives
+it too; and only once the ship is back in open air does the speed bleed away to nothing. There is no
+boundary at which the ship's motion changes — `WarpSpeedTest` pins each of those joins, because a step
+change in a ship's motion is something a passenger feels even when they cannot see what caused it.
 
 1. **Charging** — rotational force accumulates charge. Below the tier's minimum RPM the drive bleeds
    charge instead.
@@ -85,23 +171,131 @@ comes out of a second aperture at the far end still moving.
 3. **Validation** — the server re-derives everything: which airship, which anchor, the distance, the
    cost, whether the player may command this drive.
 4. **Lock** — the drive claims its airship. A second drive on the same ship is refused.
-5. **Stabilising** — rings align, the destination locks, sparks converge on the core.
+5. **Spinning up** — the drive winds itself up. How much winding a jump needs comes from how far it
+   reaches, on a log curve between the tier's `stabilizeTicks` and `stabilizeTicksFar`; how *fast* it
+   winds comes from the shaft, at full rate at the tier's optimal RPM and a crawl at its minimum. So
+   the answer to "why is this taking so long" is always either "you picked somewhere far away" or
+   "spin it faster", and both are things a pilot can see and act on. The machine's tempo and the pitch
+   of its wind-up follow the same figure, so an underpowered drive audibly labours.
 6. **Planning** — the *whole* journey is worked out before anything opens: where the ship will come
-   out, whether that volume and its run-out are clear, and whether the corridor is free. A warp with
-   nowhere to land is refused while the ship is still safely at its mooring.
+   out and whether that volume and its run-out are clear. A warp with nowhere to land is refused while
+   the ship is still safely at its mooring. The arrival chunks are claimed here too, with a
+   self-expiring ticket, so they load quietly during the flight rather than off disk at the exact
+   moment the hull is coming out of the aperture.
 7. **The run** — an aperture tears open ahead of the bow and the server takes the helm, driving the
    hull at it. The pilot's controls, the ship's own thrust and gravity are all overridden until it
    comes to rest.
-8. **The corridor** — the hull crosses the threshold and comes out in a warp lane high above the
-   world, running it for a few seconds. As it enters, the far aperture tears open at the destination,
-   so anyone waiting there watches a rift form and *then* a ship come through it.
-9. **Emergence** — the hull appears behind the far aperture already moving and coasts out under its
-   own momentum, settling into the place the planner picked.
-10. **Cooldown** — the drive vents and recovers.
+8. **The passage** — the run ends when the *bow* touches the plane, not the ship's centre, and the
+   hull then spends three seconds being drawn the rest of the way in. Each part of it disappears as
+   it crosses (see below). Only once the stern is inside does the teleport happen.
+9. **The corridor** — the hull simply keeps flying down the throat, out of sight, for a few seconds.
+   A fold in space is not a distance, so it does not need to go anywhere; what sells the journey is
+   what the crew sees, and that is a screen effect. As the corridor starts, the far aperture tears open
+   at the destination, so anyone waiting there watches a rift form and *then* a ship come through it.
+10. **The crossing** — the single teleport, deep inside one throat and into another, with the hull's
+    speed and heading carried across intact.
+11. **The breach** — the passage mirrored. The hull is entirely *behind* the far aperture, hidden by
+    it, and flies out nose first over another three seconds.
+12. **Emergence** — clear of the aperture and still moving, the hull settles into the place the
+    planner picked on a decelerating run that lands exactly on the mark, and the rift collapses behind
+    it. No parting command to stop: a ship should settle, not halt.
+13. **Cooldown** — the drive vents and recovers.
 
-The two threshold crossings are the only teleports. Everything else is genuine velocity, so
+There is exactly **one** teleport in a warp, and it happens while the hull is completely hidden inside
+an aperture at both ends, so it is never visible as a jump. Everything else is genuine velocity, so
 passengers, cargo and attached machinery are carried by the same Sable code that carries them in
 normal flight.
+
+### Not throwing the crew across the map
+
+Commanding real velocity is what makes the journey look right, and it has one sharp edge. Inside the
+corridor the hull is doing about nine blocks a tick — a hundred and eighty a second — and Sable carries
+whatever is standing on it. But something can come off: a player who jumps at the wrong moment, or one
+the collision solver loses for a tick while the deck is moving faster than the deck is thick. By then
+the ship's motion has been imparted to them, and a person carrying a hundred and eighty blocks a second
+is not dropped, they are *fired*.
+
+[`WarpPassengers`](src/main/java/uk/co/iceconchy/aerowarptics/warp/WarpPassengers.java) keeps a manifest
+for the duration of the flight — who is aboard, and **where they are standing in ship space**, which is
+the only frame in which "put them back" means anything once the deck has moved. Every tick, before the
+hull is moved, anyone on the manifest who is no longer aboard gets two things done to them:
+
+| | |
+| --- | --- |
+| **Always** | The borrowed momentum is taken back. A player's own client is authoritative about where they are, so this is a real motion packet and not just a field on the server. |
+| **Only inside the fold** | They are put back in their seat. |
+
+The split matters in both directions. On the approach and on the way out the world is real and falling
+off a ship is an ordinary thing to do, so they are allowed to — teleporting them back would be a trap,
+not a rescue. Between the bow entering the aperture and the stern leaving the far one there is no
+ground, no air and nowhere to walk to, so a passenger left behind there is a passenger *deleted*.
+
+However the journey ends — arrival or abort — the manifest is settled last, **after** the hull has been
+put wherever it is finally going to be. So somebody who came off mid-corridor arrives with the ship
+rather than at the coordinates of a rift that no longer exists, and nobody takes fall damage for a
+descent the server was flying.
+
+### Disappearing into a rift
+
+The face of an aperture is **opaque and writes depth**, and it is drawn after the world's blocks. That
+is the whole mechanism: anything past its plane is painted over and genuinely gone, while anything in
+front of it survives the depth test and stays visible. A hull flying through is therefore occluded for
+real, section by section, as it crosses.
+
+It is worth being clear about what this is *not*. Sable draws airship blocks through vanilla chunk
+rendering, so cutting the hull itself at the portal plane would mean replacing Minecraft's core chunk
+shaders with ones that carry a clip plane — global surgery, from an addon, that would fight shader
+packs and Flywheel. The aperture approach needs none of that, works on any driver, and gets the same
+read: the ship goes into the hole and does not come out of this side.
+
+The rim is **torn rather than cut**, wandering with angle and time — but only ever *outwards* from a
+circle sized to cover the hull. A tear that bit inwards would open a window in the very surface doing
+the hiding. That invariant is not left to inspection: `RiftTear` holds the shape as plain arithmetic
+and `RiftTearTest` sweeps thousands of angles asserting the rim never drops below the covering circle,
+never overruns its stated reach, and meets itself where the loop closes.
+
+An aperture also has **depth**. A flat face only hides what is directly behind it, so a hull halfway
+through one is still in plain view to anyone standing off to the side. While a ship is actually
+passing through, the aperture grows a closed **throat** behind its mouth — a bore long enough to
+contain the whole hull, tapering shut at the far end — so there is no angle left to see it from. The
+throat runs whichever way the hull is hidden: forwards on the aperture a ship flies into, backwards on
+the one it comes out of, and it shares the mouth's torn rim exactly so the two meet on a common edge.
+It exists only while something is inside it; an aperture sitting open does not trail a bore behind it.
+
+Making that bore read as a *tunnel* rather than as a shape took four things, because an opaque object
+with no surface detail and a hard silhouette is exactly what the eye files as a blob:
+
+- **Ribs.** Sixteen rings down its length, bunched towards the mouth where they can still be resolved,
+  with alternate rings standing slightly proud. They are what give the eye something to measure depth
+  against, and something for motion to pass over.
+- **A gradient that reads all the way down.** The falloff used to bottom out a third of the way in,
+  leaving two thirds of the bore uniformly black. It now decays gently over the full length, onto a
+  floor tinted with the rift's own colour — low-intensity energy rather than missing pixels.
+- **A band of light running the length**, away from the mouth on an aperture a ship goes into and
+  towards it on one it comes out of, so the tunnel always shows the direction of travel.
+- **A haze sleeve.** A soft additive flare around the outside, fading over a few blocks, so the bore
+  has an atmosphere to sit in instead of a hard edge cut against the sky.
+
+The far end fades to black well before it closes, so what a player sees is a bore receding into
+darkness rather than a cone ending in a point.
+
+The taper is a hole in the occluder as far as anything inside it is concerned, so the hull must be
+clear of it — and used not to be. The depth was sized by scaling only the passage while the corridor
+run, flown down the same bore, grew independently; on a long corridor the bow finished about a block
+inside the closing cone. `ThroatCoverageTest` now holds the bore full width past everything it hides,
+with real margin, at every hull size.
+
+Players on deck need no special handling. Entities are drawn before the occluder, so the same geometry
+that hides the hull hides everyone standing on it.
+
+Fire is drawn additively over the face and past the rim, nudged a few centimetres towards whichever
+side the camera is on so it does not z-fight with the surface it is burning around. While a hull is
+actually going through, the aperture is told once and runs the extra fire off its own clock, rather
+than the server streaming a cue every tick for three seconds.
+
+For the crew, the wash into the corridor starts when the **bow** goes in, not when the ship teleports.
+Their own camera crosses the aperture partway through the passage, and without that they would watch
+the world go dark and then carry on flying through it for another second.
 
 ### Which way is forward
 
@@ -167,33 +361,153 @@ adds a shove and nothing more.
 
 ---
 
+### Where the controls live
+
+Three jobs, three places, and none of them overlaps:
+
+| | Where | What it does |
+| --- | --- | --- |
+| **Choose** | Astrolabe Cartography Table | Sets the course. This is where permission is checked. |
+| **Launch** | Redstone into the Rift Drive | Fires the standing course. Grants no access of its own. |
+| **Diagnose** | Rift Drive console | Read-only. Says what is still missing. |
+
+**Note that this makes a redstone input the only way to launch.** A drive with a course set and every
+requirement met will sit there indefinitely until something gives it a rising edge — a vanilla lever
+on the deck is enough. That is a deliberate consequence of taking destination selection off the drive:
+the alternative was a launch button on the diagnostic panel, which would have made the panel a control
+again.
+
+A ship therefore needs three things fitted, not one: a drive, a table to plan at, and something to
+pull. It also means launching can be automated, which the previous arrangement could not do.
+
+Both the table and the drive find each other the same way the drive finds its airship — Sable hands
+out the sub-level a block belongs to, and everything on that hull is simply everything in its plot.
+There is nothing to link by hand, and a ship can carry several tables that all set the same drive's
+course. Machines aboard a hull are read straight out of the plot's chunks rather than out of Sable's
+actor list, because membership of that list depends on a block having *changed* since the plot was
+created — so a machine that arrived on an already-assembled hull may never appear in it. That
+distinction cost this mod a "cannot find drive" bug once already.
+
+### Redstone
+
+A Rift Drive starts a warp on a **rising redstone edge**. Edge rather than level, so a lever left on
+does not batter the drive with attempts twenty times a second, and a drive coming off cooldown under a
+live signal stays put until somebody actually flips something.
+
+It fires the drive's **standing course** and nothing else. A course is set when a player picks a
+destination at an Astrolabe Cartography Table, and that is the moment they are checked for permission,
+for reach, and for whether they can see that anchor at all. A signal replays that decision; it never
+makes one. Wiring a drive up therefore grants no access the person who set the course did not already
+have, and a drive with no course set ignores redstone entirely.
+
+The drive also remembers *who* set the course, so a warp started by a circuit is still attributed to a
+person — they are who the launch and any abort are reported to, rather than the news going nowhere
+because no player was holding the control at the time.
+
+This is also what makes **Create Simulated's Throttle Lever** work as a launch control with no
+integration at all: it is a redstone source, so it needs nothing from this mod beyond the signal it
+already emits. A vanilla lever, button or pressure plate does just as well, as does anything that can
+be automated.
+
+Turn it off with `permissions.allowRedstoneInitiation` if a warp should always need a hand on a
+control.
+
 ## Using it
 
 1. Assemble an airship with Create: Aeronautics as usual.
-2. Mount a **Rift Drive** on it and drive it with a shaft at or above its minimum RPM.
+2. Mount a **Rift Drive** on it and drive it with a shaft at or above its minimum RPM. It fits inside
+   its own block, so it goes wherever there is room for it.
 3. Place **Warp Anchors** wherever you want to travel to and name them.
-4. Right-click the Rift Drive to open **Rift Navigation**.
-5. Set the **Bow** control in the top right - `Forward`, `Right`, `Back` or `Left`, measured from the
-   drive's own front face. Watch the needle on top of the machine and stop when it points at the nose.
-   The compass point in brackets is only a readout of where that is pointing right now.
-6. Pick a destination — the panel shows distance, cost, your charge, the drive's range and whether
-   the destination is safe.
-7. **Initiate Warp**, and stay aboard — the corridor is only visible from the deck.
+4. Lay nine **Astrolabe** blocks in a three-by-three square somewhere on the deck. It will click
+   together and start projecting a map of wherever you are.
+5. Right-click the drive and set the **Bow** control — `Forward`, `Right`, `Back` or `Left`, measured
+   from the drive's own front face. Watch the needle on top of the machine and stop when it points at
+   the nose. The compass point in brackets is only a readout of where that is pointing right now.
+6. Right-click the table and pick a destination. The chart shows distance, cost, whether it is
+   reachable, and the ground around it from above. Clicking one sets the course — there is no confirm
+   step, because setting a course does not move anything.
+7. Check the drive's console: every requirement should be ticked except the last.
+8. **Give the drive a redstone signal.** A lever on the deck will do. Stay aboard — the fold is only
+   visible from the deck.
+9. Optionally, bolt a **Spatial Siphon** somewhere on the hull and let it fill as you travel.
+
+The corridor wash is deliberately **non-directional**. It used to be streaks racing outwards from the
+centre of the screen, which reads as "you are travelling that way" — except the centre of the screen is
+wherever the player happens to be looking, so turning your head turned the direction of travel with it.
+An effect that lies about which way the ship is going is worse than no effect, so what is there now is
+true from every angle: colour drawn in from every edge, the view closing, and a slow shimmer of
+horizontal bands.
 
 Wearing Create's goggles (or Aeronautics' Aviator's Goggles) shows the drive's tier, state, charge and
 RPM requirement, plus its stress impact in Create's usual format.
 
 ---
 
+## Crafting
+
+Each drive tier consumes exactly **one** of the tier below plus an upgrade kit, and the whole cost of
+building one roughly doubles each step — ×2.16, ×2.01, ×2.13 by crafting effort. Two components are
+made in Create machines rather than on a grid: a **Rift Lens** is compacted out of amethyst and end
+stone powder under heat, and a **Rift Core** is mixed hot from brass, levitite and precision parts.
+
+A **Warp Anchor** takes a lens rather than a core, deliberately. Anchors are placed in numbers — a
+network of twenty should be a project, not a wall — so the expensive component lives in the drive that
+reaches them, not in every destination. The same reasoning applies to the **Astrolabe**: a craft makes
+three panels and a table needs nine, and the whole table still costs less than the cheapest drive it
+steers. A chart room should be an afternoon's brass.
+
+The **Creative Rift Drive** has no recipe, and `ResourceIntegrityTest` asserts that it has none rather
+than merely skipping it — a creative-only item that quietly became craftable is a balance hole nobody
+would think to look for.
+
+`RecipeBalanceTest` asserts all of that: one predecessor per tier, a step of between ×1.7 and ×3.0,
+an anchor under half the cost of the cheapest drive, and every ingredient priced. This is not
+belt-and-braces — an earlier version of these recipes quietly asked for *four complete Mk III drives*
+and five Singularity Cores to build one Singularity, which cascaded to something like thirty-six
+Refined Radiance. Nobody writes that on purpose; it is what happens when a 5×5 pattern is drawn for how
+it looks and never counted up.
+
 ## Configuration
 
 `config/aerowarptics-server.toml` — range, cost formula, arrival search and clearance buffer, the
-flight through the rift (aperture stand-off and size, approach speed, corridor altitude and speed,
-run-out length), permissions, failure behaviour, and a block of settings per drive tier. Corridor
-duration and run-out time come from the tier, so a Singularity drive crosses faster than a Mk I.
+flight through the rift (aperture stand-off and size, approach speed, passage duration, run-out
+length), permissions, failure behaviour, and a block of settings per drive tier. Corridor duration and
+run-out time come from the tier, so a Singularity drive crosses faster than a Mk I. The corridor needs
+no settings of its own: it is flown inside the entry aperture, at the speed the hull is already doing.
 
 `config/aerowarptics-client.toml` — particle density, rift distortion, corridor effects, screen shake,
 effect volume.
+
+---
+
+## Diagnosing a warp
+
+When a warp *looks* wrong, a screenshot rarely says why. Set `debug.traceWarps = true` in
+`config/aerowarptics-server.toml` and every warp writes its own account to `latest.log` — at INFO, so
+there is no logging configuration to change to collect it. Off by default; a warp costs about ten
+lines when it is on.
+
+```
+[warp] plan drive=(112, 78, -340) ship=8f3c… bow=(0.00, 0.00, -1.00) hull=(24.00, 14.00, 62.00) span=62.00 mass=41820.00
+[warp]   entry rift=(112.50, 82.00, -425.00) r=17.15 standoff=24.00
+[warp]   transit run=66.00 ticks=60 speed=1.10b/t
+[warp]   corridor (112.50, 900.00, -363.00) -> (112.50, 900.00, -1173.00) ticks=90
+[warp]   exit rift=(2044.50, 96.00, 811.00) r=17.15 emerge from=… to=… ticks=35
+[warp] APPROACH -> TRANSIT after 37t  centre=(112.50, 82.00, -394.00) bow=+0.04 centre=+31.04 stern=+62.04 CROSSING
+[warp] TRANSIT -> CORRIDOR after 60t  centre=(112.50, 82.00, -460.00) bow=-66.00 centre=-35.00 stern=-4.00 THROUGH
+[warp] teleport into the corridor (…) -> (…) (818.00 blocks) crew=2
+```
+
+Everything on a crossing line is a distance **still to go**: positive has not reached the aperture
+plane, negative is through it. The two that matter:
+
+- `APPROACH -> TRANSIT` should show `bow` at about **zero**. If it is strongly negative the run
+  overshot; if strongly positive it gave up early and hit its tick limit.
+- `TRANSIT -> CORRIDOR` should show `stern` **negative**, and the line should say `THROUGH`. If it
+  does not, the hull was teleported with some of it still in plain sight — which is exactly the bug
+  that made ships appear to vanish on contact with a rift.
+
+`WarpTraceTest` pins that sign convention, so the numbers in the log mean what this says they mean.
 
 ---
 
@@ -202,6 +516,17 @@ effect volume.
 ```bash
 ./gradlew build
 ```
+
+Every build drops its jar straight into the Minecraft instance named by `deploy_dir` in
+`gradle.properties`, so the only step between changing code and flying a ship is a rebuild. Earlier
+builds of this mod are cleared out of that folder first — two `aerowarptics-*.jar` files would stop
+the game starting on a duplicate mod id.
+
+Deployment is a finalizer of `build`, so a jar that compiles still lands even if a test fails; a
+compile failure produces no jar and copies nothing. Blank `deploy_dir` to turn it off, override it per
+machine in `~/.gradle/gradle.properties`, or for one build with `-Pdeploy_dir=...`. If the game is
+running it will hold a lock on the jar and the copy will fail loudly rather than leaving you testing
+the previous build without knowing.
 
 The mods this builds against live in `Depends/`. Create and the Aeronautics bundle ship several of
 their libraries as jar-in-jar artifacts; those are unpacked into `Depends/lib/` so javac can see them.
@@ -237,5 +562,29 @@ survives independently of the machine that started the journey.
 
 **Textures and models are procedurally generated.** The geometry and its texture sheet come out of one
 generator script, so box UVs cannot drift apart and the resource-integrity test can prove they do not
-overlap. The machines read correctly — a plinth, a drum, two gimbal rings that overhang the block, a lit
-core — but an artist would still want to replace the sheets by hand.
+overlap. Three things do most of the work of making that look like modelling rather than boxes:
+
+- **The painter is face-aware.** Box UV lays a cube out as a known arrangement — a strip of top and
+  bottom over a strip of the four sides — so a rect can be split back into faces and each lit
+  differently. Top faces bright, sides mid, bottoms dark. That single change is what makes a stack of
+  boxes read as a solid object instead of a flat sticker, and it puts the shading on the same footing
+  as the blocks around it.
+- **Every face is bevelled**, one pixel, darker at the border and lifted on top edges. An edge you can
+  see is most of what separates a modelled object from a box.
+- **Cubes can be rotated**, which is what allows chamfered plinths and raked panels — shapes the
+  model previously could not express at all.
+- **The sheet size is per-model**, so the Astrolabe's three-block span gets a 512 sheet while everything
+  else stays on 256. A packer that could only work at one size would have forced the big table's cubes
+  to share pixels with each other.
+
+Detail is per-face too, so a row of bolts follows the face it is on instead of marching across a seam
+onto the next one.
+
+**Animations are generated from the same place.** A clip is a table of numbers, and a table of numbers
+maintained by hand drifts; generating them means a change to how the drive idles is one edit rather
+than nine, and every state is guaranteed to touch the same bones so nothing is left frozen in a pose
+the previous state put it in. The gear train is the machine's pulse — how fast the wheels turn is how
+hard it is working — and the strain states displace the housing and shafts as well, so a drive at the
+edge of what it can hold looks like one.
+
+An artist would still want to replace the sheets by hand, but the shapes are now worth painting.

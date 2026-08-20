@@ -9,6 +9,8 @@ import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
+import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
+import dev.ryanhcode.sable.sublevel.plot.PlotChunkHolder;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -16,6 +18,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -249,15 +252,39 @@ public final class Airship {
      * flight - and because the velocity is re-commanded every tick, gravity, lift and thrust from the
      * ship's own machinery are all overridden for the duration.
      */
-    public void driveVelocity(Vector3dc velocity) {
+    public void driveVelocity(Vector3dc blocksPerTick) {
         PhysicsPipeline pipeline = pipeline();
         if (pipeline == null || subLevel.isRemoved()) {
             return;
         }
         pipeline.resetVelocity(subLevel);
-        pipeline.addLinearAndAngularVelocity(subLevel, velocity, ZERO);
+        pipeline.addLinearAndAngularVelocity(subLevel, toPhysicsVelocity(blocksPerTick), ZERO);
         pipeline.wakeUp(subLevel);
     }
+
+    /**
+     * Converts a speed in blocks per tick into the units Sable's physics wants.
+     *
+     * <p>Sable drives its pipeline with {@code physicsTick(0.05)} - Rapier's timestep is one tick
+     * expressed in <em>seconds</em> - so a velocity handed to the pipeline is integrated as blocks
+     * per second, and one given in blocks per tick moves the hull twenty times too slowly.
+     *
+     * <p>This was not obvious from the API, which says only "velocity". It came out of a traced warp:
+     * the run at the aperture, the passage through it and the corridor were all commanded at
+     * different speeds, and all three landed at almost exactly the commanded figure per <em>second</em>
+     * - 1.6 asked, 1.42 achieved; 0.38 asked, 0.43 achieved; 9.0 asked, 8.8 achieved. Three
+     * independent stages agreeing on the same factor is not a coincidence.
+     *
+     * <p>Everything above this method thinks in blocks per tick, which is how Minecraft speeds are
+     * normally written and how the config is documented. The conversion belongs here, at the one
+     * place the two worlds meet.
+     */
+    private static Vector3d toPhysicsVelocity(Vector3dc blocksPerTick) {
+        return new Vector3d(blocksPerTick).mul(PHYSICS_TICKS_PER_SECOND);
+    }
+
+    /** Sable steps physics once per tick with a timestep of 0.05 seconds. */
+    private static final double PHYSICS_TICKS_PER_SECOND = 20.0D;
 
     private static final Vector3dc ZERO = new Vector3d();
 
@@ -311,6 +338,44 @@ public final class Airship {
     /** True when the given entity is currently carried by this airship. */
     public boolean isAboard(Entity entity) {
         return Sable.HELPER.getTrackingOrVehicleSubLevel(entity) == subLevel;
+    }
+
+    /**
+     * Every block entity of a given kind aboard this airship.
+     *
+     * <p>Read straight out of the plot's own chunks. Sable also keeps a list of "actors" - block
+     * entities it ticks - but membership of that list depends on a block having <em>changed</em> in
+     * the plot since it was created, so a machine that arrived on an already-assembled hull, or came
+     * back off disk, may never appear in it. That distinction has bitten this mod once already, and a
+     * chunk's block-entity map has no such lifecycle to get wrong.
+     *
+     * <p>Bounded by the hull: an airship's plot is a handful of chunks, not a world.
+     */
+    public <T extends BlockEntity> List<T> machines(Class<T> type) {
+        LevelPlot plot = subLevel.getPlot();
+        if (plot == null) {
+            return List.of();
+        }
+        List<T> found = new ArrayList<>();
+        for (PlotChunkHolder holder : plot.getLoadedChunks()) {
+            LevelChunk chunk = holder.getChunk();
+            if (chunk == null) {
+                continue;
+            }
+            for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
+                if (type.isInstance(blockEntity) && !blockEntity.isRemoved()) {
+                    found.add(type.cast(blockEntity));
+                }
+            }
+        }
+        return found;
+    }
+
+    /** The first machine of a kind aboard, or {@code null}. A hull is expected to carry at most one. */
+    @Nullable
+    public <T extends BlockEntity> T machine(Class<T> type) {
+        List<T> found = machines(type);
+        return found.isEmpty() ? null : found.getFirst();
     }
 
     /** Persistent, Sable-managed data bag attached to this airship. */

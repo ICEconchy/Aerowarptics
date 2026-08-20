@@ -40,11 +40,12 @@ public final class AWConfig {
     public static final ModConfigSpec.DoubleValue RIFT_RADIUS_FACTOR;
     public static final ModConfigSpec.DoubleValue APPROACH_SPEED;
     public static final ModConfigSpec.IntValue APPROACH_LIMIT_TICKS;
-    public static final ModConfigSpec.DoubleValue CORRIDOR_ALTITUDE;
-    public static final ModConfigSpec.DoubleValue CORRIDOR_SPEED;
+    public static final ModConfigSpec.IntValue RIFT_TRANSIT_TICKS;
+    public static final ModConfigSpec.DoubleValue SPIN_MINIMUM_RATE;
     public static final ModConfigSpec.DoubleValue EMERGE_DISTANCE_FACTOR;
 
     public static final ModConfigSpec.BooleanValue ALLOW_CROSS_DIMENSION_WARP;
+    public static final ModConfigSpec.BooleanValue ALLOW_REDSTONE_INITIATION;
     public static final ModConfigSpec.BooleanValue ALLOW_PUBLIC_ANCHORS;
     public static final ModConfigSpec.BooleanValue ALLOW_PRIVATE_ANCHORS;
     public static final ModConfigSpec.BooleanValue REQUIRE_PLAYER_ABOARD;
@@ -54,6 +55,7 @@ public final class AWConfig {
     public static final ModConfigSpec.DoubleValue FAILURE_CHARGE_PENALTY;
     public static final ModConfigSpec.IntValue FAILURE_COOLDOWN_TICKS;
     public static final ModConfigSpec.BooleanValue DANGEROUS_FAILURES;
+    public static final ModConfigSpec.BooleanValue TRACE_WARPS;
     public static final ModConfigSpec.DoubleValue DANGEROUS_FAILURE_IMPULSE;
 
     /** Per-tier settings, seeded from {@link RiftDriveTier#defaults()}. */
@@ -69,6 +71,7 @@ public final class AWConfig {
             ModConfigSpec.DoubleValue maximumRange,
             ModConfigSpec.IntValue chargeTicks,
             ModConfigSpec.IntValue stabilizeTicks,
+            ModConfigSpec.IntValue stabilizeTicksFar,
             ModConfigSpec.IntValue warpTicks,
             ModConfigSpec.IntValue arriveTicks,
             ModConfigSpec.IntValue cooldownTicks,
@@ -127,8 +130,10 @@ public final class AWConfig {
                 .defineInRange("maxShipBlockSamples", 4096, 64, 200_000);
         SERVER_BUILDER.pop();
 
-        SERVER_BUILDER.comment("The flight through the rift: the run at the entry aperture, the corridor",
-                        "high above the world, and the run out of the far aperture.")
+        SERVER_BUILDER.comment("The flight through the rift: the run at the entry aperture, the passage",
+                        "through it, and the run out of the far one. The corridor is flown inside the",
+                        "entry aperture rather than anywhere else, so it needs no settings of its own -",
+                        "how long it lasts comes from the drive's tier.")
                 .push("flight");
         RIFT_LEAD_DISTANCE = SERVER_BUILDER
                 .comment("Blocks between the bow and the entry rift, on top of half the hull's length.")
@@ -142,14 +147,17 @@ public final class AWConfig {
         APPROACH_LIMIT_TICKS = SERVER_BUILDER
                 .comment("Ticks the run at the entry rift may take before the airship is pulled through anyway.")
                 .defineInRange("approachLimitTicks", 120, 20, 1200);
-        CORRIDOR_ALTITUDE = SERVER_BUILDER
-                .comment("Height of the warp corridor. Raised automatically if it would sit below the build height.",
-                        "Well inside the range Sable keeps sub-levels in, so a corridor run is never culled.")
-                .defineInRange("corridorAltitude", 900.0D, 0.0D, 8000.0D);
-        CORRIDOR_SPEED = SERVER_BUILDER
-                .comment("Blocks per tick along the corridor. Purely for show: the corridor is a fold in space,",
-                        "not the real distance, so this sets how fast the run looks rather than how far it goes.")
-                .defineInRange("corridorSpeed", 9.0D, 0.5D, 128.0D);
+        SPIN_MINIMUM_RATE = SERVER_BUILDER
+                .comment("How fast a drive spins up when turning at exactly its minimum speed, as a",
+                        "fraction of its rate at optimal speed. Lower makes the shaft you feed it",
+                        "matter more; 1.0 makes rotational speed irrelevant to spin-up.")
+                .defineInRange("spinMinimumRate", 0.35D, 0.05D, 1.0D);
+        RIFT_TRANSIT_TICKS = SERVER_BUILDER
+                .comment("Ticks the hull spends being drawn through an aperture, bow to stern.",
+                        "The same figure is used at both ends, so a departure and an arrival mirror",
+                        "each other. Speed is worked out from the hull's own length, so a large ship",
+                        "does not take any longer to pass through than a small one.")
+                .defineInRange("riftTransitTicks", 60, 5, 600);
         EMERGE_DISTANCE_FACTOR = SERVER_BUILDER
                 .comment("How far back from its resting place the airship appears, as a multiple of hull length.",
                         "The whole run-out is checked for obstructions before the warp is allowed to start.")
@@ -157,6 +165,12 @@ public final class AWConfig {
         SERVER_BUILDER.pop();
 
         SERVER_BUILDER.comment("Who may use drives and anchors.").push("permissions");
+        ALLOW_REDSTONE_INITIATION = SERVER_BUILDER
+                .comment("Allow a redstone signal into a Rift Drive to start a warp.",
+                        "The signal can only fire a course a player already set on an Astrolabe",
+                        "Cartography Table, so wiring a drive up grants no access the person who set",
+                        "the course did not already have. Turn this off to require a hand on a control.")
+                .define("allowRedstoneInitiation", true);
         ALLOW_CROSS_DIMENSION_WARP = SERVER_BUILDER
                 .comment("Allow warping to anchors in other dimensions.",
                         "Sable sub-levels are bound to the plot grid of a single ServerLevel and expose no API for",
@@ -196,6 +210,18 @@ public final class AWConfig {
                 .defineInRange("dangerousFailureImpulse", 1.5D, 0.0D, 100.0D);
         SERVER_BUILDER.pop();
 
+        SERVER_BUILDER.comment("Diagnostics. Off by default and of no interest during normal play.")
+                .push("debug");
+        TRACE_WARPS = SERVER_BUILDER
+                .comment("Log every warp in detail: the plan, each stage change, both teleports and any",
+                        "abort, with the numbers behind them - where the hull is relative to each",
+                        "aperture, how far its bow and stern are from the plane, and how long each stage",
+                        "actually took. Written at INFO so it lands in latest.log without touching the",
+                        "logging configuration. One line per stage change, so a warp costs about ten lines.",
+                        "Turn this on when reporting that a warp looked wrong; leave it off otherwise.")
+                .define("traceWarps", false);
+        SERVER_BUILDER.pop();
+
         SERVER_BUILDER.comment("Per-tier Rift Drive settings. New tiers only need an enum entry plus these values.")
                 .push("drives");
         for (RiftDriveTier tier : RiftDriveTier.values()) {
@@ -212,8 +238,13 @@ public final class AWConfig {
                             .defineInRange("maximumRange", d.maximumRange(), 1.0D, 1.0e9D),
                     SERVER_BUILDER.comment("Ticks needed to charge from empty to full at optimalRpm.")
                             .defineInRange("chargeTicks", d.chargeTicks(), 1, 432_000),
-                    SERVER_BUILDER.comment("Ticks spent locking onto the destination before the rift forms.")
+                    SERVER_BUILDER.comment("Spin needed to open a rift to somewhere close by, in ticks at",
+                                    "full rate. A drive turning below its optimal speed takes longer.")
                             .defineInRange("stabilizeTicks", d.stabilizeTicks(), 1, 12_000),
+                    SERVER_BUILDER.comment("Spin needed to open a rift at the very limit of this drive's range.",
+                                    "Everything between here and stabilizeTicks is interpolated on a log",
+                                    "curve, so a short hop is cheap and a long haul is a commitment.")
+                            .defineInRange("stabilizeTicksFar", d.stabilizeTicksFar(), 1, 48_000),
                     SERVER_BUILDER.comment("Ticks the airship spends in the warp corridor.")
                             .defineInRange("warpTicks", d.warpTicks(), 5, 12_000),
                     SERVER_BUILDER.comment("Ticks the airship takes to coast out of the exit rift and settle.")

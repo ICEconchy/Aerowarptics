@@ -24,7 +24,7 @@ import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 public final class AWNetwork {
 
     /** Bumped when a payload's shape changes. */
-    private static final String VERSION = "1";
+    private static final String VERSION = "2";
 
     private AWNetwork() {
     }
@@ -32,9 +32,12 @@ public final class AWNetwork {
     public static void register(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(VERSION);
 
-        registrar.playToServer(ServerboundNavigationRequestPacket.TYPE,
-                ServerboundNavigationRequestPacket.STREAM_CODEC,
-                ServerboundNavigationRequestPacket::handle);
+        registrar.playToServer(ServerboundDriveConsolePacket.TYPE,
+                ServerboundDriveConsolePacket.STREAM_CODEC,
+                ServerboundDriveConsolePacket::handle);
+        registrar.playToServer(ServerboundAstrolabePacket.TYPE,
+                ServerboundAstrolabePacket.STREAM_CODEC,
+                ServerboundAstrolabePacket::handle);
         registrar.playToServer(ServerboundWarpCommandPacket.TYPE,
                 ServerboundWarpCommandPacket.STREAM_CODEC,
                 ServerboundWarpCommandPacket::handle);
@@ -42,9 +45,15 @@ public final class AWNetwork {
                 ServerboundConfigureAnchorPacket.STREAM_CODEC,
                 ServerboundConfigureAnchorPacket::handle);
 
-        registrar.playToClient(ClientboundNavigationDataPacket.TYPE,
-                ClientboundNavigationDataPacket.STREAM_CODEC,
-                ClientboundNavigationDataPacket::handle);
+        registrar.playToClient(ClientboundDriveConsolePacket.TYPE,
+                ClientboundDriveConsolePacket.STREAM_CODEC,
+                ClientboundDriveConsolePacket::handle);
+        registrar.playToClient(ClientboundAstrolabeChartPacket.TYPE,
+                ClientboundAstrolabeChartPacket.STREAM_CODEC,
+                ClientboundAstrolabeChartPacket::handle);
+        registrar.playToClient(ClientboundAstrolabeChartPacket.Preview.TYPE,
+                ClientboundAstrolabeChartPacket.Preview.STREAM_CODEC,
+                ClientboundAstrolabeChartPacket.Preview::handle);
         registrar.playToClient(ClientboundWarpEffectPacket.TYPE,
                 ClientboundWarpEffectPacket.STREAM_CODEC,
                 ClientboundWarpEffectPacket::handle);

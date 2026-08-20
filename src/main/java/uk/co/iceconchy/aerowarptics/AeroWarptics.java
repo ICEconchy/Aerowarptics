@@ -10,7 +10,9 @@ import org.slf4j.Logger;
 import uk.co.iceconchy.aerowarptics.network.AWNetwork;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
+import uk.co.iceconchy.aerowarptics.registry.AWCapabilities;
 import uk.co.iceconchy.aerowarptics.registry.AWCreativeTab;
+import uk.co.iceconchy.aerowarptics.registry.AWFluids;
 import uk.co.iceconchy.aerowarptics.registry.AWItems;
 import uk.co.iceconchy.aerowarptics.registry.AWParticles;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
@@ -35,12 +37,14 @@ public class AeroWarptics {
         AWBlocks.register(modEventBus);
         AWItems.register(modEventBus);
         AWBlockEntities.register(modEventBus);
+        AWFluids.register(modEventBus);
         AWSounds.register(modEventBus);
         AWParticles.register(modEventBus);
         AWCreativeTab.register(modEventBus);
 
         modEventBus.addListener(AWNetwork::register);
         modEventBus.addListener(AWStress::onCommonSetup);
+        modEventBus.addListener(AWCapabilities::register);
 
         modContainer.registerConfig(ModConfig.Type.SERVER, AWConfig.SERVER_SPEC);
         modContainer.registerConfig(ModConfig.Type.CLIENT, AWConfig.CLIENT_SPEC);

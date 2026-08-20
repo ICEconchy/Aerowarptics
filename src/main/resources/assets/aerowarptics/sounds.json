@@ -3,16 +3,16 @@
     "subtitle": "aerowarptics.subtitle.drive_charging",
     "sounds": [
       {
-        "name": "minecraft:block/beacon/ambient",
-        "stream": false,
+        "name": "minecraft:block.beacon.ambient",
         "volume": 0.7,
-        "pitch": 1.4
+        "pitch": 1.4,
+        "type": "event"
       },
       {
-        "name": "minecraft:block/conduit/ambient",
-        "stream": false,
+        "name": "minecraft:block.conduit.ambient",
         "volume": 0.4,
-        "pitch": 1.6
+        "pitch": 1.6,
+        "type": "event"
       }
     ]
   },
@@ -20,10 +20,10 @@
     "subtitle": "aerowarptics.subtitle.drive_charged",
     "sounds": [
       {
-        "name": "minecraft:block/beacon/activate",
-        "stream": false,
+        "name": "minecraft:block.beacon.activate",
         "volume": 0.8,
-        "pitch": 1.5
+        "pitch": 1.5,
+        "type": "event"
       }
     ]
   },
@@ -31,16 +31,16 @@
     "subtitle": "aerowarptics.subtitle.stabilizing",
     "sounds": [
       {
-        "name": "minecraft:block/conduit/activate",
-        "stream": false,
+        "name": "minecraft:block.conduit.activate",
         "volume": 0.8,
-        "pitch": 0.9
+        "pitch": 0.9,
+        "type": "event"
       },
       {
-        "name": "minecraft:block/piston/in",
-        "stream": false,
+        "name": "minecraft:block.piston.contract",
         "volume": 0.6,
-        "pitch": 0.6
+        "pitch": 0.6,
+        "type": "event"
       }
     ]
   },
@@ -48,16 +48,16 @@
     "subtitle": "aerowarptics.subtitle.destination_lock",
     "sounds": [
       {
-        "name": "minecraft:block/note_block/bell",
-        "stream": false,
+        "name": "minecraft:block.note_block.bell",
         "volume": 0.9,
-        "pitch": 0.7
+        "pitch": 0.7,
+        "type": "event"
       },
       {
-        "name": "minecraft:block/piston/out",
-        "stream": false,
+        "name": "minecraft:block.piston.extend",
         "volume": 0.5,
-        "pitch": 0.5
+        "pitch": 0.5,
+        "type": "event"
       }
     ]
   },
@@ -65,16 +65,16 @@
     "subtitle": "aerowarptics.subtitle.rift_open",
     "sounds": [
       {
-        "name": "minecraft:entity/endermen/portal",
-        "stream": false,
+        "name": "minecraft:entity.enderman.teleport",
         "volume": 1.0,
-        "pitch": 0.6
+        "pitch": 0.6,
+        "type": "event"
       },
       {
-        "name": "minecraft:block/beacon/power_select",
-        "stream": false,
+        "name": "minecraft:block.beacon.power_select",
         "volume": 0.8,
-        "pitch": 0.5
+        "pitch": 0.5,
+        "type": "event"
       }
     ]
   },
@@ -82,10 +82,10 @@
     "subtitle": "aerowarptics.subtitle.warp_travel",
     "sounds": [
       {
-        "name": "minecraft:block/portal/travel",
-        "stream": true,
+        "name": "minecraft:block.portal.travel",
         "volume": 0.8,
-        "pitch": 1.2
+        "pitch": 1.2,
+        "type": "event"
       }
     ]
   },
@@ -93,16 +93,16 @@
     "subtitle": "aerowarptics.subtitle.warp_exit",
     "sounds": [
       {
-        "name": "minecraft:entity/generic/explode1",
-        "stream": false,
+        "name": "minecraft:entity.generic.explode",
         "volume": 0.7,
-        "pitch": 1.6
+        "pitch": 1.6,
+        "type": "event"
       },
       {
-        "name": "minecraft:block/beacon/deactivate",
-        "stream": false,
+        "name": "minecraft:block.beacon.deactivate",
         "volume": 0.9,
-        "pitch": 1.3
+        "pitch": 1.3,
+        "type": "event"
       }
     ]
   },
@@ -110,16 +110,16 @@
     "subtitle": "aerowarptics.subtitle.warp_failed",
     "sounds": [
       {
-        "name": "minecraft:block/conduit/deactivate",
-        "stream": false,
+        "name": "minecraft:block.conduit.deactivate",
         "volume": 0.9,
-        "pitch": 0.7
+        "pitch": 0.7,
+        "type": "event"
       },
       {
-        "name": "minecraft:block/note_block/didgeridoo",
-        "stream": false,
+        "name": "minecraft:block.note_block.didgeridoo",
         "volume": 0.6,
-        "pitch": 0.5
+        "pitch": 0.5,
+        "type": "event"
       }
     ]
   },
@@ -127,10 +127,10 @@
     "subtitle": "aerowarptics.subtitle.drive_cooldown",
     "sounds": [
       {
-        "name": "minecraft:block/lava/extinguish",
-        "stream": false,
+        "name": "minecraft:block.lava.extinguish",
         "volume": 0.6,
-        "pitch": 1.2
+        "pitch": 1.2,
+        "type": "event"
       }
     ]
   },
@@ -138,10 +138,10 @@
     "subtitle": "aerowarptics.subtitle.anchor_configured",
     "sounds": [
       {
-        "name": "minecraft:block/note_block/chime",
-        "stream": false,
+        "name": "minecraft:block.note_block.chime",
         "volume": 0.7,
-        "pitch": 1.4
+        "pitch": 1.4,
+        "type": "event"
       }
     ]
   }

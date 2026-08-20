@@ -8,6 +8,8 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorBlock;
+import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlock;
+import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 
@@ -22,6 +24,31 @@ public final class AWBlocks {
     /** One block per {@link RiftDriveTier}, keyed so new tiers need no extra wiring. */
     public static final Map<RiftDriveTier, DeferredBlock<RiftDriveBlock>> RIFT_DRIVES =
             new EnumMap<>(RiftDriveTier.class);
+
+    /**
+     * One cell of the chart table. Nine of them make one.
+     *
+     * <p>Registered as a single block rather than a frame-and-core pair because every cell is
+     * physically the same object; which one is the middle is a fact about the arrangement, not about
+     * the block, and baking it into the registry would mean a table could be built wrong.
+     */
+    public static final DeferredBlock<AstrolabeBlock> ASTROLABE = BLOCKS.register("astrolabe",
+            () -> new AstrolabeBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.TERRACOTTA_LIGHT_BLUE)
+                    .strength(3.0F, 6.0F)
+                    .sound(SoundType.COPPER)
+                    .lightLevel(state -> state.getValue(AstrolabeBlock.FORMED) ? 6 : 0)
+                    .noOcclusion()
+                    .requiresCorrectToolForDrops()));
+
+    public static final DeferredBlock<SpatialSiphonBlock> SPATIAL_SIPHON = BLOCKS.register("spatial_siphon",
+            () -> new SpatialSiphonBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_PURPLE)
+                    .strength(3.5F, 8.0F)
+                    .sound(SoundType.COPPER)
+                    .lightLevel(state -> 4)
+                    .noOcclusion()
+                    .requiresCorrectToolForDrops()));
 
     public static final DeferredBlock<WarpAnchorBlock> WARP_ANCHOR = BLOCKS.register("warp_anchor",
             () -> new WarpAnchorBlock(BlockBehaviour.Properties.of()

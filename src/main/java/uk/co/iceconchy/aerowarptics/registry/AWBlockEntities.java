@@ -8,6 +8,8 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorBlockEntity;
+import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlockEntity;
+import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
@@ -29,6 +31,16 @@ public final class AWBlockEntities {
                             (pos, state) -> new RiftDriveBlockEntity(pos, state,
                                     state.getBlock() instanceof RiftDriveBlock drive ? drive.tier() : RiftDriveTier.MK_I),
                             driveBlocks())
+                    .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<AstrolabeBlockEntity>> ASTROLABE =
+            BLOCK_ENTITIES.register("astrolabe", () -> BlockEntityType.Builder.of(
+                            AstrolabeBlockEntity::new, AWBlocks.ASTROLABE.get())
+                    .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SpatialSiphonBlockEntity>> SPATIAL_SIPHON =
+            BLOCK_ENTITIES.register("spatial_siphon", () -> BlockEntityType.Builder.of(
+                            SpatialSiphonBlockEntity::new, AWBlocks.SPATIAL_SIPHON.get())
                     .build(null));
 
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<WarpAnchorBlockEntity>> WARP_ANCHOR =

@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "L": {
+      "item": "aerowarptics:rift_lens"
+    },
+    "G": {
+      "item": "minecraft:glass"
+    },
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "C": {
+      "item": "create:copper_casing"
+    }
+  },
+  "pattern": [
+    " L ",
+    "GGG",
+    "BCB"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:spatial_siphon"
+  }
+}

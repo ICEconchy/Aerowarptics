@@ -5,7 +5,8 @@ import net.neoforged.fml.loading.FMLEnvironment;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.network.ClientboundCorridorPacket;
-import uk.co.iceconchy.aerowarptics.network.ClientboundNavigationDataPacket;
+import uk.co.iceconchy.aerowarptics.network.ClientboundAstrolabeChartPacket;
+import uk.co.iceconchy.aerowarptics.network.ClientboundDriveConsolePacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpEffectPacket;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 
@@ -30,15 +31,34 @@ public final class AWClientHooks {
         }
     }
 
+    /** A player clicked a complete Astrolabe Cartography Table. */
+    public static void requestAstrolabeChart(net.minecraft.core.BlockPos tablePos) {
+        if (client()) {
+            ClientRuntime.requestAstrolabeChart(tablePos);
+        }
+    }
+
     public static void openWarpAnchorScreen(WarpAnchorBlockEntity anchor) {
         if (client()) {
             ClientRuntime.openWarpAnchorScreen(anchor);
         }
     }
 
-    public static void acceptNavigationData(ClientboundNavigationDataPacket packet) {
+    public static void acceptDriveConsole(ClientboundDriveConsolePacket packet) {
         if (client()) {
-            ClientRuntime.acceptNavigationData(packet);
+            ClientRuntime.acceptDriveConsole(packet);
+        }
+    }
+
+    public static void acceptAstrolabeChart(ClientboundAstrolabeChartPacket packet) {
+        if (client()) {
+            ClientRuntime.acceptAstrolabeChart(packet);
+        }
+    }
+
+    public static void acceptDestinationPreview(ClientboundAstrolabeChartPacket.Preview packet) {
+        if (client()) {
+            ClientRuntime.acceptDestinationPreview(packet);
         }
     }
 

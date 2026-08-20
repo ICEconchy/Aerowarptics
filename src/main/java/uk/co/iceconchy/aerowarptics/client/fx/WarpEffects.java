@@ -9,6 +9,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3f;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import uk.co.iceconchy.aerowarptics.AWConfig;
@@ -160,11 +161,21 @@ public final class WarpEffects {
             case STABILIZING -> ring(level, driveOrigin, random, 2.0D * tierScale, (int) (40 * scale),
                     AWParticles.RIFT_SPARK.get());
             case RIFT_OPEN -> {
-                // The aperture holds open long enough for the hull to fly through it, then collapses.
-                RiftEffectManager.open(packet, colour, 20, 140, 25);
-                riftDisc(level, riftCentre, random, Math.max(3.0D, packet.radius() * 0.6D), (int) (140 * scale));
+                // How long it holds is the server's business: it knows how long the run in takes and
+                // how long the hull spends inside the aperture. It is closed explicitly when the hull
+                // is done with it, so this is only a backstop against a cue going missing.
+                RiftEffectManager.open(packet, colour, 20, Math.max(60, packet.duration() + 40), 25);
+                aperture(level, riftCentre, packet.normal(), random,
+                        Math.max(3.0D, packet.radius() * 0.6D), (int) (140 * scale));
                 WarpScreenShake.add(0.6F);
             }
+            case RIFT_TRANSIT -> {
+                // A hull is going through. The aperture keeps the fire going off its own clock from
+                // here, so this is one packet rather than one per tick for three seconds.
+                RiftEffectManager.transit(riftCentre, packet.duration());
+                WarpScreenShake.add(0.5F);
+            }
+            case RIFT_CLOSE -> RiftEffectManager.collapse(riftCentre);
             case CORRIDOR -> {
                 // The corridor overlay is driven by its own packet, sent to the crew by name. This cue
                 // is only here for anyone watching the hull streak overhead.
@@ -173,9 +184,9 @@ public final class WarpEffects {
                 }
             }
             case WARP_EXIT -> {
-                // The aperture is already open - it tore itself a few seconds ago, when the hull
-                // entered the corridor. This is the hull coming through it.
+                // The hull is all the way out of the far aperture, so the aperture is finished with.
                 shockwave(level, riftCentre, random, Math.max(4.0D, packet.radius() * 0.7D), (int) (180 * scale));
+                RiftEffectManager.collapse(riftCentre);
                 WarpScreenShake.add(1.0F);
             }
             case FAILED -> {
@@ -227,25 +238,88 @@ public final class WarpEffects {
         }
     }
 
-    /** The rift itself: a disc of inward-falling energy with arcing at its edge. */
-    private static void riftDisc(ClientLevel level, Vec3 centre, RandomSource random, double radius, int count) {
+    /**
+     * The rift tearing open: energy falling inwards across the face of the aperture.
+     *
+     * <p>Laid out in the aperture's own plane rather than the world's. A rift stands upright - a ship
+     * flies through it - so scattering these across the ground plane put them somewhere the aperture
+     * simply is not.
+     */
+    private static void aperture(ClientLevel level, Vec3 centre, Vec3 normal, RandomSource random,
+                                 double radius, int count) {
         boolean distortion = AWConfig.RIFT_DISTORTION.get();
+        Vector3f[] basis = planeOf(normal);
         for (int i = 0; i < count; i++) {
             double angle = random.nextDouble() * Math.PI * 2.0D;
             double r = radius * Math.sqrt(random.nextDouble());
-            double x = Math.cos(angle) * r;
-            double z = Math.sin(angle) * r;
+            Vec3 offset = inPlane(basis, angle, r);
+            Vec3 inward = offset.scale(-0.15D / Math.max(0.001D, r));
             level.addParticle(distortion ? ParticleTypes.PORTAL : AWParticles.RIFT_SPARK.get(),
-                    centre.x + x, centre.y + jitter(random, 0.4D), centre.z + z,
-                    -x * 0.15D, 0.0D, -z * 0.15D);
+                    centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
+                    inward.x, inward.y, inward.z);
             if (random.nextFloat() < 0.15F) {
                 level.addParticle(ParticleTypes.ELECTRIC_SPARK,
-                        centre.x + x, centre.y + jitter(random, 0.5D), centre.z + z,
+                        centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
                         jitter(random, 0.1D), jitter(random, 0.1D), jitter(random, 0.1D));
             }
         }
         level.playLocalSound(centre.x, centre.y, centre.z, AWSounds.RIFT_OPEN.get(),
                 SoundSource.BLOCKS, 1.1F * volume(), 0.9F, false);
+    }
+
+    /**
+     * Fire around the rim while something is passing through, called once a tick by the aperture.
+     *
+     * <p>Deliberately on the rim rather than across the face: the face is opaque, so anything drawn
+     * on it would only be hiding the very thing that is meant to be doing the hiding. What sells the
+     * hull going through is the edge reacting to it.
+     */
+    public static void tearFire(ClientLevel level, Vec3 centre, Vector3f right, Vector3f up,
+                                double radius, int colour) {
+        double scale = density();
+        if (scale <= 0.0D || !AWConfig.RIFT_DISTORTION.get()) {
+            return;
+        }
+        RandomSource random = level.random;
+        Vector3f[] basis = {right, up};
+        int count = (int) Math.max(1, 6 * scale);
+        for (int i = 0; i < count; i++) {
+            double angle = random.nextDouble() * Math.PI * 2.0D;
+            Vec3 offset = inPlane(basis, angle, radius * (0.95D + random.nextDouble() * 0.25D));
+            // Thrown outwards along the rim, as if something is forcing the tear wider.
+            Vec3 outward = offset.normalize().scale(0.12D + random.nextDouble() * 0.1D);
+            level.addParticle(AWParticles.RIFT_SPARK.get(),
+                    centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
+                    outward.x, outward.y, outward.z);
+            if (random.nextFloat() < 0.25F) {
+                level.addParticle(ParticleTypes.ELECTRIC_SPARK,
+                        centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
+                        jitter(random, 0.2D), jitter(random, 0.2D), jitter(random, 0.2D));
+            }
+        }
+    }
+
+    /** Two perpendicular unit vectors spanning the plane a normal stands against. */
+    private static Vector3f[] planeOf(Vec3 normal) {
+        Vector3f forward = new Vector3f((float) normal.x, (float) normal.y, (float) normal.z);
+        if (forward.lengthSquared() < 1.0e-6F) {
+            forward.set(0.0F, 0.0F, 1.0F);
+        }
+        forward.normalize();
+        Vector3f seed = Math.abs(forward.y) > 0.9F
+                ? new Vector3f(1.0F, 0.0F, 0.0F)
+                : new Vector3f(0.0F, 1.0F, 0.0F);
+        Vector3f right = new Vector3f(forward).cross(seed).normalize();
+        Vector3f up = new Vector3f(forward).cross(right).normalize();
+        return new Vector3f[]{right, up};
+    }
+
+    private static Vec3 inPlane(Vector3f[] basis, double angle, double radius) {
+        double cos = Math.cos(angle) * radius;
+        double sin = Math.sin(angle) * radius;
+        return new Vec3(basis[0].x * cos + basis[1].x * sin,
+                basis[0].y * cos + basis[1].y * sin,
+                basis[0].z * cos + basis[1].z * sin);
     }
 
     private static void streak(ClientLevel level, Vec3 centre, RandomSource random) {

@@ -15,19 +15,33 @@ public enum RiftDriveTier implements StringRepresentable {
 
     /** Short reach, slow to charge, thirsty for rotational force. */
     MK_I("mk_i", 0,
-            new Defaults(64, 128, 16.0D, 4_000.0D, 2_400, 60, 100, 40, 2_400, 1.0D, 0.0D)),
+            new Defaults(64, 128, 16.0D, 4_000.0D, 2_400, 60, 180, 100, 40, 2_400, 1.0D, 0.0D)),
 
     /** The workhorse: further, cheaper, and noticeably quicker to spin up. */
     MK_II("mk_ii", 1,
-            new Defaults(96, 192, 24.0D, 24_000.0D, 1_800, 50, 90, 35, 1_800, 1.6D, 0.0D)),
+            new Defaults(96, 192, 24.0D, 24_000.0D, 1_800, 50, 150, 90, 35, 1_800, 1.6D, 0.0D)),
 
     /** Long haul. Expensive to build, efficient to run. */
     MK_III("mk_iii", 2,
-            new Defaults(128, 256, 32.0D, 120_000.0D, 1_400, 40, 80, 30, 1_400, 2.4D, 0.0D)),
+            new Defaults(128, 256, 32.0D, 120_000.0D, 1_400, 40, 120, 80, 30, 1_400, 2.4D, 0.0D)),
 
     /** Effectively unlimited reach, at the price of a long recovery and an unstable exit. */
     SINGULARITY("singularity", 3,
-            new Defaults(192, 256, 48.0D, 2_000_000.0D, 1_200, 30, 70, 30, 6_000, 3.2D, 0.15D));
+            new Defaults(192, 256, 48.0D, 2_000_000.0D, 1_200, 30, 90, 70, 30, 6_000, 3.2D, 0.15D)),
+
+    /**
+     * A drive with the costs taken out. Creative only - nothing makes one.
+     *
+     * <p>Almost all of "no penalties" falls out of its numbers rather than out of special cases: one
+     * RPM to run, one tick to charge, one tick of spin, no stress, no cooldown and no instability. The
+     * flight itself is left alone at roughly the timings of a Mk III, because the journey through the
+     * rift is the thing being tested, not a tax on it.
+     *
+     * <p>Two things it cannot express as numbers are handled by {@link #creative()}: it never stalls
+     * for want of rotation, and its range is not clamped by the server-wide maximum.
+     */
+    CREATIVE("creative", 4,
+            new Defaults(1, 1, 0.0D, 1.0e8D, 1, 1, 1, 60, 25, 0, 100.0D, 0.0D));
 
     /**
      * Starting values written into a fresh config file.
@@ -37,7 +51,8 @@ public enum RiftDriveTier implements StringRepresentable {
      * @param stressImpact   Create stress units consumed per RPM
      * @param maximumRange   furthest reachable anchor, in blocks
      * @param chargeTicks    ticks from empty to full at {@code optimalRpm}
-     * @param stabilizeTicks ticks spent locking the destination
+     * @param stabilizeTicks spin needed for a jump next door, in ticks at full rate
+     * @param stabilizeTicksFar spin needed for a jump at the limit of this drive's range
      * @param warpTicks      ticks spent in the corridor before the airship moves
      * @param arriveTicks    ticks spent settling after the airship moves
      * @param cooldownTicks  ticks of cooldown after a completed warp
@@ -50,6 +65,7 @@ public enum RiftDriveTier implements StringRepresentable {
                            double maximumRange,
                            int chargeTicks,
                            int stabilizeTicks,
+                           int stabilizeTicksFar,
                            int warpTicks,
                            int arriveTicks,
                            int cooldownTicks,
@@ -65,6 +81,18 @@ public enum RiftDriveTier implements StringRepresentable {
         this.name = name;
         this.index = index;
         this.defaults = defaults;
+    }
+
+    /**
+     * Whether this tier is a creative-mode drive, exempt from the rules the others live by.
+     *
+     * <p>Only two behaviours read this, and both are things a config value cannot say: "never refuse
+     * to run for lack of rotation" and "ignore the server-wide range cap". Everything else that makes
+     * a creative drive painless is simply its own numbers, which is why there is one flag here rather
+     * than a fork through the drive.
+     */
+    public boolean creative() {
+        return this == CREATIVE;
     }
 
     @Override
@@ -113,7 +141,10 @@ public enum RiftDriveTier implements StringRepresentable {
     }
 
     public double maximumRange() {
-        return Math.min(AWConfig.TIERS.get(this).maximumRange().get(), AWConfig.MAXIMUM_WARP_DISTANCE.get());
+        double configured = AWConfig.TIERS.get(this).maximumRange().get();
+        // The global cap is a server's statement about how far players may travel. A creative drive is
+        // not a player's tool, so it is not what that setting is about.
+        return creative() ? configured : Math.min(configured, AWConfig.MAXIMUM_WARP_DISTANCE.get());
     }
 
     public int chargeTicks() {
@@ -122,6 +153,11 @@ public enum RiftDriveTier implements StringRepresentable {
 
     public int stabilizeTicks() {
         return AWConfig.TIERS.get(this).stabilizeTicks().get();
+    }
+
+    /** Spin needed for a jump at the very edge of this drive's range. */
+    public int stabilizeTicksFar() {
+        return AWConfig.TIERS.get(this).stabilizeTicksFar().get();
     }
 
     public int warpTicks() {

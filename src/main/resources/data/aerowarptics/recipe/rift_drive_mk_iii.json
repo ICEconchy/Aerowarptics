@@ -1,7 +1,5 @@
 {
   "type": "create:mechanical_crafting",
-  "accept_mirrored": false,
-  "category": "misc",
   "key": {
     "D": {
       "item": "aerowarptics:rift_drive_mk_ii"
@@ -15,8 +13,8 @@
     "V": {
       "item": "aeronautics:levitite"
     },
-    "T": {
-      "item": "create:railway_casing"
+    "B": {
+      "item": "create:brass_casing"
     },
     "R": {
       "item": "create:refined_radiance"
@@ -24,14 +22,14 @@
   },
   "pattern": [
     " VSV ",
-    "SLRLS",
-    "TRDRT",
-    "SLRLS",
+    "SBRBS",
+    "VLDLV",
+    "SBRBS",
     " VSV "
   ],
   "result": {
     "count": 1,
     "id": "aerowarptics:rift_drive_mk_iii"
   },
-  "show_notification": true
+  "accept_mirrored": false
 }

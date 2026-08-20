@@ -1,7 +1,5 @@
 {
   "type": "create:mechanical_crafting",
-  "accept_mirrored": false,
-  "category": "misc",
   "key": {
     "D": {
       "item": "aerowarptics:rift_drive_mk_iii"
@@ -18,22 +16,26 @@
     "T": {
       "item": "create:railway_casing"
     },
+    "B": {
+      "item": "create:brass_casing"
+    },
     "H": {
       "item": "create:shadow_steel"
+    },
+    "L": {
+      "item": "aerowarptics:rift_lens"
     }
   },
   "pattern": [
-    "  PHP  ",
-    " PSGSP ",
-    "PSTDTSP",
-    "HGDGDGH",
-    "PSTDTSP",
-    " PSGSP ",
-    "  PHP  "
+    " PSP ",
+    "PTGTP",
+    "SHDHS",
+    "PBLBP",
+    " PSP "
   ],
   "result": {
     "count": 1,
     "id": "aerowarptics:rift_drive_singularity"
   },
-  "show_notification": true
+  "accept_mirrored": false
 }

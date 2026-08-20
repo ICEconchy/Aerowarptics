@@ -1,0 +1,12 @@
+{
+  "sources": [
+    {
+      "type": "minecraft:single",
+      "resource": "aerowarptics:block/rift_essence_still"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "aerowarptics:block/rift_essence_flow"
+    }
+  ]
+}

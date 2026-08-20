@@ -6,19 +6,22 @@
       "item": "create:brass_sheet"
     },
     "L": {
-      "item": "minecraft:lodestone"
+      "item": "aerowarptics:rift_lens"
     },
-    "C": {
-      "item": "aerowarptics:rift_core"
+    "N": {
+      "item": "minecraft:lodestone"
     },
     "S": {
       "item": "create:copper_casing"
+    },
+    "C": {
+      "item": "create:andesite_alloy"
     }
   },
   "pattern": [
-    "BCB",
     "BLB",
-    "SSS"
+    "BNB",
+    "SCS"
   ],
   "result": {
     "count": 1,

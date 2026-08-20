@@ -22,6 +22,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
+import org.joml.Vector3dc;
 import software.bernie.geckolib.animatable.GeoBlockEntity;
 import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.animation.AnimatableManager;
@@ -43,13 +44,18 @@ import uk.co.iceconchy.aerowarptics.network.ClientboundCorridorPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpEffectPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpFeedbackPacket;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
+import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalTicket;
 import uk.co.iceconchy.aerowarptics.warp.CrossDimensionWarp;
 import uk.co.iceconchy.aerowarptics.warp.SafeArrival;
+import uk.co.iceconchy.aerowarptics.warp.SpinUp;
 import uk.co.iceconchy.aerowarptics.warp.WarpCost;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 import uk.co.iceconchy.aerowarptics.warp.WarpFlight;
+import uk.co.iceconchy.aerowarptics.warp.WarpPassengers;
+import uk.co.iceconchy.aerowarptics.warp.WarpTrace;
 import uk.co.iceconchy.aerowarptics.warp.WarpValidator;
 
 import java.util.EnumMap;
@@ -100,6 +106,14 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     private RiftDriveState state = RiftDriveState.IDLE;
     private float charge;
     private float committedCost;
+    /**
+     * How far this warp is throwing the hull, fixed when the course was accepted.
+     *
+     * <p>Kept rather than re-measured on arrival, because by then the ship is at the far end and the
+     * distance to the anchor is nearly zero. Anything that wants to know how big a journey this was -
+     * a Spatial Siphon deciding what it caught - has to be told before the ship moves.
+     */
+    private double committedDistance;
     private int sequenceTicks;
     private int cooldownTicks;
     private int errorTicks;
@@ -110,11 +124,48 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     private Vec3 destinationPos;
     @Nullable
     private UUID initiator;
+    /**
+      * The course this drive is set to, waiting for something to fire it.
+      *
+      * <p>Set when a player picks a destination on a console or a chart - at which point they were
+      * checked for permission, reach and whether they could see that anchor at all. A redstone signal
+      * fires this and nothing else, which is what keeps wiring a drive up from granting access its
+      * owner never had: the signal replays an authorisation rather than creating one.
+      */
+     @Nullable
+    private UUID standingDestination;
+
+    /**
+     * Who set the standing course.
+     *
+     * <p>A redstone-started warp still has somebody responsible for it - the person who chose where
+     * this drive points - and that is who it is attributed to and who hears about the arrival. Without
+     * this a warp fired by a circuit belongs to nobody, which is both wrong and, as it turned out, a
+     * null waiting to be dereferenced.
+     */
+    @Nullable
+    private UUID standingAuthor;
+
+    /** Last tick's redstone reading, so a warp fires on the rising edge rather than while held. */
+    private boolean redstonePowered;
+
+    /** Spin the current jump needs, in ticks at full rate. Set when the destination is committed. */
+    private float spinRequired;
+    /** Spin accumulated so far. Climbs faster the harder the drive is being turned. */
+    private float spinProgress;
     /** Which quarter of the drive's own frame the bow points along. */
     private DriveHeading heading = DriveHeading.FORWARD;
     /** The journey through the rift, planned in full before the aperture opens. */
     @Nullable
     private WarpFlight flight;
+
+    /**
+     * Who is aboard for the journey, and what to do when somebody stops being aboard.
+     *
+     * <p>Not persisted. A drive that comes back off disk mid-warp re-learns the manifest on its next
+     * tick from whoever is actually standing on the hull, which is the only answer worth having.
+     */
+    private final WarpPassengers passengers = new WarpPassengers();
 
     // ---- transient -----------------------------------------------------------
     @Nullable
@@ -134,6 +185,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     private float needleAngleLast;
     private int syncedMinimumRpm;
     private int syncedPhaseDuration;
+    private float syncedSpinRate;
     private float syncedStressImpact;
 
     public RiftDriveBlockEntity(BlockPos pos, BlockState state, RiftDriveTier tier) {
@@ -197,6 +249,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             ticksSinceAirshipTick++;
         }
 
+        tickRedstone();
         tickCharge();
         tickStateMachine();
 
@@ -215,7 +268,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
      */
     private void tickCharge() {
         float rpm = Math.abs(getSpeed());
-        boolean powered = rpm >= tier.minimumRpm();
+        // A creative drive holds its charge whether or not anything is turning. Everything else about
+        // how fast it charges is already zero-cost in its tier numbers.
+        boolean powered = tier.creative() || rpm >= tier.minimumRpm();
 
         if (!state.participatesInCharging()) {
             return;
@@ -280,9 +335,12 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             }
             case STABILIZING -> {
                 sequenceTicks++;
-                if (sequenceTicks >= tier.stabilizeTicks()) {
+                spinProgress += (float) spinRate();
+                if (spinProgress >= spinRequired) {
                     beginWarp();
                 }
+                // The client draws a wind-up bar and animates off this, so it has to see it move.
+                markStateDirty();
             }
             case WARPING, ARRIVING -> {
                 sequenceTicks++;
@@ -335,23 +393,21 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     // ------------------------------------------------------------ warp control
 
     /**
-     * Accepts a warp order from a player.
+     * Starts a warp, from a player or from a redstone edge.
      *
-     * <p>Everything is re-derived here from server state: the anchor comes out of the registry by id,
-     * the airship comes from Sable, the distance and cost come from the config. Nothing the client
-     * sent beyond the anchor id is trusted.
+     * <p>Everything here is about the machine and the ship: power, charge, whether the anchor is
+     * reachable and whether there is anywhere to land. The only things that depend on a player are
+     * whether they may command this drive at all and whether they can see the anchor, and both are
+     * checked before this - when the course is set, not when it is fired.
      *
-     * @return the failure that stopped the order, or {@link WarpFailure#NONE} when the warp began
+     * @param player the player commanding it, or {@code null} when a redstone signal fired a course
+     *               a player had already set
      */
-    public WarpFailure requestWarp(ServerPlayer player, UUID anchorId) {
+    private WarpFailure startWarp(UUID anchorId, @Nullable ServerPlayer player) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return WarpFailure.DRIVE_BUSY;
         }
 
-        WarpFailure permission = WarpValidator.validatePlayer(player, this);
-        if (permission.isFailure()) {
-            return reject(permission);
-        }
         if (!isRunningFastEnough()) {
             return reject(WarpFailure.INSUFFICIENT_POWER);
         }
@@ -372,7 +428,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         if (!anchor.enabled()) {
             return reject(WarpFailure.ANCHOR_DISABLED);
         }
-        if (!anchor.isVisibleTo(player)) {
+        // Skipped for a redstone start: whoever set this course could see the anchor at the time,
+        // and a signal is not a way to reach one they could not.
+        if (player != null && !anchor.isVisibleTo(player)) {
             return reject(WarpFailure.ANCHOR_FORBIDDEN);
         }
 
@@ -391,15 +449,97 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
 
         destinationAnchor = anchorId;
         destinationPos = target;
-        initiator = player.getUUID();
+        // A redstone start has no player in hand, so the warp belongs to whoever set the course.
+        // Every reader of this field already copes with it being absent.
+        initiator = player != null ? player.getUUID() : standingAuthor;
+        committedDistance = WarpValidator.distanceTo(airship, anchor);
         committedCost = (float) WarpCost.fromConfig(tier).cost(
-                WarpValidator.distanceTo(airship, anchor), WarpValidator.effectiveMass(airship));
+                committedDistance, WarpValidator.effectiveMass(airship));
         sequenceTicks = 0;
         lastFailure = WarpFailure.NONE;
         transition(RiftDriveState.DESTINATION_SELECTED);
+        // Nobody is standing at a console when a circuit fires this, so the person who set the course
+        // is told it has gone. Without it, a redstone launch is completely silent to the one player
+        // who has a reason to care, and its failures are not - which reads as "it only tells me when
+        // something is wrong", the wrong lesson to teach about a machine that throws ships.
+        notifyInitiator(WarpFailure.NONE);
         notifyAnchor(serverLevel, anchor, true);
         playSound(AWSounds.DESTINATION_LOCK.get(), 1.0F, 1.0F);
         broadcastEffect(ClientboundWarpEffectPacket.Stage.DESTINATION_LOCK);
+        return WarpFailure.NONE;
+    }
+
+    /**
+     * Watches the drive's redstone input and fires the standing course on a rising edge.
+     *
+     * <p>Edge rather than level, so a lever left on does not batter the drive with attempts every
+     * tick and a drive that comes back from a cooldown under a live signal stays put until somebody
+     * actually flips something.
+     *
+     * <p>This is what makes Create Simulated's Throttle Lever work as a launch control: it is a
+     * redstone source, so it needs nothing from this mod beyond reading the signal it already emits.
+     * A vanilla lever, button or pressure plate does just as well.
+     */
+    private void tickRedstone() {
+        if (level == null || level.isClientSide) {
+            return;
+        }
+        boolean signal = level.hasNeighborSignal(worldPosition);
+        boolean rising = signal && !redstonePowered;
+        redstonePowered = signal;
+        if (!rising || !AWConfig.ALLOW_REDSTONE_INITIATION.get()) {
+            return;
+        }
+        UUID course = standingDestination;
+        if (course == null || !state.acceptsDestination()) {
+            // Nothing set, or the drive is already busy. Both are silent: a redstone input has no
+            // one to complain to, and a circuit that clicks every few seconds should not fill a log.
+            return;
+        }
+        startWarp(course, null);
+    }
+
+    /**
+     * Sets the course this drive will fly when something fires it.
+     *
+     * <p>Called when a player chooses a destination on an Astrolabe Cartography Table. Choosing is
+     * the moment permission is checked, so this is the moment the authorisation a redstone signal
+     * later replays is granted.
+     */
+    public void armDestination(@Nullable UUID anchorId, @Nullable UUID author) {
+        standingDestination = anchorId;
+        standingAuthor = author;
+        markStateDirty();
+    }
+
+    @Nullable
+    public UUID standingDestination() {
+        return standingDestination;
+    }
+
+    /**
+     * Sets this drive's course without starting anything.
+     *
+     * <p>This is the authorising moment for everything that fires it afterwards, so it is where the
+     * player is checked - may they command this drive, and can they see this anchor at all. A redstone
+     * signal later replays that decision; it never makes one.
+     */
+    public WarpFailure setCourse(ServerPlayer player, UUID anchorId) {
+        WarpFailure permission = WarpValidator.validatePlayer(player, this);
+        if (permission.isFailure()) {
+            return permission;
+        }
+        if (!(level instanceof ServerLevel serverLevel)) {
+            return WarpFailure.DRIVE_BUSY;
+        }
+        WarpAnchor anchor = WarpAnchorRegistry.get(serverLevel).byId(anchorId);
+        if (anchor == null) {
+            return WarpFailure.ANCHOR_MISSING;
+        }
+        if (!anchor.isVisibleTo(player)) {
+            return WarpFailure.ANCHOR_FORBIDDEN;
+        }
+        armDestination(anchorId, player.getUUID());
         return WarpFailure.NONE;
     }
 
@@ -416,11 +556,39 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         return WarpFailure.NONE;
     }
 
+    /**
+     * Starts the drive winding up.
+     *
+     * <p>How much winding is settled here, from how far the jump reaches - the machine has to work
+     * harder for a longer throw. How <em>fast</em> it winds is settled every tick from the shaft, so
+     * the answer to "why is this taking so long" is either "you picked somewhere far away" or "spin
+     * it faster", both of which are things a pilot can see and act on.
+     */
     private void beginStabilizing() {
         sequenceTicks = 0;
+        spinProgress = 0.0F;
+        spinRequired = (float) SpinUp.required(distanceToDestination(), tier.maximumRange(),
+                tier.stabilizeTicks(), tier.stabilizeTicksFar());
         transition(RiftDriveState.STABILIZING);
-        playSound(AWSounds.STABILIZING.get(), 1.0F, 1.0F);
+        // Pitched off the rate it is actually managing, so an underpowered drive audibly labours.
+        playSound(AWSounds.STABILIZING.get(), 1.0F, 0.7F + 0.5F * (float) spinRate());
         broadcastEffect(ClientboundWarpEffectPacket.Stage.STABILIZING);
+    }
+
+    /** How far the committed destination is, or zero when there is nothing to measure to. */
+    private double distanceToDestination() {
+        Airship airship = airship();
+        if (airship == null || destinationAnchor == null || !(level instanceof ServerLevel serverLevel)) {
+            return 0.0D;
+        }
+        WarpAnchor anchor = WarpAnchorRegistry.get(serverLevel).byId(destinationAnchor);
+        return anchor == null ? 0.0D : WarpValidator.distanceTo(airship, anchor);
+    }
+
+    /** Spin gained per tick at the speed the shaft is currently turning. */
+    private double spinRate() {
+        return SpinUp.rate(Math.abs(getSpeed()), tier.minimumRpm(), tier.optimalRpm(),
+                AWConfig.SPIN_MINIMUM_RATE.get());
     }
 
     /**
@@ -466,18 +634,22 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             abort(WarpFailure.NO_SAFE_ARRIVAL);
             return;
         }
-        if (!SafeArrival.isClear(airship, serverLevel, planned.corridorVolume(airship))) {
-            // Another vessel is already running this stretch of corridor.
-            abort(WarpFailure.NO_SAFE_ARRIVAL);
-            return;
-        }
-
         flight = planned;
         airship.warpData().rememberOrigin(airship.position(), airship.orientation());
         sequenceTicks = 0;
         transition(RiftDriveState.WARPING);
+        // Claim the ground at the far end now, while the ship still has a whole flight to make.
+        // Left until the teleport, the chunks would come off disk at the exact moment the hull is
+        // meant to be flying out of the aperture.
+        ArrivalTicket.hold(destination, planned.arrivalOrigin(), planned.hullSpan());
+
+        WarpTrace.plan(worldPosition, airship, planned, bow);
         playSound(AWSounds.RIFT_OPEN.get(), 1.2F, 1.0F);
-        broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_OPEN, planned.entryRift());
+        // The entry aperture has to stay open for the run in, the passage, and the corridor run -
+        // all of which now happen inside it.
+        broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_OPEN, planned.entryRift(),
+                AWConfig.APPROACH_LIMIT_TICKS.get() + planned.transitTicks() + tier.warpTicks(),
+                planned.entryThroatDepth());
     }
 
     /**
@@ -495,51 +667,102 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             return;
         }
 
+        // Before the hull is moved, not after: the seats worth remembering are the ones the crew were
+        // standing in when the tick began, and anybody the last tick threw off has to have the ship's
+        // borrowed momentum taken back before it carries them any further.
+        passengers.hold(airship, current.stage());
+
         switch (current.tick(airship)) {
             case CONTINUE -> {
             }
+            case BEGIN_TRANSIT -> {
+                WarpTrace.stage(WarpFlight.Stage.APPROACH, WarpFlight.Stage.TRANSIT,
+                        current.stageTicks(), airship, current);
+                current.beganTransit();
+                playSound(AWSounds.WARP_TRAVEL.get(), 0.8F, 0.8F);
+                // The hull stays inside this aperture for the passage *and* the corridor run.
+                broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_TRANSIT, current.entryRift(),
+                        current.transitTicks() + tier.warpTicks());
+                // The wash starts as the bow goes in, not when the hull teleports. The crew's own
+                // camera crosses the aperture partway through the passage, and without this they
+                // would watch the world go dark and then carry on flying through it for a second.
+                send(airship.crew(), ClientboundCorridorPacket.enter(
+                        current.transitTicks() + tier.warpTicks(), tierColour()));
+            }
             case ENTER_CORRIDOR -> {
-                // The crew is read before the hull moves. Sable's entity tracking needs a tick to
-                // catch up with a teleport, so asking afterwards can come back empty.
-                List<ServerPlayer> crew = airship.crew();
-                if (!airship.relocate(current.corridorEntryOrigin(airship), airship.orientation(), 0.0D)) {
-                    abort(WarpFailure.RELOCATION_FAILED);
-                    return;
-                }
+                // Nothing moves here any more. The hull is deep inside the entry aperture's throat
+                // and simply keeps flying down it, so there is no teleport, no second region of the
+                // world to load, and no change of pace at the boundary.
+                WarpTrace.stage(WarpFlight.Stage.TRANSIT, WarpFlight.Stage.CORRIDOR,
+                        current.stageTicks(), airship, current);
                 current.enteredCorridor();
                 playSound(AWSounds.WARP_TRAVEL.get(), 1.0F, 1.0F);
                 broadcastEffect(ClientboundWarpEffectPacket.Stage.CORRIDOR);
-                send(crew, ClientboundCorridorPacket.enter(tier.warpTicks(), tierColour()));
+                // The crew's wash is already running - it started when the bow went in. Re-arm it to
+                // cover the corridor, rather than starting it, so it does not flicker at the seam.
+                send(airship.crew(), ClientboundCorridorPacket.enter(tier.warpTicks(), tierColour()));
                 // Opened now, not on arrival: anyone at the destination gets a few seconds of warning
                 // before a hull comes through it.
-                broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_OPEN, current.exitRift());
+                broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_OPEN, current.exitRift(),
+                        tier.warpTicks() + current.transitTicks(), -current.exitThroatDepth());
             }
             case EXIT_CORRIDOR -> {
+                // The crew is read before the hull moves. Sable's entity tracking needs a tick to
+                // catch up with a teleport, so asking afterwards can come back empty.
                 List<ServerPlayer> crew = airship.crew();
-                if (!airship.relocate(current.emergenceOrigin(), current.arrivalOrientation(), 0.0D)) {
+                WarpTrace.stage(WarpFlight.Stage.CORRIDOR, WarpFlight.Stage.BREACH,
+                        current.stageTicks(), airship, current);
+                Vector3dc departure = new Vector3d(airship.position());
+                // The whole journey's one discontinuity, and it happens deep inside a throat at both
+                // ends. Momentum is carried across in full: the hull is travelling at passage speed
+                // along the bearing when it leaves, and both apertures face the same way, so it
+                // arrives still doing exactly that. Nothing about its motion changes - only where it is.
+                if (!airship.relocate(current.emergenceOrigin(), current.arrivalOrientation(), 1.0D)) {
                     abort(WarpFailure.RELOCATION_FAILED);
                     return;
                 }
+                WarpTrace.teleport("across the fold", departure, current.emergenceOrigin(), crew.size());
+                // Only now is the entry aperture finished with; the hull was inside it until this tick.
+                broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_CLOSE, current.entryRift(), 0);
                 current.leftCorridor();
-                send(crew, ClientboundCorridorPacket.leave());
-                onEmerged(airship);
+                // Still behind the far aperture and still inside the fold, so the wash carries on
+                // until the hull is properly out the other side.
+                send(crew, ClientboundCorridorPacket.enter(current.transitTicks(), tierColour()));
+                broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_TRANSIT, current.exitRift(),
+                        current.transitTicks());
+                onLeftCorridor(airship);
             }
-            case ARRIVED -> completeWarp();
+            case EMERGED -> {
+                WarpTrace.stage(WarpFlight.Stage.BREACH, WarpFlight.Stage.EMERGE,
+                        current.stageTicks(), airship, current);
+                current.breached();
+                send(airship.crew(), ClientboundCorridorPacket.leave());
+                onEmerged();
+            }
+            case ARRIVED -> {
+                WarpTrace.complete(worldPosition, airship, current.arrivalOrigin());
+                completeWarp();
+            }
         }
     }
 
-    /** The hull is through the far aperture: charge is spent and the drive begins settling it down. */
-    private void onEmerged(Airship airship) {
+    /**
+     * The hull is out of the corridor and sitting behind the far aperture.
+     *
+     * <p>The charge is spent here rather than when it comes into view, because from this moment the
+     * journey cannot be undone: the hull is at the destination whether or not it has flown out yet.
+     * Dropping to ARRIVING also lifts the minimum-RPM guard, so a drive that loses its shaft during
+     * the last few seconds sets its ship down rather than aborting it into the fold.
+     */
+    private void onLeftCorridor(Airship airship) {
         charge = Math.max(0.0F, charge - committedCost);
         sequenceTicks = 0;
         transition(RiftDriveState.ARRIVING);
-        playSound(AWSounds.WARP_EXIT.get(), 1.3F, 1.0F);
 
         WarpFlight current = flight;
         if (current != null) {
             destinationPos = new Vec3(current.arrivalOrigin().x(), current.arrivalOrigin().y(),
                     current.arrivalOrigin().z());
-            broadcastRift(ClientboundWarpEffectPacket.Stage.WARP_EXIT, current.exitRift());
         }
 
         if (level instanceof ServerLevel serverLevel && destinationAnchor != null) {
@@ -552,6 +775,21 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
                 }
                 AeroWarptics.LOGGER.debug("{} came out of the rift at anchor {}", airship, anchor.displayName());
             }
+        }
+    }
+
+    /**
+     * The hull is clear of the far aperture and back in the world.
+     *
+     * <p>This is the moment anyone standing at the destination actually sees a ship, so it is where
+     * the arrival is announced. Everything that had to happen for the warp to count already happened
+     * a few seconds ago, behind the aperture.
+     */
+    private void onEmerged() {
+        playSound(AWSounds.WARP_EXIT.get(), 1.3F, 1.0F);
+        WarpFlight current = flight;
+        if (current != null) {
+            broadcastRift(ClientboundWarpEffectPacket.Stage.WARP_EXIT, current.exitRift(), 0);
         }
     }
 
@@ -570,13 +808,21 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             }
         }
 
+        // Whatever the fold sheds on the way through, the ship's siphons catch here - after the
+        // journey is unambiguously finished, so an aborted warp yields nothing.
+        if (level instanceof ServerLevel harvestLevel) {
+            SpatialSiphonBlockEntity.harvest(airship, committedDistance, harvestLevel.getRandom());
+        }
+
         airship.driveVelocity(new Vector3d());
+        passengers.settle(airship);
         airship.warpData().release(false, level.getGameTime() + tier.cooldownTicks());
         flight = null;
         destinationAnchor = null;
         destinationPos = null;
         initiator = null;
         committedCost = 0.0F;
+        committedDistance = 0.0D;
         sequenceTicks = 0;
         cooldownTicks = tier.cooldownTicks();
         transition(RiftDriveState.COOLDOWN);
@@ -591,14 +837,23 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
      * {@code failure.dangerousFailures} setting adds a shove, and nothing more.
      */
     public void abort(WarpFailure reason) {
+        WarpTrace.abort(worldPosition, reason, flight, sequenceTicks);
         Airship airship = airship();
         if (airship != null) {
             // Hand the helm back and, if the hull is out in the corridor, bring it home.
             airship.driveVelocity(new Vector3d());
             send(airship.crew(), ClientboundCorridorPacket.leave());
             AirshipWarpData data = airship.warpData();
-            if (flight != null && flight.stage() != WarpFlight.Stage.APPROACH) {
+            // Only a hull that has actually been moved needs putting back. A run at the aperture, or
+            // a passage through one, both happen where the ship already was.
+            if (flight != null && flight.stage() != WarpFlight.Stage.APPROACH
+                    && flight.stage() != WarpFlight.Stage.TRANSIT) {
                 data.restoreOrigin(airship);
+            }
+            if (flight != null) {
+                // Whichever apertures this warp tore open, they have nothing left to do.
+                broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_CLOSE, flight.entryRift(), 0);
+                broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_CLOSE, flight.exitRift(), 0);
             }
             if (data.isOwnedBy(worldPosition)) {
                 data.release(true, level == null ? 0L : level.getGameTime());
@@ -607,6 +862,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
                 double magnitude = AWConfig.DANGEROUS_FAILURE_IMPULSE.get() * Math.max(1.0D, airship.mass()) * 0.01D;
                 airship.applyImpulse(new Vector3d(0.0D, magnitude, 0.0D), new Vector3d());
             }
+            // After the hull has been put back, so anybody who came off inside the fold is returned to
+            // where the ship ended up rather than to the coordinates of a rift that no longer exists.
+            passengers.settle(airship);
         }
 
         if (level instanceof ServerLevel serverLevel && destinationAnchor != null) {
@@ -625,6 +883,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         destinationPos = null;
         initiator = null;
         committedCost = 0.0F;
+        committedDistance = 0.0D;
         sequenceTicks = 0;
         lastFailure = reason;
         errorTicks = AWConfig.FAILURE_COOLDOWN_TICKS.get();
@@ -798,9 +1057,10 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     private int phaseDuration() {
         return switch (state) {
             case DESTINATION_SELECTED -> LOCK_IN_TICKS;
-            case STABILIZING -> tier.stabilizeTicks();
+            // Spin is not measured in ticks any more - see sequenceProgress.
+            case STABILIZING -> 0;
             case WARPING -> tier.warpTicks();
-            case ARRIVING -> tier.arriveTicks();
+            case ARRIVING -> AWConfig.RIFT_TRANSIT_TICKS.get() + tier.arriveTicks();
             case COOLDOWN -> Math.max(1, tier.cooldownTicks());
             case ERROR -> Math.max(1, AWConfig.FAILURE_COOLDOWN_TICKS.get());
             default -> 0;
@@ -809,6 +1069,11 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
 
     /** 0..1 progress through whichever timed phase the drive is in. */
     public float sequenceProgress() {
+        // Spinning up is measured in spin, not in ticks: the same jump takes a different number of
+        // ticks depending on how hard the drive is being turned, so a tick count would be a lie.
+        if (state == RiftDriveState.STABILIZING) {
+            return spinRequired <= 0.0F ? 0.0F : Math.min(1.0F, spinProgress / spinRequired);
+        }
         int total = level != null && level.isClientSide ? syncedPhaseDuration : phaseDuration();
         if (total <= 0) {
             return 0.0F;
@@ -820,7 +1085,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     }
 
     public boolean isRunningFastEnough() {
-        return Math.abs(getSpeed()) >= requiredRpm();
+        // Losing the shaft mid-warp aborts an ordinary drive into its error state. That is a penalty,
+        // and a creative drive is defined by not having any.
+        return tier.creative() || Math.abs(getSpeed()) >= requiredRpm();
     }
 
     /** Which leg of the journey the hull is on, as the client sees it. Empty when not flying. */
@@ -875,7 +1142,17 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         tag.putInt("State", state.ordinal());
         tag.putFloat("Charge", charge);
         tag.putFloat("CommittedCost", committedCost);
+        tag.putDouble("CommittedDistance", committedDistance);
         tag.putInt("SequenceTicks", sequenceTicks);
+        tag.putBoolean("Powered", redstonePowered);
+        if (standingDestination != null) {
+            tag.putUUID("Standing", standingDestination);
+        }
+        if (standingAuthor != null) {
+            tag.putUUID("StandingAuthor", standingAuthor);
+        }
+        tag.putFloat("SpinRequired", spinRequired);
+        tag.putFloat("SpinProgress", spinProgress);
         tag.putInt("CooldownTicks", cooldownTicks);
         tag.putInt("ErrorTicks", errorTicks);
         tag.putInt("LastFailure", lastFailure.ordinal());
@@ -899,6 +1176,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             tag.putFloat("FlightProgress", flight.stageProgress());
         }
         if (clientPacket) {
+            tag.putFloat("SpinRate", (float) spinRate());
             tag.putInt("MinRpm", tier.minimumRpm());
             tag.putInt("PhaseDuration", phaseDuration());
             tag.putFloat("StressImpact", (float) tier.stressImpact());
@@ -911,7 +1189,13 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         state = RiftDriveState.byIndex(tag.getInt("State"));
         charge = tag.getFloat("Charge");
         committedCost = tag.getFloat("CommittedCost");
+        committedDistance = tag.getDouble("CommittedDistance");
         sequenceTicks = tag.getInt("SequenceTicks");
+        redstonePowered = tag.getBoolean("Powered");
+        standingDestination = tag.hasUUID("Standing") ? tag.getUUID("Standing") : null;
+        standingAuthor = tag.hasUUID("StandingAuthor") ? tag.getUUID("StandingAuthor") : null;
+        spinRequired = tag.getFloat("SpinRequired");
+        spinProgress = tag.getFloat("SpinProgress");
         cooldownTicks = tag.getInt("CooldownTicks");
         errorTicks = tag.getInt("ErrorTicks");
         lastFailure = WarpFailure.byIndex(tag.getInt("LastFailure"));
@@ -927,6 +1211,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             clientFlightProgress = tag.getFloat("FlightProgress");
             clientCharge = charge;
             clientChargeLast = charge;
+            syncedSpinRate = tag.getFloat("SpinRate");
             syncedMinimumRpm = tag.getInt("MinRpm");
             syncedPhaseDuration = tag.getInt("PhaseDuration");
             syncedStressImpact = tag.getFloat("StressImpact");
@@ -953,7 +1238,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     }
 
     /** Tier accent colours, matching the drive's core and the rift it tears open. */
-    private static final int[] TIER_COLOURS = {0x2FA8B8, 0x49D9C4, 0xE0B04A, 0xE45CFF};
+    private static final int[] TIER_COLOURS = {0x2FA8B8, 0x49D9C4, 0xE0B04A, 0xE45CFF, 0xFFFFFF};
 
     private int tierColour() {
         return TIER_COLOURS[Math.max(0, Math.min(TIER_COLOURS.length - 1, tier.index()))];
@@ -991,14 +1276,25 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
      * thousands of blocks from the machine that made it and the people who should see it are the ones
      * standing at the destination.
      */
-    private void broadcastRift(ClientboundWarpEffectPacket.Stage stage, WarpFlight.Rift rift) {
+    private void broadcastRift(ClientboundWarpEffectPacket.Stage stage, WarpFlight.Rift rift, int duration) {
+        broadcastRift(stage, rift, duration, 0.0D);
+    }
+
+    /**
+     * @param throat depth of the aperture's throat, signed along its normal: positive for the
+     *               aperture the hull flies into, negative for the one it comes back out of, since
+     *               the hull is hidden on opposite sides of the two
+     */
+    private void broadcastRift(ClientboundWarpEffectPacket.Stage stage, WarpFlight.Rift rift,
+                               int duration, double throat) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
         Airship airship = airship();
         Vec3 centre = new Vec3(rift.centre().x, rift.centre().y, rift.centre().z);
         AWNetwork.sendToTracking(serverLevel, centre, ClientboundWarpEffectPacket.rift(
-                worldPosition, stage, tier.index(), airship == null ? null : airship.uuid(), rift));
+                worldPosition, stage, tier.index(), airship == null ? null : airship.uuid(), rift,
+                duration, throat));
     }
 
     @Override
@@ -1037,7 +1333,10 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             case IDLE -> 0.5D;
             case CHARGING -> 0.75D + clientCharge * 1.75D;
             case CHARGED -> 2.0D;
-            case DESTINATION_SELECTED, STABILIZING -> 2.5D;
+            case DESTINATION_SELECTED -> 2.5D;
+            // Winding up: the machine visibly turns as fast as it is being driven, and picks up as
+            // the spin builds. This is the whole point of a spin drive being a spin drive.
+            case STABILIZING -> 1.0D + 2.0D * syncedSpinRate + 1.5D * sequenceProgress();
             case WARPING -> 4.0D;
             case ARRIVING -> 2.0D;
             case COOLDOWN -> 1.0D - sequenceProgress() * 0.75D;

@@ -8,31 +8,25 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
-import uk.co.iceconchy.aerowarptics.airship.Airship;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 import uk.co.iceconchy.aerowarptics.warp.WarpValidator;
 
-import java.util.List;
-import java.util.UUID;
-
 /**
- * The only thing a client may ever say about a warp: "start the one to this anchor", or "stop".
+ * The two things a player may say to a drive from its own console: "stop", and "turn the bow".
  *
- * <p>No position, no cost, no progress and no charge crosses this boundary. The server looks the
- * anchor up itself and refuses anything it does not like.
+ * <p>Notably absent is "go". Starting a warp needs a destination, destinations are chosen at an
+ * Astrolabe Cartography Table, and the jump itself is fired by a redstone input - so there is no path
+ * from this screen to a moving ship, and nothing here needs to carry an anchor.
  */
-public record ServerboundWarpCommandPacket(BlockPos drivePos, Action action, UUID anchorId)
-        implements CustomPacketPayload {
+public record ServerboundWarpCommandPacket(BlockPos drivePos, Action action) implements CustomPacketPayload {
 
     public enum Action {
-        INITIATE,
+        /** Call off a warp that has not opened its rift yet. */
         CANCEL,
-        /** Step the drive's bearing on to the next setting. */
+        /** Step the drive's bow setting on to the next quarter turn. */
         CYCLE_HEADING
     }
-
-    private static final UUID NIL = new UUID(0L, 0L);
 
     public static final Type<ServerboundWarpCommandPacket> TYPE =
             new Type<>(AeroWarptics.id("warp_command"));
@@ -42,21 +36,15 @@ public record ServerboundWarpCommandPacket(BlockPos drivePos, Action action, UUI
                     (buf, packet) -> {
                         buf.writeBlockPos(packet.drivePos);
                         buf.writeEnum(packet.action);
-                        buf.writeUUID(packet.anchorId == null ? NIL : packet.anchorId);
                     },
-                    buf -> new ServerboundWarpCommandPacket(
-                            buf.readBlockPos(), buf.readEnum(Action.class), buf.readUUID()));
-
-    public static ServerboundWarpCommandPacket initiate(BlockPos drivePos, UUID anchorId) {
-        return new ServerboundWarpCommandPacket(drivePos, Action.INITIATE, anchorId);
-    }
+                    buf -> new ServerboundWarpCommandPacket(buf.readBlockPos(), buf.readEnum(Action.class)));
 
     public static ServerboundWarpCommandPacket cancel(BlockPos drivePos) {
-        return new ServerboundWarpCommandPacket(drivePos, Action.CANCEL, NIL);
+        return new ServerboundWarpCommandPacket(drivePos, Action.CANCEL);
     }
 
     public static ServerboundWarpCommandPacket cycleHeading(BlockPos drivePos) {
-        return new ServerboundWarpCommandPacket(drivePos, Action.CYCLE_HEADING, NIL);
+        return new ServerboundWarpCommandPacket(drivePos, Action.CYCLE_HEADING);
     }
 
     @Override
@@ -67,7 +55,7 @@ public record ServerboundWarpCommandPacket(BlockPos drivePos, Action action, UUI
     public static void handle(ServerboundWarpCommandPacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)
-                    || !(player.level() instanceof ServerLevel level)) {
+                    || !(player.level() instanceof ServerLevel)) {
                 return;
             }
             RiftDriveBlockEntity drive = AWNetwork.resolveDrive(player, packet.drivePos());
@@ -77,23 +65,21 @@ public record ServerboundWarpCommandPacket(BlockPos drivePos, Action action, UUI
             }
 
             WarpFailure result = switch (packet.action()) {
-                case INITIATE -> drive.requestWarp(player, packet.anchorId());
                 case CANCEL -> drive.cancelWarp(player);
                 case CYCLE_HEADING -> drive.cycleHeading(player) ? WarpFailure.NONE : WarpFailure.DRIVE_BUSY;
             };
 
-            // Changing the bearing is a setting, not a warp; do not report it as one having started.
-            if (packet.action() != Action.CYCLE_HEADING || result.isFailure()) {
+            // Only refusals are worth a message. Turning the bow succeeding is visible on the
+            // machine, and a successful cancel already announces itself - aborting the sequence tells
+            // whoever set the course why it stopped, so saying anything here would either duplicate
+            // that or, worse, report the cancellation as a warp having started.
+            if (result.isFailure()) {
                 AWNetwork.sendTo(player, new ClientboundWarpFeedbackPacket(result));
             }
 
             // Refresh the console so the player sees the drive's new state immediately.
-            Airship airship = drive.airship();
             WarpFailure access = WarpValidator.validatePlayer(player, drive);
-            List<uk.co.iceconchy.aerowarptics.warp.WarpQuote> quotes = airship == null || access.isFailure()
-                    ? List.of()
-                    : WarpValidator.quoteAll(level, player, airship, drive.tier(), drive.charge());
-            AWNetwork.sendTo(player, ClientboundNavigationDataPacket.of(drive, airship, quotes, access));
+            AWNetwork.sendTo(player, ClientboundDriveConsolePacket.of(drive, drive.airship(), access));
         });
     }
 }

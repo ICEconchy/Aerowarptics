@@ -30,6 +30,11 @@ import java.util.UUID;
  * @param centre    world centre of the aperture, or of the effect when there is no aperture
  * @param normal    unit vector the airship travels through the aperture along
  * @param radius    aperture radius in blocks
+ * @param duration  ticks the cue runs for, where that is the server's to decide - how long an
+ *                  aperture holds open, or how long a hull takes to pass through one
+ * @param throat    how deep the aperture's throat runs, in blocks, signed along {@code normal}:
+ *                  positive for an aperture a hull goes <em>into</em>, negative for one it comes out
+ *                  of. Zero for a cue with no aperture behind it.
  */
 public record ClientboundWarpEffectPacket(BlockPos drivePos,
                                           Stage stage,
@@ -37,7 +42,9 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
                                           UUID airship,
                                           Vec3 centre,
                                           Vec3 normal,
-                                          double radius) implements CustomPacketPayload {
+                                          double radius,
+                                          int duration,
+                                          float throat) implements CustomPacketPayload {
 
     /** Points in the sequence that have a distinct visual and audible signature. */
     public enum Stage {
@@ -47,8 +54,12 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
         STABILIZING,
         /** The entry aperture tears open. */
         RIFT_OPEN,
+        /** A hull is passing through an aperture: the tear reacts to what is going through it. */
+        RIFT_TRANSIT,
         /** The hull is through and running the corridor. */
         CORRIDOR,
+        /** The hull is clear of an aperture and it can stop holding itself open. */
+        RIFT_CLOSE,
         /** The far aperture opens and the hull comes out of it. */
         WARP_EXIT,
         /** The sequence was abandoned. */
@@ -65,16 +76,17 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
 
     /** A cue with a real aperture behind it. */
     public static ClientboundWarpEffectPacket rift(BlockPos drivePos, Stage stage, int tierIndex,
-                                                   UUID airship, WarpFlight.Rift rift) {
+                                                   UUID airship, WarpFlight.Rift rift, int duration,
+                                                   double throat) {
         return new ClientboundWarpEffectPacket(drivePos, stage, tierIndex, airship,
-                toVec3(rift.centre()), toVec3(rift.normal()), rift.radius());
+                toVec3(rift.centre()), toVec3(rift.normal()), rift.radius(), duration, (float) throat);
     }
 
     /** A cue with no aperture - sparks, a failure, a lock-on - anchored at a point. */
     public static ClientboundWarpEffectPacket at(BlockPos drivePos, Stage stage, int tierIndex,
                                                  UUID airship, Vec3 centre) {
         return new ClientboundWarpEffectPacket(drivePos, stage, tierIndex, airship,
-                centre, new Vec3(0.0D, 1.0D, 0.0D), 0.0D);
+                centre, new Vec3(0.0D, 1.0D, 0.0D), 0.0D, 0, 0.0F);
     }
 
     /** Whether this cue carries an aperture that should be drawn. */
@@ -103,6 +115,8 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
         buf.writeFloat((float) packet.normal.y);
         buf.writeFloat((float) packet.normal.z);
         buf.writeFloat((float) packet.radius);
+        buf.writeVarInt(packet.duration);
+        buf.writeFloat(packet.throat);
     }
 
     private static ClientboundWarpEffectPacket decode(RegistryFriendlyByteBuf buf) {
@@ -113,6 +127,8 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
                 buf.readUUID(),
                 new Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble()),
                 new Vec3(buf.readFloat(), buf.readFloat(), buf.readFloat()),
+                buf.readFloat(),
+                buf.readVarInt(),
                 buf.readFloat());
     }
 

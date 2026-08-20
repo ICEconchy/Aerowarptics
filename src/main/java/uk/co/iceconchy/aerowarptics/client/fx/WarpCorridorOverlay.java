@@ -1,7 +1,5 @@
 package uk.co.iceconchy.aerowarptics.client.fx;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
@@ -24,14 +22,26 @@ import uk.co.iceconchy.aerowarptics.network.ClientboundCorridorPacket;
  * for players who were standing on a deck rather than riding something.
  *
  * <p>It is deliberately not a particle effect. At corridor speed a particle crosses the view in a
- * single frame, so the tunnel is drawn in screen space: the world outside drowns in the rift's colour,
- * the view closes in, the field of view stretches, and streaks rush outward past the edges.
+ * single frame, so the fold is drawn in screen space: the world outside drowns in the rift's colour,
+ * the view closes in, and the field of view stretches.
+ *
+ * <p>Nothing here points anywhere. It used to: streaks raced outwards from the centre of the screen,
+ * which reads as "you are travelling that way" - except the centre of the screen is wherever the
+ * player happens to be looking, so turning your head turned the direction of travel with it. An effect
+ * that lies about which way the ship is going is worse than no effect at all.
+ *
+ * <p>It is also deliberately restrained now, because it is no longer carrying the scene. When this was
+ * written the ship ran a lane a thousand blocks up with the whole world visible below it, and the
+ * overlay was the only thing selling the journey. The ship now flies down a lit bore with ribs sweeping
+ * past it and a band of light running its length - real geometry, at a real distance, moving at the
+ * real speed - and that is a far better motion cue than anything paintable in screen space. The
+ * overlay's job is to tint and close in the view so the tunnel reads as an atmosphere rather than a
+ * corridor of blocks. Painting over the top of it would be hiding the thing worth seeing.
  */
 @EventBusSubscriber(modid = AeroWarptics.MODID, value = Dist.CLIENT)
 public final class WarpCorridorOverlay {
 
     private static final int FADE_TICKS = 10;
-    private static final int STREAKS = 56;
 
     /** Ticks left before the overlay lets go on its own, in case the exit cue never arrives. */
     private static int remainingTicks;
@@ -113,8 +123,11 @@ public final class WarpCorridorOverlay {
         if (amount <= 0.0F) {
             return;
         }
-        event.setNearPlaneDistance(Mth.lerp(amount, event.getNearPlaneDistance(), 6.0F));
-        event.setFarPlaneDistance(Mth.lerp(amount, event.getFarPlaneDistance(), 72.0F));
+        // Pulled in from seventy-two. The bore is about thirty blocks across and its far end is well
+        // under a hundred away, so fog at this range fills the tunnel with atmosphere instead of
+        // sitting somewhere past the end of it doing nothing.
+        event.setNearPlaneDistance(Mth.lerp(amount, event.getNearPlaneDistance(), 3.0F));
+        event.setFarPlaneDistance(Mth.lerp(amount, event.getFarPlaneDistance(), 44.0F));
         event.setCanceled(true);
     }
 
@@ -128,12 +141,14 @@ public final class WarpCorridorOverlay {
     }
 
     /**
-     * Streaks rushing outward from the centre of the screen.
+     * The frame drowning in the rift's colour, from every edge equally.
      *
-     * <p>Each streak is a bar drawn in a rotated coordinate frame, so it points along its own radius
-     * instead of being an axis-aligned rectangle. Rotating the matrix and filling a plain bar is far
-     * cheaper than building geometry, and it is the only way {@code GuiGraphics} will draw a shape
-     * that is not square-on.
+     * <p>Two gradients in from the top and bottom, a fainter pair from the sides, and a set of slow
+     * horizontal bands drifting across the middle. None of it has a focus, an origin or a heading, so
+     * it says the same thing whichever way the player is facing - which is the point.
+     *
+     * <p>Held well below the old effect's strength. This is meant to sit underneath the fog and the
+     * sound rather than compete with them.
      */
     @SubscribeEvent
     public static void onRenderGui(RenderGuiEvent.Post event) {
@@ -146,40 +161,24 @@ public final class WarpCorridorOverlay {
         GuiGraphics graphics = event.getGuiGraphics();
         int width = graphics.guiWidth();
         int height = graphics.guiHeight();
-        float reach = (float) Math.sqrt(width * width + height * height) * 0.5F;
+        int tint = colour & 0xFFFFFF;
 
-        // A wash that is strongest at the edges, so the middle of the view stays readable.
-        int washAlpha = (int) (amount * 90);
-        graphics.fillGradient(0, 0, width, height / 3, (washAlpha << 24) | (colour & 0xFFFFFF), 0);
-        graphics.fillGradient(0, height - height / 3, width, height,
-                0, (washAlpha << 24) | (colour & 0xFFFFFF));
+        // A vignette rather than a wash. It draws the eye down the bore and darkens the corners where
+        // the tunnel wall is closest and least interesting, without putting colour over the middle of
+        // the frame where the ribs and the running band actually are.
+        int corner = (int) (amount * 55);
+        graphics.fillGradient(0, 0, width, height / 4, (corner << 24) | tint, 0);
+        graphics.fillGradient(0, height - height / 4, width, height, 0, (corner << 24) | tint);
+        int side = (int) (amount * 34);
+        graphics.fillGradient(0, 0, width / 5, height, (side << 24) | tint, 0);
+        graphics.fillGradient(width - width / 5, 0, width, height, 0, (side << 24) | tint);
 
-        float travel = Mth.lerp(partialTick, lastSpin, spin);
-        double density = AWConfig.PARTICLE_DENSITY.get();
-        int count = (int) (STREAKS * amount * density);
-
-        PoseStack pose = graphics.pose();
-        for (int i = 0; i < count; i++) {
-            // Evenly spread around the circle, jittered so they do not form a visible wheel.
-            float angle = (i / (float) Math.max(1, count)) * Mth.TWO_PI + (i % 5) * 0.37F;
-            float progress = ((i * 0.1379F) + travel * 0.25F) % 1.0F;
-            float eased = progress * progress;
-
-            float start = reach * (0.06F + eased * 1.05F);
-            float length = reach * (0.05F + eased * 0.22F);
-            float alpha = amount * (1.0F - eased) * 0.9F;
-            if (alpha <= 0.02F || start > reach * 1.15F) {
-                continue;
-            }
-
-            int thickness = 1 + (int) (eased * 3.0F);
-            int packed = ((int) (alpha * 255) << 24) | (colour & 0xFFFFFF);
-
-            pose.pushPose();
-            pose.translate(width / 2.0F, height / 2.0F, 0.0F);
-            pose.mulPose(Axis.ZP.rotation(angle));
-            graphics.fill((int) start, -thickness / 2 - 1, (int) (start + length), thickness / 2 + 1, packed);
-            pose.popPose();
+        // One slow breath across the whole frame, well under the old shimmer. Enough that the light
+        // in here feels unsteady; not enough to compete with the tunnel for attention.
+        float time = Mth.lerp(partialTick, lastSpin, spin);
+        int breath = (int) (amount * (5.0F + 5.0F * Mth.abs(Mth.sin(time * 0.08F))));
+        if (breath > 1) {
+            graphics.fill(0, 0, width, height, (breath << 24) | tint);
         }
     }
 }

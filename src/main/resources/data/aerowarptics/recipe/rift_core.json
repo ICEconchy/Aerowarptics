@@ -1,27 +1,32 @@
 {
-  "type": "minecraft:crafting_shaped",
-  "category": "misc",
-  "key": {
-    "B": {
-      "item": "create:brass_ingot"
-    },
-    "L": {
-      "item": "aeronautics:levitite"
-    },
-    "P": {
+  "type": "create:mixing",
+  "heat_requirement": "heated",
+  "ingredients": [
+    {
       "item": "create:precision_mechanism"
     },
-    "E": {
+    {
       "item": "create:electron_tube"
+    },
+    {
+      "item": "create:electron_tube"
+    },
+    {
+      "item": "create:brass_ingot"
+    },
+    {
+      "item": "create:brass_ingot"
+    },
+    {
+      "item": "aeronautics:levitite"
+    },
+    {
+      "item": "aeronautics:levitite"
     }
-  },
-  "pattern": [
-    "BEB",
-    "LPL",
-    "BEB"
   ],
-  "result": {
-    "count": 1,
-    "id": "aerowarptics:rift_core"
-  }
+  "results": [
+    {
+      "id": "aerowarptics:rift_core"
+    }
+  ]
 }

@@ -5,11 +5,11 @@
     "B": {
       "item": "create:brass_sheet"
     },
-    "C": {
-      "item": "create:cogwheel"
-    },
     "L": {
       "item": "aeronautics:levitite"
+    },
+    "C": {
+      "item": "create:cogwheel"
     }
   },
   "pattern": [

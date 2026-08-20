@@ -1,27 +1,23 @@
 {
-  "type": "minecraft:crafting_shaped",
-  "category": "misc",
-  "key": {
-    "A": {
+  "type": "create:compacting",
+  "heat_requirement": "heated",
+  "ingredients": [
+    {
       "item": "minecraft:amethyst_shard"
     },
-    "G": {
-      "item": "minecraft:glass_pane"
+    {
+      "item": "minecraft:amethyst_shard"
     },
-    "E": {
+    {
+      "item": "minecraft:glass"
+    },
+    {
       "item": "aeronautics:end_stone_powder"
-    },
-    "B": {
-      "item": "create:brass_sheet"
     }
-  },
-  "pattern": [
-    " A ",
-    "GEG",
-    " B "
   ],
-  "result": {
-    "count": 1,
-    "id": "aerowarptics:rift_lens"
-  }
+  "results": [
+    {
+      "id": "aerowarptics:rift_lens"
+    }
+  ]
 }

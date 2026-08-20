@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "formed=false": {
+      "model": "aerowarptics:block/astrolabe"
+    },
+    "formed=true": {
+      "model": "aerowarptics:block/astrolabe"
+    }
+  }
+}

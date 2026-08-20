@@ -167,6 +167,76 @@ sourceSets.main.resources.srcDir generateModMetadata
 // To avoid having to run "generateModMetadata" manually, make it run on every project reload
 neoForge.ideSyncTask generateModMetadata
 
+// ---------------------------------------------------------------------------
+// Drop the finished jar straight into a Minecraft instance.
+//
+// Testing this mod means launching a real game with Create, Aeronautics, Sable
+// and GeckoLib present, which the Gradle run configs cannot supply.  So every
+// build copies its jar into whatever instance "deploy_dir" points at, and the
+// only step between changing code and flying a ship is a rebuild.
+//
+// The path lives in gradle.properties so it can be overridden per machine in
+// ~/.gradle/gradle.properties, or for a single build with -Pdeploy_dir=...
+// Blank or unset disables the whole thing, so a checkout on another machine
+// builds normally without knowing anything about this one.
+// ---------------------------------------------------------------------------
+def deployDir = providers.gradleProperty('deploy_dir')
+def deployJar = tasks.named('jar').flatMap { it.archiveFile }
+def deployModId = project.mod_id
+
+var deployToInstance = tasks.register('deployToInstance') {
+    group = 'build'
+    description = 'Copies the built jar into the Minecraft instance named by deploy_dir.'
+
+    inputs.file(deployJar)
+    // No declared output: the destination is outside the project, so let it copy every time rather
+    // than trusting an up-to-date check against a directory the game itself writes to.
+    onlyIf { deployDir.getOrElse('').trim() != '' }
+
+    doLast {
+        var target = new File(deployDir.get().trim())
+        if (!target.isDirectory()) {
+            logger.error("[deploy] {} is not a directory - jar not deployed. " +
+                    "Fix deploy_dir in gradle.properties, or blank it to turn this off.", target)
+            return
+        }
+
+        var source = deployJar.get().asFile
+
+        // Clear out earlier builds of *this* mod only. Without this a version bump leaves two
+        // aerowarptics jars in the folder and the game refuses to start on the duplicate mod id.
+        target.listFiles()?.each { file ->
+            if (file.name.startsWith(deployModId + '-') && file.name.endsWith('.jar')
+                    && file.name != source.name) {
+                if (file.delete()) {
+                    logger.lifecycle("[deploy] removed stale {}", file.name)
+                } else {
+                    logger.error("[deploy] could not remove stale {} - remove it by hand or the " +
+                            "game will see two copies of this mod.", file.name)
+                }
+            }
+        }
+
+        try {
+            java.nio.file.Files.copy(source.toPath(), new File(target, source.name).toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            logger.lifecycle("[deploy] {} -> {}", source.name, target)
+        } catch (java.io.IOException e) {
+            // Windows holds a lock on every jar a running JVM has open, so this is nearly always
+            // "the game is still running". Say so plainly and do not fail the build over it - but do
+            // shout, because the alternative is testing yesterday's jar and not knowing.
+            logger.error("[deploy] FAILED to write {} into {} - is Minecraft still running? ({})",
+                    source.name, target, e.message)
+        }
+    }
+}
+
+// Deployment is a finalizer, so a build that compiles still lands its jar even if a test fails - the
+// jar is worth having either way. A compile failure produces no jar at all, so nothing is copied.
+tasks.named('build') {
+    finalizedBy deployToInstance
+}
+
 // Example configuration to allow publishing using the maven-publish plugin
 publishing {
     publications {

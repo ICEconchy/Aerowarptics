@@ -70,7 +70,9 @@ public class RiftDriveBlock extends DirectionalKineticBlock implements IBE<RiftD
 
     @Override
     public IRotate.SpeedLevel getMinimumRequiredSpeedLevel() {
-        return IRotate.SpeedLevel.MEDIUM;
+        // Create draws a speed requirement on the goggles from this. A creative drive has none, and
+        // showing one would be telling the player to fix something that is not broken.
+        return tier.creative() ? IRotate.SpeedLevel.NONE : IRotate.SpeedLevel.MEDIUM;
     }
 
     @Override

@@ -1,7 +1,9 @@
 package uk.co.iceconchy.aerowarptics.registry;
 
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.BucketItem;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -34,6 +36,17 @@ public final class AWItems {
 
     public static final DeferredItem<BlockItem> WARP_ANCHOR =
             ITEMS.registerSimpleBlockItem("warp_anchor", AWBlocks.WARP_ANCHOR);
+
+    public static final DeferredItem<BlockItem> ASTROLABE =
+            ITEMS.registerSimpleBlockItem("astrolabe", AWBlocks.ASTROLABE);
+
+    public static final DeferredItem<BlockItem> SPATIAL_SIPHON =
+            ITEMS.registerSimpleBlockItem("spatial_siphon", AWBlocks.SPATIAL_SIPHON);
+
+    /** A bucket of what a Spatial Siphon collects, so the fluid can be moved by hand as well as by pipe. */
+    public static final DeferredItem<BucketItem> RIFT_ESSENCE_BUCKET =
+            ITEMS.register("rift_essence_bucket", () -> new BucketItem(AWFluids.RIFT_ESSENCE.get(),
+                    new Item.Properties().craftRemainder(Items.BUCKET).stacksTo(1)));
 
     public static final Map<RiftDriveTier, DeferredItem<BlockItem>> RIFT_DRIVES =
             new EnumMap<>(RiftDriveTier.class);

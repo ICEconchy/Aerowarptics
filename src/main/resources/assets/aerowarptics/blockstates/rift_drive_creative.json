@@ -1,0 +1,22 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "aerowarptics:block/rift_drive_creative"
+    },
+    "facing=east": {
+      "model": "aerowarptics:block/rift_drive_creative"
+    },
+    "facing=south": {
+      "model": "aerowarptics:block/rift_drive_creative"
+    },
+    "facing=west": {
+      "model": "aerowarptics:block/rift_drive_creative"
+    },
+    "facing=up": {
+      "model": "aerowarptics:block/rift_drive_creative"
+    },
+    "facing=down": {
+      "model": "aerowarptics:block/rift_drive_creative"
+    }
+  }
+}

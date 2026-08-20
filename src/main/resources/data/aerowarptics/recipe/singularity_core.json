@@ -1,7 +1,5 @@
 {
   "type": "create:mechanical_crafting",
-  "accept_mirrored": false,
-  "category": "misc",
   "key": {
     "P": {
       "item": "aeronautics:pearlescent_levitite"
@@ -9,7 +7,7 @@
     "R": {
       "item": "create:refined_radiance"
     },
-    "S": {
+    "H": {
       "item": "create:shadow_steel"
     },
     "C": {
@@ -17,15 +15,13 @@
     }
   },
   "pattern": [
-    " PRP ",
-    "PSCSP",
-    "RCCCR",
-    "PSCSP",
-    " PRP "
+    "PRP",
+    "HCH",
+    "PRP"
   ],
   "result": {
     "count": 1,
     "id": "aerowarptics:singularity_core"
   },
-  "show_notification": true
+  "accept_mirrored": false
 }

@@ -1,7 +1,5 @@
 {
   "type": "create:mechanical_crafting",
-  "accept_mirrored": false,
-  "category": "misc",
   "key": {
     "D": {
       "item": "aerowarptics:rift_drive_mk_i"
@@ -20,13 +18,13 @@
     }
   },
   "pattern": [
-    " SLS ",
-    "BPDPB",
-    " SLS "
+    " SPS ",
+    "BLDLB",
+    " SPS "
   ],
   "result": {
     "count": 1,
     "id": "aerowarptics:rift_drive_mk_ii"
   },
-  "show_notification": true
+  "accept_mirrored": false
 }

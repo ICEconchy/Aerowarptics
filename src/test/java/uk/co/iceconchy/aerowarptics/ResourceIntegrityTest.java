@@ -109,6 +109,8 @@ class ResourceIntegrityTest {
         List<String> blocks = new ArrayList<>(Stream.of(RiftDriveTier.values())
                 .map(RiftDriveTier::blockName).toList());
         blocks.add("warp_anchor");
+        blocks.add("astrolabe");
+        blocks.add("spatial_siphon");
 
         for (String block : blocks) {
             if (!Files.exists(ASSETS.resolve("blockstates").resolve(block + ".json"))) {
@@ -189,6 +191,10 @@ class ResourceIntegrityTest {
                 Stream.of(RiftDriveState.values()).map(RiftDriveState::animation).toList(), problems);
         checkAnimations("warp_anchor",
                 Stream.of(WarpAnchorStatus.values()).map(WarpAnchorStatus::animation).toList(), problems);
+        checkAnimations("astrolabe",
+                List.of("animation.astrolabe.idle", "animation.astrolabe.active"), problems);
+        checkAnimations("spatial_siphon",
+                List.of("animation.spatial_siphon.idle", "animation.spatial_siphon.drawing"), problems);
 
         assertTrue(problems.isEmpty(), String.join("\n", problems));
     }
@@ -268,16 +274,30 @@ class ResourceIntegrityTest {
         assertTrue(problems.isEmpty(), String.join("\n", problems));
     }
 
+    /**
+      * Every block drops itself, and everything a player is meant to build can be built.
+      *
+      * <p>The creative drive is the one exception, and it is checked <em>for</em> having no recipe
+      * rather than skipped: a creative-only item that quietly became craftable would be a balance
+      * hole nobody would think to look for.
+      */
     @Test
-    void everyDriveTierHasARecipeAndALootTable() {
+    void everyBlockDropsItselfAndOnlyCreativeGearIsUncraftable() {
         Path data = RESOURCES.resolve("data/aerowarptics");
         List<String> problems = new ArrayList<>();
         List<String> blocks = new ArrayList<>(Stream.of(RiftDriveTier.values())
                 .map(RiftDriveTier::blockName).toList());
         blocks.add("warp_anchor");
+        blocks.add("astrolabe");
+        blocks.add("spatial_siphon");
 
         for (String block : blocks) {
-            if (!Files.exists(data.resolve("recipe").resolve(block + ".json"))) {
+            boolean craftable = Files.exists(data.resolve("recipe").resolve(block + ".json"));
+            boolean creativeOnly = block.equals(RiftDriveTier.CREATIVE.blockName());
+            if (craftable && creativeOnly) {
+                problems.add(block + " is creative-only but has a recipe");
+            }
+            if (!craftable && !creativeOnly) {
                 problems.add("no recipe for " + block);
             }
             if (!Files.exists(data.resolve("loot_table/blocks").resolve(block + ".json"))) {
