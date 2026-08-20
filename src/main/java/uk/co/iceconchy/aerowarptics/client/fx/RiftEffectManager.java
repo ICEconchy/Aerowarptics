@@ -101,6 +101,13 @@ public final class RiftEffectManager {
      */
     private static final float FIRE_BIAS = 0.06F;
 
+    /** Ribs apart, a rib is lit as a gate the hull punches through rather than as another ring. */
+    private static final int GATE_EVERY = 4;
+    /** How much brighter a gate is than the bore around it. */
+    private static final float GATE_GLOW = 0.55F;
+    /** How far down the bore the light at the end of it sits. */
+    private static final float FAR_LIGHT = 0.985F;
+
     /** Half-width of a crack where it leaves the impact, as a fraction of the aperture. */
     private static final float CRACK_ROOT = 0.030F;
     /** Half-width of a crack at its running tip. A fracture narrows as it travels. */
@@ -144,6 +151,8 @@ public final class RiftEffectManager {
         final float rimTime;
         /** Whether the pane has gone yet, so the break is announced exactly once. */
         boolean broken;
+        /** What is loose inside the bore, if this aperture ever grows one. */
+        final RiftDebris.Mote[] motes;
 
         ActiveRift(Vec3 centre, Vec3 normal, double radius, int colour, float throat,
                    int openTicks, int holdTicks, int closeTicks) {
@@ -156,6 +165,7 @@ public final class RiftEffectManager {
             this.closeTicks = closeTicks;
             this.seed = RiftShatter.seedFor(centre.x, centre.y, centre.z);
             this.shards = RiftShatter.fracture(seed);
+            this.motes = RiftDebris.field(seed);
             this.rimTime = openTicks * RiftShatter.CRACK_PHASE * 0.12F;
 
             Vector3f forward = new Vector3f((float) normal.x, (float) normal.y, (float) normal.z);
@@ -385,6 +395,7 @@ public final class RiftEffectManager {
             VertexConsumer fire = buffers.getBuffer(RenderType.lightning());
             for (ActiveRift rift : ACTIVE) {
                 drawHaze(fire, matrix, rift, partialTick);
+                drawFarLight(fire, matrix, rift, partialTick);
                 drawFire(fire, matrix, rift, partialTick, eye);
                 drawCracks(fire, matrix, rift, partialTick, eye);
             }
@@ -396,6 +407,7 @@ public final class RiftEffectManager {
             VertexConsumer glass = buffers.getBuffer(AWRenderTypes.RIFT_SHARD);
             for (ActiveRift rift : ACTIVE) {
                 drawShards(glass, matrix, rift, partialTick, eye);
+                drawMotes(glass, matrix, rift, partialTick, eye);
             }
             buffers.endBatch(AWRenderTypes.RIFT_SHARD);
         }
@@ -468,19 +480,18 @@ public final class RiftEffectManager {
         float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
         float blue = (rift.colour & 0xFF) / 255.0F;
 
-        // A pulse of light running the length of the bore. It travels away from the mouth on an
-        // aperture a ship goes into and towards it on one a ship comes out of, so the tunnel always
-        // shows the direction of travel rather than just being lit.
-        float band = (rift.lastAge + partialTick) * 0.022F % 1.0F;
-        if (rift.throat < 0.0F) {
-            band = 1.0F - band;
-        }
+        float band = bandPosition(rift, partialTick);
 
         for (int ring = 0; ring < THROAT_RINGS.length - 1; ring++) {
             float nearT = THROAT_RINGS[ring];
             float farT = THROAT_RINGS[ring + 1];
-            float nearGlow = throatGlow(nearT, band);
-            float farGlow = throatGlow(farT, band);
+            // Every few ribs is a gate: a bright ring rather than another stripe. A hull passing
+            // through one of these is the clearest speed cue the corridor has, because it is a
+            // discrete event at a known distance rather than a gradient sliding by.
+            float nearGlow = Math.min(1.0F, throatGlow(nearT, band)
+                    + (ring % GATE_EVERY == 0 ? GATE_GLOW : 0.0F));
+            float farGlow = Math.min(1.0F, throatGlow(farT, band)
+                    + ((ring + 1) % GATE_EVERY == 0 ? GATE_GLOW : 0.0F));
             // Alternate rings stand slightly proud, so the bore has actual relief to catch the light
             // instead of being a smooth pipe with stripes painted on it.
             float nearWidth = throatWidth(nearT) * (ring % 2 == 0 ? 1.0F : 1.0F + RIB_RELIEF);
@@ -868,6 +879,227 @@ public final class RiftEffectManager {
         float y = (float) (rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * w);
         float z = (float) (rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * w);
         consumer.addVertex(matrix, x, y, z).setColor(red, green, blue, Math.min(1.0F, alpha));
+    }
+
+    /**
+     * Where the pulse of light running the bore has got to, 0..1.
+     *
+     * <p>It travels away from the mouth on an aperture a ship goes into and towards it on one a ship
+     * comes out of, so the tunnel always shows the direction of travel rather than merely being lit.
+     * Shared, because the debris in the bore has to be lit by the same pulse that lights its walls -
+     * a pulse that swept over the wall and left the things floating in front of it unchanged would
+     * give the whole effect away as paint.
+     */
+    private static float bandPosition(ActiveRift rift, float partialTick) {
+        float band = (rift.lastAge + partialTick) * 0.022F % 1.0F;
+        return rift.throat < 0.0F ? 1.0F - band : band;
+    }
+
+    /**
+     * The light at the end of the tunnel.
+     *
+     * <p>The bore closes on a cosine and fades out before it does, which stops it reading as a bag -
+     * but "not obviously ending" is not the same as going somewhere. A light at the far end gives the
+     * corridor a destination, and gives the crew something that grows as they close on it, which is
+     * the only progress cue available in a place with no landmarks.
+     */
+    private static void drawFarLight(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                     float partialTick) {
+        float open = Mth.lerp(partialTick, rift.throatOpenLast, rift.throatOpen);
+        if (open <= 0.001F || rift.throat == 0.0F) {
+            return;
+        }
+        float aperture = rift.aperture(partialTick);
+        if (aperture <= 0.001F) {
+            return;
+        }
+
+        double cover = rift.radius * aperture;
+        double along = rift.throat * open * FAR_LIGHT;
+        // Sized off the bore where it actually sits. The throat has nearly closed by this depth, and
+        // a light scaled off the mouth would hang well outside the cone - visible from the world as a
+        // glowing ring around a tube that is supposed to be tapering quietly shut.
+        double bore = cover * throatWidth(FAR_LIGHT);
+        // A slow breath, so the far end is alive rather than a decal pasted on the end of a pipe.
+        float pulse = 0.85F + 0.15F * Mth.sin((rift.lastAge + partialTick) * 0.09F);
+        float alpha = aperture * open * pulse;
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+
+        // A white core inside a halo of the rift's own colour: the core is what you aim at and the
+        // halo is what makes it look like light rather than a disc.
+        double core = bore * 0.55D * pulse;
+        disc(consumer, matrix, rift, 0.0D, core, along,
+                1.0F, 1.0F, 1.0F, alpha, 1.0F, 1.0F, 1.0F, alpha * 0.8F);
+        disc(consumer, matrix, rift, core, bore * 1.7D, along,
+                1.0F, 1.0F, 1.0F, alpha * 0.8F, red, green, blue, 0.0F);
+    }
+
+    /** A flat annulus across the bore, for the light at the far end of it. */
+    private static void disc(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                             double inner, double outer, double along,
+                             float innerRed, float innerGreen, float innerBlue, float innerAlpha,
+                             float outerRed, float outerGreen, float outerBlue, float outerAlpha) {
+        for (int segment = 0; segment < SEGMENTS; segment++) {
+            double a0 = (segment / (double) SEGMENTS) * Math.PI * 2.0D;
+            double a1 = ((segment + 1) / (double) SEGMENTS) * Math.PI * 2.0D;
+            localVertex(consumer, matrix, rift, Math.cos(a0) * inner, Math.sin(a0) * inner, along,
+                    innerRed, innerGreen, innerBlue, innerAlpha);
+            localVertex(consumer, matrix, rift, Math.cos(a1) * inner, Math.sin(a1) * inner, along,
+                    innerRed, innerGreen, innerBlue, innerAlpha);
+            localVertex(consumer, matrix, rift, Math.cos(a1) * outer, Math.sin(a1) * outer, along,
+                    outerRed, outerGreen, outerBlue, outerAlpha);
+            localVertex(consumer, matrix, rift, Math.cos(a0) * outer, Math.sin(a0) * outer, along,
+                    outerRed, outerGreen, outerBlue, outerAlpha);
+        }
+    }
+
+    /**
+     * What is loose in the bore, passing the hull.
+     *
+     * <p>Almost all of it is fixed in the tunnel and lets the ship supply the motion - see
+     * {@link RiftDebris} for why that is the only way it can be seen at all. Glass glints as it turns;
+     * wreckage is drawn dark and silhouettes against the lit wall behind it, which is what keeps the
+     * two kinds of thing telling apart at a glance.
+     */
+    private static void drawMotes(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                  float partialTick, Vec3 eye) {
+        float open = Mth.lerp(partialTick, rift.throatOpenLast, rift.throatOpen);
+        if (open <= 0.001F || rift.throat == 0.0F) {
+            return;
+        }
+        float aperture = rift.aperture(partialTick);
+        if (aperture <= 0.001F) {
+            return;
+        }
+
+        float time = (rift.lastAge + partialTick) * 0.12F;
+        float clock = Mth.lerp(partialTick, rift.lastAge, rift.age);
+        float band = bandPosition(rift, partialTick);
+        double cover = rift.radius * aperture;
+        double depth = rift.throat * open;
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+
+        for (RiftDebris.Mote mote : rift.motes) {
+            float at = RiftDebris.along(mote, clock);
+            float width = throatWidth(at);
+            if (width <= 0.02F) {
+                continue; // inside the cone where the bore has already closed
+            }
+
+            double bore = cover * RiftTear.rim(mote.angle(), time) * width;
+            double u = Math.cos(mote.angle()) * bore * mote.radius();
+            double v = Math.sin(mote.angle()) * bore * mote.radius();
+            double w = depth * at;
+            // Lit by the bore it is in, running band included, so a piece brightens as the pulse
+            // reaches it instead of being evenly lit in a tunnel that plainly is not.
+            float lit = throatGlow(at, band);
+
+            if (mote.streak()) {
+                streak(consumer, matrix, rift, mote, u, v, w, depth, cover, lit * open, eye,
+                        red, green, blue);
+                continue;
+            }
+
+            float turn = mote.spin() * clock;
+            float axisU = Mth.cos(mote.axis());
+            float axisV = Mth.sin(mote.axis());
+            Vector3f alongU = new Vector3f(1.0F, 0.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+            Vector3f alongV = new Vector3f(0.0F, 1.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+            Vector3f facing = new Vector3f(0.0F, 0.0F, 1.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+
+            float sheen = glint(rift, eye, facing, u, v, w);
+            double half = cover * mote.size();
+
+            float moteRed;
+            float moteGreen;
+            float moteBlue;
+            float alpha;
+            if (mote.glass()) {
+                float white = sheen * sheen;
+                float shine = 0.35F + 0.65F * white;
+                moteRed = Mth.lerp(white, red, 1.0F) * shine;
+                moteGreen = Mth.lerp(white, green, 1.0F) * shine;
+                moteBlue = Mth.lerp(white, blue, 1.0F) * shine;
+                alpha = open * (0.16F + 0.84F * white);
+            } else {
+                // Wreckage is a lump, not a mirror. Dark and nearly solid, so it reads as a shape
+                // crossing the light rather than as another glowing thing among many.
+                moteRed = red * 0.22F;
+                moteGreen = green * 0.22F;
+                moteBlue = blue * 0.22F;
+                alpha = open * 0.78F;
+            }
+            // Fade with the bore, or a dark piece at the unlit far end is a black hole in a black
+            // tunnel, and a bright one is a light with nothing around it.
+            alpha *= 0.25F + 0.75F * lit;
+
+            corner(consumer, matrix, rift, u, v, w, alongU, alongV, -half, -half,
+                    moteRed, moteGreen, moteBlue, alpha);
+            corner(consumer, matrix, rift, u, v, w, alongU, alongV, half, -half,
+                    moteRed, moteGreen, moteBlue, alpha);
+            corner(consumer, matrix, rift, u, v, w, alongU, alongV, half, half,
+                    moteRed, moteGreen, moteBlue, alpha);
+            corner(consumer, matrix, rift, u, v, w, alongU, alongV, -half, half,
+                    moteRed, moteGreen, moteBlue, alpha);
+        }
+    }
+
+    /**
+     * One of the few pieces with real speed, drawn as the line it would leave.
+     *
+     * <p>Turned to face the viewer, because a flat ribbon seen edge-on is nothing at all and this one
+     * is only on screen for a moment. It fades along its length: the head is where the thing is and
+     * the tail is where it was.
+     */
+    private static void streak(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                               RiftDebris.Mote mote, double u, double v, double w,
+                               double depth, double cover, float lit, Vec3 eye,
+                               float red, float green, float blue) {
+        // The trail lies behind the direction of travel, whichever way that is down this bore.
+        double tail = w - depth * RiftDebris.streakLength(mote) * Math.signum(mote.drift());
+
+        double headX = rift.centre.x + rift.right.x * u + rift.up.x * v + rift.normal.x * w;
+        double headY = rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * w;
+        double headZ = rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * w;
+        double tailX = rift.centre.x + rift.right.x * u + rift.up.x * v + rift.normal.x * tail;
+        double tailY = rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * tail;
+        double tailZ = rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * tail;
+
+        double toEyeX = eye.x - headX;
+        double toEyeY = eye.y - headY;
+        double toEyeZ = eye.z - headZ;
+        // Across both the bore and the line of sight, which is the one direction that gives a ribbon
+        // its full width however the viewer is standing.
+        double sideX = rift.normal.y * toEyeZ - rift.normal.z * toEyeY;
+        double sideY = rift.normal.z * toEyeX - rift.normal.x * toEyeZ;
+        double sideZ = rift.normal.x * toEyeY - rift.normal.y * toEyeX;
+        double length = Math.sqrt(sideX * sideX + sideY * sideY + sideZ * sideZ);
+        if (length < 1.0e-6D) {
+            return; // looking straight down the bore: the ribbon has no width to show
+        }
+        double half = cover * mote.size() / length;
+        sideX *= half;
+        sideY *= half;
+        sideZ *= half;
+
+        float alpha = (0.35F + 0.65F * lit) * 0.9F;
+        worldVertex(consumer, matrix, headX + sideX, headY + sideY, headZ + sideZ, 1.0F, 1.0F, 1.0F, alpha);
+        worldVertex(consumer, matrix, headX - sideX, headY - sideY, headZ - sideZ, 1.0F, 1.0F, 1.0F, alpha);
+        worldVertex(consumer, matrix, tailX - sideX, tailY - sideY, tailZ - sideZ, red, green, blue, 0.0F);
+        worldVertex(consumer, matrix, tailX + sideX, tailY + sideY, tailZ + sideZ, red, green, blue, 0.0F);
+    }
+
+    private static void worldVertex(VertexConsumer consumer, Matrix4f matrix,
+                                    double x, double y, double z,
+                                    float red, float green, float blue, float alpha) {
+        consumer.addVertex(matrix, (float) x, (float) y, (float) z)
+                .setColor(red, green, blue, Math.min(1.0F, alpha));
     }
 
     private static void throatVertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,

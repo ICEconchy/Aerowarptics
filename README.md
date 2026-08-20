@@ -303,7 +303,7 @@ throat runs whichever way the hull is hidden: forwards on the aperture a ship fl
 the one it comes out of, and it shares the mouth's torn rim exactly so the two meet on a common edge.
 It exists only while something is inside it; an aperture sitting open does not trail a bore behind it.
 
-Making that bore read as a *tunnel* rather than as a shape took four things, because an opaque object
+Making that bore read as a *tunnel* rather than as a shape took five things, because an opaque object
 with no surface detail and a hard silhouette is exactly what the eye files as a blob:
 
 - **Ribs.** Sixteen rings down its length, bunched towards the mouth where they can still be resolved,
@@ -316,9 +316,50 @@ with no surface detail and a hard silhouette is exactly what the eye files as a 
   towards it on one it comes out of, so the tunnel always shows the direction of travel.
 - **A haze sleeve.** A soft additive flare around the outside, fading over a few blocks, so the bore
   has an atmosphere to sit in instead of a hard edge cut against the sky.
+- **Gates.** Every fourth rib is lit as a bright ring rather than another stripe. A hull passing
+  through one is the clearest speed cue the corridor has, because it is a discrete event at a known
+  distance rather than a gradient sliding by.
 
-The far end fades to black well before it closes, so what a player sees is a bore receding into
-darkness rather than a cone ending in a point.
+The far end used to fade to black before it closed, so what a player saw was a bore receding into
+darkness rather than a cone ending in a point. It now has a **light at the end of it** — a small white
+core in a halo of the rift's colour, breathing slowly, sized off the bore where it actually sits rather
+than off the mouth. "Not obviously ending" is not the same as going somewhere, and in a place with no
+landmarks a light you close on is the only progress cue available.
+
+### What is in the tunnel
+
+A lit pipe is not a place. What makes the bore one is having things in it to pass: broken glass still
+turning over from the aperture that tore open to let the ship in, heavier wreckage of somewhere else,
+and the occasional streak of light running the other way. `RiftDebris` furnishes every bore with
+ninety-six pieces, cut deterministically from the rift's own seed like everything else here, so two
+players in one corridor see the same things go by without a byte being sent about them.
+
+**Almost none of it moves**, and that is the whole design rather than an economy. The hull covers the
+length of the bore in about five seconds, and that is the one motion cue in the corridor that is real
+rather than painted. Debris moving fast *as well* would cross the view inside a single frame and simply
+never be seen — which is precisely why the corridor was a screen effect before it was a place. So the
+field is fixed in the tunnel and the ship supplies the speed. A slow drift and a tumble keep it from
+being a sculpture.
+
+A sixth of the field is given real speed and drawn as **streaks** instead, running against the ship so
+they close with it rather than dawdling alongside. Each is drawn as long as it is fast, turned to face
+the viewer, and fading from head to tail — the head is where the thing is and the tail is where it was.
+A few things tearing past is energy; everything tearing past is a blur.
+
+The two kinds of debris are drawn to be told apart at a glance. **Glass** glints: each piece tumbles in
+its own frame and brightens as it turns face-on, the same trick the shatter uses, because a flash is
+what says "hard reflective surface" with no texture to say it with. **Wreckage** is drawn dark and
+nearly solid, so it silhouettes against the lit wall behind it. Both are lit by the bore they are in,
+running band included — a pulse that swept over the wall and left the things floating in front of it
+unchanged would give the whole effect away as paint.
+
+Positions **wrap** rather than clamping. A piece that ran off the end and stopped would leave the
+tunnel emptying out behind the ship over a long corridor, which is the exact opposite of what a
+corridor should do as you get further into it. `RiftDebrisTest` holds the parts that would fail
+silently: nothing ever leaves the bore however long it drifts, nothing sits close enough to the axis to
+end up inside the hull or far enough out to be embedded in the wall, and the two speeds stay two
+speeds — a drifter given a streak's velocity is invisible, and a streak given a drifter's is a
+stationary line hanging in the tunnel.
 
 The taper is a hole in the occluder as far as anything inside it is concerned, so the hull must be
 clear of it — and used not to be. The depth was sized by scaling only the passage while the corridor
