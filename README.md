@@ -235,6 +235,47 @@ put wherever it is finally going to be. So somebody who came off mid-corridor ar
 rather than at the coordinates of a rift that no longer exists, and nobody takes fall damage for a
 descent the server was flying.
 
+### Breaking space open
+
+An aperture does not iris open. It arrives the way a stone arrives through a window, in three beats:
+
+1. **The crack.** A hard point of impact, and thirteen radial fractures racing outwards from it,
+   crossed by four concentric rings. There is no hole yet — the world behind the rift is still there
+   to see, with a lit fracture over the top of it.
+2. **The break.** The panes between the fractures come loose, the hole arrives fast rather than
+   easing, and a pane of space goes.
+3. **The drift.** Fifty-two shards tumble away and fade over the next couple of seconds, well outliving
+   the opening, so a new rift hangs in a slowly turning cloud of broken glass.
+
+That fracture pattern — radial cracks plus concentric rings — is the one struck glass actually makes,
+which is most of why it reads as breaking rather than as an effect.
+
+`RiftShatter` cuts the pane deterministically from the rift's own position, the same way `RiftTear`
+shapes the rim. Nothing about the fracture goes over the wire: two players watching one aperture see
+the same glass break because both worked it out from the same coordinates. The entry and exit rifts of
+a jump are metres apart, so they break differently from each other.
+
+Shards are drawn **translucent, not additive**, and on their own render type that writes no depth. A
+fragment passing in front of a burning rim should darken it; drawn additively every piece disappears
+into the light it came off. Each one keeps its own frame and tumbles in it, and its brightness is keyed
+to how square-on it happens to be turned — so the field glitters as it drifts, which is the one thing
+that says "hard reflective surface" without a texture to say it with.
+
+**The shatter is a presentation, not a mechanism.** Everything below this depends on the face being a
+complete, opaque surface before a hull reaches it, so:
+
+- the whole break runs inside the opening budget, which the flight planner floors at twenty ticks of
+  approach, and `RiftShatterTest` asserts every shard is loose before the hole finishes opening;
+- the hole is exactly zero for the entire crack phase — a partly-open aperture with a fracture painted
+  over it would be neither one thing nor the other;
+- and if a hull arrives early anyway, because the rift stands close or the run at it is brisk, the
+  aperture **stops animating and is simply there**. A ship arriving is not a cue to keep playing an
+  opening; it is a cue to be open. That is the same reasoning the throat already used.
+
+The fracture also has to tile the pane it cuts up. A gap between cells is a piece of glass that never
+existed and an overlap is two pieces in the same place, so the test sweeps sixty-four seeds asserting
+every ring closes on exactly one turn and every ring meets the one inside it.
+
 ### Disappearing into a rift
 
 The face of an aperture is **opaque and writes depth**, and it is drawn after the world's blocks. That

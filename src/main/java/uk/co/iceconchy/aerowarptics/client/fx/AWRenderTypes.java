@@ -64,6 +64,29 @@ public final class AWRenderTypes extends RenderStateShard {
                     .setWriteMaskState(COLOR_WRITE)
                     .createCompositeState(false));
 
+    /**
+     * Broken space: translucent, unlit, and it does not write depth.
+     *
+     * <p>Deliberately not the membrane. A shard is a fragment catching light, not an occluder - drawn
+     * opaque it would punch depth holes in the sky around the aperture and hide the very rift it came
+     * off. Not writing depth also means the pieces blend into each other in any order, which matters
+     * when fifty of them are tumbling through the same few metres.
+     */
+    public static final RenderType RIFT_SHARD = RenderType.create(
+            "aerowarptics_rift_shard",
+            DefaultVertexFormat.POSITION_COLOR,
+            VertexFormat.Mode.QUADS,
+            2048,
+            false,
+            true,
+            RenderType.CompositeState.builder()
+                    .setShaderState(POSITION_COLOR_SHADER)
+                    .setTransparencyState(TRANSLUCENT_TRANSPARENCY)
+                    .setCullState(NO_CULL)
+                    .setDepthTestState(LEQUAL_DEPTH_TEST)
+                    .setWriteMaskState(COLOR_WRITE)
+                    .createCompositeState(false));
+
     private AWRenderTypes() {
         super("aerowarptics", () -> {
         }, () -> {

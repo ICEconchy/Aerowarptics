@@ -7,6 +7,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
@@ -98,6 +100,12 @@ public final class RiftEffectManager {
      * side the camera is on, since a rift gets watched from both.
      */
     private static final float FIRE_BIAS = 0.06F;
+
+    /** Half-width of a crack where it leaves the impact, as a fraction of the aperture. */
+    private static final float CRACK_ROOT = 0.030F;
+    /** Half-width of a crack at its running tip. A fracture narrows as it travels. */
+    private static final float CRACK_TIP = 0.006F;
+
     private static final List<ActiveRift> ACTIVE = new ArrayList<>();
 
     private RiftEffectManager() {
@@ -123,6 +131,19 @@ public final class RiftEffectManager {
         /** 0..1 how far the throat has opened, so it grows and closes rather than appearing. */
         float throatOpen;
         float throatOpenLast;
+        /** The fracture this aperture breaks along, worked out from where it is. */
+        final int seed;
+        final RiftShatter.Shard[] shards;
+        /**
+         * The rim's wander frozen at the moment the pane breaks.
+         *
+         * <p>Shards keep the silhouette they were cut from. Letting the rim carry on wandering under
+         * them would make every piece of glass breathe in step with the hole it left, which is not a
+         * thing broken glass does.
+         */
+        final float rimTime;
+        /** Whether the pane has gone yet, so the break is announced exactly once. */
+        boolean broken;
 
         ActiveRift(Vec3 centre, Vec3 normal, double radius, int colour, float throat,
                    int openTicks, int holdTicks, int closeTicks) {
@@ -133,6 +154,9 @@ public final class RiftEffectManager {
             this.openTicks = openTicks;
             this.holdTicks = holdTicks;
             this.closeTicks = closeTicks;
+            this.seed = RiftShatter.seedFor(centre.x, centre.y, centre.z);
+            this.shards = RiftShatter.fracture(seed);
+            this.rimTime = openTicks * RiftShatter.CRACK_PHASE * 0.12F;
 
             Vector3f forward = new Vector3f((float) normal.x, (float) normal.y, (float) normal.z);
             if (forward.lengthSquared() < 1.0e-6F) {
@@ -156,24 +180,46 @@ public final class RiftEffectManager {
 
         /** Sends the aperture into its collapse now, whatever it had left to run. */
         void collapse() {
+            // An aperture called off while it was still cracking never broke, and must not be heard
+            // breaking: the jump forward below would otherwise take it past the moment that fires.
+            broken = true;
             age = Math.max(age, openTicks + holdTicks);
             // Land the previous age on the new one too, or the next frame interpolates across the
             // jump and the aperture appears to flinch before it collapses.
             lastAge = age;
         }
 
-        /** 0..1 aperture size, easing open and snapping shut. */
+        /**
+         * 0..1 aperture size: nothing at all while the pane is only cracking, then a hole.
+         *
+         * <p>The opening half of this is {@link RiftShatter#hole}, which holds at zero for the whole
+         * crack phase. Everything that draws the aperture itself - face, throat, fire, haze - is gated
+         * on this, so during the cracking there is simply nothing there but the fracture and the world
+         * still visible behind it.
+         */
         float aperture(float partialTick) {
             float time = Mth.lerp(partialTick, lastAge, age);
             if (time < openTicks) {
-                float t = time / openTicks;
-                return t * t * (3.0F - 2.0F * t); // smoothstep: tears open, then steadies
+                return RiftShatter.hole(openProgress(partialTick));
             }
             if (time < openTicks + holdTicks) {
                 return 1.0F;
             }
             float t = (time - openTicks - holdTicks) / Math.max(1.0F, closeTicks);
             return Math.max(0.0F, 1.0F - t * t); // collapses faster than it opened
+        }
+
+        /** 0..1 progress through the opening, whatever the opening is worth in ticks. */
+        float openProgress(float partialTick) {
+            if (openTicks <= 0) {
+                return 1.0F;
+            }
+            return Mth.clamp(Mth.lerp(partialTick, lastAge, age) / openTicks, 0.0F, 1.0F);
+        }
+
+        /** Ticks since the pane began to break. Negative while it is still only cracking. */
+        float sinceBreak(float partialTick) {
+            return Mth.lerp(partialTick, lastAge, age) - openTicks * RiftShatter.CRACK_PHASE;
         }
 
     }
@@ -203,6 +249,14 @@ public final class RiftEffectManager {
             return;
         }
         rift.transitTicks = Math.max(rift.transitTicks, ticks);
+        // A hull has arrived, so the aperture stops animating and is simply there. Hiding a ship is
+        // the face's job and it cannot do it half open - the same reasoning as the throat below. This
+        // is what stops a short run at the rift, or a brisk one, from catching the shatter mid-break
+        // and flying a visible hull through a hole that has not finished appearing.
+        if (rift.age < rift.openTicks) {
+            rift.age = rift.openTicks;
+            rift.lastAge = rift.age;
+        }
         if (rift.throat < 0.0F) {
             // An aperture a hull comes *out* of already has the hull inside it the moment this
             // arrives, so its throat has to be there immediately. Growing it over a few ticks would
@@ -264,6 +318,16 @@ public final class RiftEffectManager {
             ActiveRift rift = iterator.next();
             rift.lastAge = rift.age;
             rift.age++;
+            if (!rift.broken && rift.age >= rift.openTicks * RiftShatter.CRACK_PHASE) {
+                // The pane goes. Announced once, from the client that is watching it, because the
+                // fracture is worked out from the rift's position and needs nothing from the server.
+                rift.broken = true;
+                // Volume over one is range rather than loudness in Minecraft, so a big aperture is
+                // heard breaking from further off rather than more sharply from close up.
+                level.playLocalSound(rift.centre.x, rift.centre.y, rift.centre.z,
+                        SoundEvents.GLASS_BREAK, SoundSource.BLOCKS,
+                        (float) Math.min(4.0D, 1.6D + rift.radius * 0.10D), 0.45F, true);
+            }
             if (rift.transitTicks > 0) {
                 rift.transitTicks--;
                 WarpEffects.tearFire(level, rift.centre, rift.right, rift.up, rift.radius, rift.colour);
@@ -304,25 +368,38 @@ public final class RiftEffectManager {
         poseStack.translate(-eye.x, -eye.y, -eye.z);
 
         MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
-        // The face goes down with the world's blocks so it can occlude them; the fire goes over
-        // everything afterwards, including the face it is burning around.
-        RenderType type = membranePass ? AWRenderTypes.RIFT_MEMBRANE : RenderType.lightning();
-        VertexConsumer consumer = buffers.getBuffer(type);
         Matrix4f matrix = poseStack.last().pose();
 
-        for (ActiveRift rift : ACTIVE) {
-            if (membranePass) {
-                // Throat first, then the face over its mouth: the face is what a viewer looking
-                // straight down the aperture sees, and it must win.
+        if (membranePass) {
+            // The face goes down with the world's blocks so it can occlude them. Throat first, then
+            // the face over its mouth: the face is what a viewer looking straight down the aperture
+            // sees, and it must win.
+            VertexConsumer consumer = buffers.getBuffer(AWRenderTypes.RIFT_MEMBRANE);
+            for (ActiveRift rift : ACTIVE) {
                 drawThroat(consumer, matrix, rift, partialTick);
                 drawFace(consumer, matrix, rift, partialTick);
-            } else {
-                drawHaze(consumer, matrix, rift, partialTick);
-                drawFire(consumer, matrix, rift, partialTick, eye);
             }
+            buffers.endBatch(AWRenderTypes.RIFT_MEMBRANE);
+        } else {
+            // Additive light over everything, including the face it is burning around.
+            VertexConsumer fire = buffers.getBuffer(RenderType.lightning());
+            for (ActiveRift rift : ACTIVE) {
+                drawHaze(fire, matrix, rift, partialTick);
+                drawFire(fire, matrix, rift, partialTick, eye);
+                drawCracks(fire, matrix, rift, partialTick, eye);
+            }
+            buffers.endBatch(RenderType.lightning());
+
+            // Glass last, and translucent rather than additive: a shard passing in front of a burning
+            // rim should darken it, not add to it, or every piece disappears into the light it came
+            // off.
+            VertexConsumer glass = buffers.getBuffer(AWRenderTypes.RIFT_SHARD);
+            for (ActiveRift rift : ACTIVE) {
+                drawShards(glass, matrix, rift, partialTick, eye);
+            }
+            buffers.endBatch(AWRenderTypes.RIFT_SHARD);
         }
 
-        buffers.endBatch(type);
         poseStack.popPose();
     }
 
@@ -588,6 +665,209 @@ public final class RiftEffectManager {
             vertex(consumer, matrix, rift, bias, a1, rim1 * (1.0D + RiftTear.FLAME * reach1), red, green, blue, 0.0F);
             vertex(consumer, matrix, rift, bias, a0, rim0 * (1.0D + RiftTear.FLAME * reach0), red, green, blue, 0.0F);
         }
+    }
+
+    /**
+     * The fracture, before anything has broken loose.
+     *
+     * <p>A hard point of impact and cracks racing out from it over an intact view - the hole does not
+     * exist yet, and the world behind the aperture is still there to see. This is the whole of what an
+     * opening rift looks like for its first half second, and it is the reason the hole arriving lands
+     * as an event rather than as a shape growing.
+     */
+    private static void drawCracks(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                   float partialTick, Vec3 eye) {
+        float progress = rift.openProgress(partialTick);
+        if (progress >= 1.0F) {
+            return;
+        }
+        float crackProgress = progress / RiftShatter.CRACK_PHASE;
+        // Cracks outlive the break by a moment and are then gone. Past that they are shard edges, and
+        // drawing them as well would leave a wheel of spokes hanging in an empty hole.
+        float alpha = crackProgress <= 1.0F ? 1.0F : 1.0F - (crackProgress - 1.0F) * 4.0F;
+        if (alpha <= 0.0F) {
+            return;
+        }
+        float reach = RiftShatter.crackReach(crackProgress);
+
+        double towardsEye = (eye.x - rift.centre.x) * rift.normal.x
+                + (eye.y - rift.centre.y) * rift.normal.y
+                + (eye.z - rift.centre.z) * rift.normal.z;
+        float bias = towardsEye >= 0.0D ? FIRE_BIAS : -FIRE_BIAS;
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+
+        // Full radius, not the aperture's: the pane that is breaking is already the size of the hole
+        // it is about to become. The hole then opens outwards to meet the pieces leaving it.
+        double cover = rift.radius;
+
+        for (float angle : RiftShatter.crackAngles(rift.seed)) {
+            double along = Math.cos(angle);
+            double across = Math.sin(angle);
+            double sideU = -across;
+            double sideV = along;
+            double tip = cover * RiftTear.rim(angle, rift.rimTime) * reach;
+            double root = cover * CRACK_ROOT;
+            double point = cover * CRACK_TIP;
+
+            // White at the impact and cooling to the rift's own colour as it runs, so the eye reads
+            // the direction the fracture travelled rather than a static star.
+            localVertex(consumer, matrix, rift, sideU * root, sideV * root, bias,
+                    1.0F, 1.0F, 1.0F, alpha * 0.9F);
+            localVertex(consumer, matrix, rift, -sideU * root, -sideV * root, bias,
+                    1.0F, 1.0F, 1.0F, alpha * 0.9F);
+            localVertex(consumer, matrix, rift, along * tip - sideU * point, across * tip - sideV * point,
+                    bias, red, green, blue, alpha * 0.15F);
+            localVertex(consumer, matrix, rift, along * tip + sideU * point, across * tip + sideV * point,
+                    bias, red, green, blue, alpha * 0.15F);
+        }
+
+        // The strike itself: brightest at the instant of impact and gone by the time the cracks have
+        // run, which is what makes the middle read as where all this started.
+        float flash = Math.max(0.0F, 1.0F - crackProgress) * alpha;
+        if (flash > 0.0F) {
+            double size = cover * (0.06D + 0.10D * flash);
+            localVertex(consumer, matrix, rift, 0.0D, size, bias, 1.0F, 1.0F, 1.0F, flash);
+            localVertex(consumer, matrix, rift, size, 0.0D, bias, 1.0F, 1.0F, 1.0F, flash * 0.55F);
+            localVertex(consumer, matrix, rift, 0.0D, -size, bias, 1.0F, 1.0F, 1.0F, flash);
+            localVertex(consumer, matrix, rift, -size, 0.0D, bias, 1.0F, 1.0F, 1.0F, flash * 0.55F);
+        }
+    }
+
+    /**
+     * The pane falling away.
+     *
+     * <p>Every piece is the cell it was cut from, thrown outwards and tumbling. The tumble is what
+     * does the work here: a shard catches the light when it turns face-on and all but disappears
+     * edge-on, so a field of them glitters as it drifts instead of hanging there as a cloud of
+     * coloured quads.
+     */
+    private static void drawShards(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                   float partialTick, Vec3 eye) {
+        float since = rift.sinceBreak(partialTick);
+        if (since <= 0.0F || since > RiftShatter.SHARD_LIFE + 8.0F) {
+            return;
+        }
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+        double cover = rift.radius;
+
+        for (RiftShatter.Shard shard : rift.shards) {
+            float elapsed = since - shard.delay();
+            float fade = RiftShatter.fade(elapsed / RiftShatter.SHARD_LIFE);
+            if (fade <= 0.0F) {
+                continue;
+            }
+            float travel = RiftShatter.travel(elapsed / RiftShatter.SHARD_LIFE);
+
+            double rim0 = RiftTear.rim(shard.angle0(), rift.rimTime);
+            double rim1 = RiftTear.rim(shard.angle1(), rift.rimTime);
+            double cos0 = Math.cos(shard.angle0());
+            double sin0 = Math.sin(shard.angle0());
+            double cos1 = Math.cos(shard.angle1());
+            double sin1 = Math.sin(shard.angle1());
+
+            double near0 = cover * rim0 * shard.innerT();
+            double far0 = cover * rim0 * shard.outerT();
+            double near1 = cover * rim1 * shard.innerT();
+            double far1 = cover * rim1 * shard.outerT();
+
+            double u0 = cos0 * near0;
+            double v0 = sin0 * near0;
+            double u1 = cos1 * near1;
+            double v1 = sin1 * near1;
+            double u2 = cos1 * far1;
+            double v2 = sin1 * far1;
+            double u3 = cos0 * far0;
+            double v3 = sin0 * far0;
+
+            double centreU = (u0 + u1 + u2 + u3) * 0.25D;
+            double centreV = (v0 + v1 + v2 + v3) * 0.25D;
+
+            // The piece keeps its own frame and turns in it, so the corners stay a rigid shape rather
+            // than shearing the way rotating each corner about the centre would.
+            float turn = shard.spin() * Math.max(0.0F, elapsed);
+            float axisU = Mth.cos(shard.axis());
+            float axisV = Mth.sin(shard.axis());
+            Vector3f alongU = new Vector3f(1.0F, 0.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+            Vector3f alongV = new Vector3f(0.0F, 1.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+            Vector3f facing = new Vector3f(0.0F, 0.0F, 1.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+
+            double outward = shard.outward() * cover * travel;
+            double baseU = centreU + Math.cos(shard.midAngle()) * outward;
+            double baseV = centreV + Math.sin(shard.midAngle()) * outward;
+            // Signed, so a pane bursts both ways rather than all of it coming at the viewer.
+            double baseW = shard.push() * cover * 0.45D * travel;
+
+            float sheen = glint(rift, eye, facing, baseU, baseV, baseW);
+            float lit = 0.45F + 0.55F * sheen;
+            float white = sheen * sheen;
+            float alpha = fade * (0.22F + 0.78F * sheen) * 0.85F;
+            float shardRed = Mth.lerp(white, red, 1.0F) * lit;
+            float shardGreen = Mth.lerp(white, green, 1.0F) * lit;
+            float shardBlue = Mth.lerp(white, blue, 1.0F) * lit;
+
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    u0 - centreU, v0 - centreV, shardRed, shardGreen, shardBlue, alpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    u1 - centreU, v1 - centreV, shardRed, shardGreen, shardBlue, alpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    u2 - centreU, v2 - centreV, shardRed, shardGreen, shardBlue, alpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    u3 - centreU, v3 - centreV, shardRed, shardGreen, shardBlue, alpha);
+        }
+    }
+
+    /**
+     * How square-on a tumbling shard is to the viewer, 0..1.
+     *
+     * <p>This is the whole of what makes the pieces read as glass. Brightness keyed to the angle a
+     * fragment happens to be turned through means the field flashes as it drifts, and a flash is the
+     * one thing that says "hard reflective surface" without a texture to say it with.
+     */
+    private static float glint(ActiveRift rift, Vec3 eye, Vector3f facing,
+                               double u, double v, double w) {
+        double x = rift.centre.x + rift.right.x * u + rift.up.x * v + rift.normal.x * w;
+        double y = rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * w;
+        double z = rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * w;
+        double toEyeX = eye.x - x;
+        double toEyeY = eye.y - y;
+        double toEyeZ = eye.z - z;
+        double length = Math.sqrt(toEyeX * toEyeX + toEyeY * toEyeY + toEyeZ * toEyeZ);
+        if (length < 1.0e-6D) {
+            return 1.0F;
+        }
+        double normalX = rift.right.x * facing.x + rift.up.x * facing.y + rift.normal.x * facing.z;
+        double normalY = rift.right.y * facing.x + rift.up.y * facing.y + rift.normal.y * facing.z;
+        double normalZ = rift.right.z * facing.x + rift.up.z * facing.y + rift.normal.z * facing.z;
+        double dot = (normalX * toEyeX + normalY * toEyeY + normalZ * toEyeZ) / length;
+        return (float) Math.min(1.0D, Math.abs(dot));
+    }
+
+    /** One corner of a shard, placed in the piece's own turned frame. */
+    private static void corner(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                               double baseU, double baseV, double baseW,
+                               Vector3f alongU, Vector3f alongV, double offsetU, double offsetV,
+                               float red, float green, float blue, float alpha) {
+        localVertex(consumer, matrix, rift,
+                baseU + alongU.x * offsetU + alongV.x * offsetV,
+                baseV + alongU.y * offsetU + alongV.y * offsetV,
+                baseW + alongU.z * offsetU + alongV.z * offsetV,
+                red, green, blue, alpha);
+    }
+
+    /** A vertex at {@code (u, v)} in the aperture's plane, {@code w} along its normal. */
+    private static void localVertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                    double u, double v, double w,
+                                    float red, float green, float blue, float alpha) {
+        float x = (float) (rift.centre.x + rift.right.x * u + rift.up.x * v + rift.normal.x * w);
+        float y = (float) (rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * w);
+        float z = (float) (rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * w);
+        consumer.addVertex(matrix, x, y, z).setColor(red, green, blue, Math.min(1.0F, alpha));
     }
 
     private static void throatVertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
