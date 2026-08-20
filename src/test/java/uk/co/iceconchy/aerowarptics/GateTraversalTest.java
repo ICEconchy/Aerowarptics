@@ -89,26 +89,25 @@ class GateTraversalTest {
         assertEquals(7.0D, turned.y, EPSILON, "a gate turned somebody upside down");
     }
 
-    // -------------------------------------------------------------- crossing
+    // ------------------------------------------------------------------ side
 
     @Test
-    void aCrossingIsAChangeOfSideRatherThanBeingNearTheGate() {
+    void eitherSideOfThePlaneIsADifferentSide() {
+        // The whole of crossing detection rests on this: two points either side of the opening have
+        // to disagree, or a gate can never tell that anything has gone through it.
         RiftGateShape gate = acrossX(0, 64, 20);
-        assertTrue(GateTraversal.crossed(gate, new Vec3(2.5D, 66.0D, 19.0D), new Vec3(2.5D, 66.0D, 22.0D)));
-        assertTrue(GateTraversal.crossed(gate, new Vec3(2.5D, 66.0D, 22.0D), new Vec3(2.5D, 66.0D, 19.0D)));
-        // Standing in the opening is not going anywhere.
-        assertFalse(GateTraversal.crossed(gate, new Vec3(2.5D, 66.0D, 19.0D), new Vec3(2.5D, 66.0D, 19.5D)));
-        assertFalse(GateTraversal.crossed(gate, new Vec3(2.5D, 66.0D, 22.0D), new Vec3(2.5D, 66.0D, 25.0D)));
+        assertFalse(gate.side(new Vec3(2.5D, 66.0D, 19.0D)));
+        assertTrue(gate.side(new Vec3(2.5D, 66.0D, 22.0D)));
+        // Being far away on one side is still that side, which is what lets something walk in.
+        assertFalse(gate.side(new Vec3(2.5D, 66.0D, -400.0D)));
     }
 
     @Test
-    void sittingExactlyOnThePlaneIsNotACrossing() {
-        // Neither side, so there is nothing to have changed. Treating it as a crossing would send
-        // anything that stopped dead in the doorway through it.
+    void movingAlongTheOpeningIsNeverAChangeOfSide() {
         RiftGateShape gate = acrossX(0, 64, 20);
-        Vec3 onThePlane = new Vec3(2.5D, 66.0D, gate.centre().z);
-        assertFalse(GateTraversal.crossed(gate, onThePlane, new Vec3(2.5D, 66.0D, 22.0D)));
-        assertFalse(GateTraversal.crossed(gate, new Vec3(2.5D, 66.0D, 19.0D), onThePlane));
+        boolean walking = gate.side(new Vec3(0.5D, 66.0D, 19.0D));
+        assertEquals(walking, gate.side(new Vec3(4.5D, 66.0D, 19.0D)));
+        assertEquals(walking, gate.side(new Vec3(2.5D, 69.0D, 19.5D)));
     }
 
     // --------------------------------------------------------------- arrival

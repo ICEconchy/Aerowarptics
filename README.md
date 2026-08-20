@@ -144,12 +144,21 @@ convenience.
 
 #### What it costs
 
-**Essence to open, rotation to hold.** A dial spends Rift Essence - a base charge plus a per-block
-charge, so a bigger doorway is a bigger tear - and the gate then draws stress for as long as the
-connection stands, scaled the same way. Let the shaft stall and the connection drops. A gate standing
-dark draws **nothing at all**: its stress impact is zero until it has an aperture, which is what stops
-a player being punished for building a doorway they use twice a day. Create caches a block's impact, so
-the gate detaches and re-attaches itself from the network when that changes rather than lying about it.
+**Essence to open, rotation to hold** - and **only at the end that dialled**. A dial spends Rift
+Essence from the gate you are standing at, a base charge plus a per-block charge so that a bigger
+doorway is a bigger tear, and that same gate then draws stress for as long as the connection stands.
+Let its shaft stall and the connection drops.
+
+The gate at the *other* end pays nothing and needs nothing but to exist, be enabled, and not already be
+busy. That is the point: a destination gate is a doorway you build at a mine and walk away from, and
+requiring a working drive at both ends means every remote gate is a second base. It also has to be
+checked at only one end in the code, which the first version got wrong - a passive far gate hung up on
+its very first tick and dragged the dialling one down with it, so gates simply did not work.
+
+A gate that is not holding an aperture draws **nothing at all**, which is what stops a player being
+punished for building a doorway they use twice a day. Create caches a block's impact, so the gate
+detaches and re-attaches itself from the kinetic network whenever that changes - both when an aperture
+appears or goes, and when this end stops being the one paying for it.
 
 This is also the first thing that consumes what a **Spatial Siphon** collects. You warp to gather
 essence; you spend essence to run doorways.
@@ -179,9 +188,14 @@ as well would send them back the way they came.
 - **Gates are named, owned and access-controlled**, on the same rules as Warp Anchors and reusing the
   same `WarpAnchorAccess` - so who may travel where is written once and behaves the same at a chart
   table and at a doorway.
-- **A crossing is a change of side, not presence in a box.** Standing in the opening is not going
-  anywhere; something whose last position was one side of the plane and whose current one is the other
-  has been through, however fast it was moving.
+- **A crossing is a change of side between two sightings the gate took itself.** Standing in the
+  opening is not going anywhere, and a first sighting is never a crossing - something that appears
+  already past the plane has not gone through it. The sightings have to be the gate's own: working it
+  out from an entity's previous position instead means depending on when in the tick that entity
+  happened to move, which for a player is whenever their packet arrived, and a gate that notices a
+  crossing only sometimes is a gate players stop trusting. `GateWatchTest` covers the rules, including
+  the two that bite - a traveller sent through is forgotten so they cannot bounce, and anything that
+  leaves the catchment starts again rather than being teleported the moment it wanders back.
 - **The far end is held loaded** while a connection stands, by a ticket that expires and is renewed
   rather than one that is released. Something that must be renewed cannot leak; it can only stop.
 - **A gate that unloads drops its connection but keeps its registration.** Chunk unload and block break

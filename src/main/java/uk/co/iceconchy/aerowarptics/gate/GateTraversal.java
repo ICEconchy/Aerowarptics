@@ -102,22 +102,6 @@ public final class GateTraversal {
         return new Arrival(to.pointAt(across, up, side * CLEARANCE), rotateYaw(motion, delta), delta);
     }
 
-    /**
-     * Whether a step across the world passed through a gate's plane.
-     *
-     * <p>A change of sign rather than presence in a box. Something standing in the opening is not
-     * going anywhere; something whose last position was on one side and whose current one is on the
-     * other has been through, however fast it was moving when it did.
-     */
-    public static boolean crossed(RiftGateShape shape, Vec3 before, Vec3 after) {
-        double from = shape.distanceToPlane(before);
-        double to = shape.distanceToPlane(after);
-        if (from == 0.0D || to == 0.0D) {
-            return false;
-        }
-        return (from < 0.0D) != (to < 0.0D);
-    }
-
     private static Vec3 unit(Direction.Axis axis) {
         return axis == Direction.Axis.X ? new Vec3(1.0D, 0.0D, 0.0D) : new Vec3(0.0D, 0.0D, 1.0D);
     }

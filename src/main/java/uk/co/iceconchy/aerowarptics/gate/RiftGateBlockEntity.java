@@ -35,8 +35,10 @@ import uk.co.iceconchy.aerowarptics.util.AWLang;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -96,6 +98,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
 
     /** Travellers who have just arrived, and must not immediately be sent back. */
     private final Map<UUID, Integer> settling = new HashMap<>();
+
+    /** Which side of the plane each nearby traveller was on when the gate last looked. */
+    private final GateWatch watch = new GateWatch();
 
     private final FluidTank tank = new FluidTank(CAPACITY,
             stack -> stack.getFluid() == AWFluids.RIFT_ESSENCE.get()) {
@@ -312,10 +317,16 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             return;
         }
         UUID other = connected;
+        boolean wasPaying = dialler;
         connected = null;
         dialler = false;
         lastFailure = reason;
         transition(RiftGateState.CLOSING);
+        if (wasPaying) {
+            // Still showing an aperture, so `transition` saw no change worth reporting - but this end
+            // has stopped paying for it, and the network is entitled to know that straight away.
+            refreshKinetics();
+        }
 
         if (level instanceof ServerLevel serverLevel && other != null) {
             RiftGate far = RiftGateRegistry.get(serverLevel).byId(other);
@@ -327,6 +338,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                     farGate.connected = null;
                     farGate.dialler = false;
                     farGate.transition(RiftGateState.CLOSING);
+                    farGate.watch.clear();
                 }
             }
         }
@@ -351,13 +363,22 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         state = next;
         stateTicks = 0;
         if (apertureChanged) {
-            // Create caches a block's stress impact, so an impact that depends on what the machine is
-            // doing has to say so. Detaching and re-attaching is how the network is made to ask again.
-            detachKinetics();
-            lastStressApplied = -1.0F;
-            attachKinetics();
+            refreshKinetics();
         }
         notifyUpdate();
+    }
+
+    /**
+     * Makes the kinetic network ask what this gate costs again.
+     *
+     * <p>Create caches a block's stress impact, so an impact that depends on what the machine is doing
+     * has to say when that changes - both when an aperture appears or goes, and when this end stops
+     * being the one paying for it.
+     */
+    private void refreshKinetics() {
+        detachKinetics();
+        lastStressApplied = -1.0F;
+        attachKinetics();
     }
 
     // ------------------------------------------------------------------ cost
@@ -370,7 +391,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
 
     @Override
     public float calculateStressApplied() {
-        if (!state.hasAperture() || shape == null) {
+        // The far end of a connection draws nothing, for the same reason it needs no rotation: it is
+        // not the end holding the aperture open, it is the end one was opened onto.
+        if (!state.hasAperture() || !dialler || shape == null) {
             this.lastStressApplied = 0.0F;
             return 0.0F;
         }
@@ -405,7 +428,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             revalidate();
         }
 
-        settling.entrySet().removeIf(entry -> entry.setValue(entry.getValue() - 1) <= 0);
+        // Not setValue: that returns the old value, so the count would run one tick long.
+        settling.replaceAll((id, ticks) -> ticks - 1);
+        settling.values().removeIf(ticks -> ticks <= 0);
 
         switch (state) {
             case DIALLING -> {
@@ -439,14 +464,22 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         }
     }
 
-    /** Whether the connection can still stand. Losing rotation drops it, which is the holding cost. */
+    /**
+     * Whether the connection can still stand.
+     *
+     * <p>Rotation is checked <em>only at the end that struck the connection</em>. A gate at the far
+     * end is a doorway somebody built at a mine and walked away from: it needs to be there, and it
+     * needs to be a gate, and that is all. Requiring a working drive at both ends made every remote
+     * gate hang up on its first tick and take the dialling one down with it, which reads as a gate
+     * that simply does not work.
+     */
     private boolean holdable() {
-        if (!isSpinningFastEnough() || isOverStressed()) {
-            hangUp(GateFailure.INSUFFICIENT_POWER);
-            return false;
-        }
         if (shape == null) {
             hangUp(GateFailure.NOT_FORMED);
+            return false;
+        }
+        if (dialler && (!isSpinningFastEnough() || isOverStressed())) {
+            hangUp(GateFailure.INSUFFICIENT_POWER);
             return false;
         }
         return true;
@@ -509,10 +542,21 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             hangUp(GateFailure.DESTINATION_MISSING);
             return 0;
         }
-        return moveVehicles(serverLevel, far) + moveEntities(serverLevel, far);
+        Set<UUID> seen = new HashSet<>();
+        int moved = moveVehicles(serverLevel, far, seen) + moveEntities(serverLevel, far, seen);
+        // Anything that has left the catchment is forgotten, so walking away and coming back is a
+        // fresh approach rather than half of a crossing recorded minutes ago.
+        watch.retain(seen);
+        return moved;
     }
 
-    private int moveVehicles(ServerLevel level, RiftGate far) {
+    /** Notes where something is, and says whether it has just gone through. */
+    private boolean stepped(UUID id, Vec3 point, Set<UUID> seen) {
+        seen.add(id);
+        return watch.stepped(id, shape.side(point));
+    }
+
+    private int moveVehicles(ServerLevel level, RiftGate far, Set<UUID> seen) {
         AABB catchment = shape.catchment(CATCHMENT_DEPTH);
         int moved = 0;
         List<ServerSubLevel> crossing = new ArrayList<>();
@@ -524,23 +568,20 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
 
         for (ServerSubLevel sub : crossing) {
             Airship vehicle = Airship.of(sub);
-            if (settling.containsKey(vehicle.uuid())) {
-                continue;
-            }
             // Measured on the hull's centre, not its pose origin. On most builds those are not the
             // same point, and a vehicle whose origin is out at one corner would be judged to have
             // crossed while most of it was still on the near side.
             Vec3 origin = toVec(vehicle.position());
-            Vec3 step = origin.subtract(toVec(sub.lastPose().position()));
             Vec3 centre = toVec(vehicle.centre(new Vector3d()));
-            if (!GateTraversal.crossed(shape, centre.subtract(step), centre)) {
+            boolean stepped = stepped(vehicle.uuid(), centre, seen);
+            if (settling.containsKey(vehicle.uuid()) || !stepped) {
                 continue;
             }
 
             AABB bounds = vehicle.worldBounds().toMojang();
             if (!shape.admits(shape.extentAcross(bounds), bounds.getYsize())
                     || !far.shape().admits(far.shape().extentAcross(bounds), bounds.getYsize())) {
-                refuse(level, vehicle, origin, centre.subtract(step));
+                refuse(level, vehicle, origin, centre);
                 continue;
             }
 
@@ -558,6 +599,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                     orientation, 0.0D)) {
                 vehicle.driveVelocity(new Vector3d(arrival.motion().x, arrival.motion().y, arrival.motion().z));
                 settling.put(vehicle.uuid(), REENTRY_TICKS);
+                watch.forget(vehicle.uuid());
                 markArrived(level, far);
                 moved++;
             }
@@ -584,7 +626,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         notifyUpdate();
     }
 
-    private int moveEntities(ServerLevel level, RiftGate far) {
+    private int moveEntities(ServerLevel level, RiftGate far, Set<UUID> seen) {
         int moved = 0;
         for (Entity entity : level.getEntities((Entity) null, shape.catchment(CATCHMENT_DEPTH),
                 candidate -> !candidate.isRemoved())) {
@@ -594,11 +636,8 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             if (Sable.HELPER.getTrackingOrVehicleSubLevel(entity) != null) {
                 continue; // standing on a vehicle, which crosses as one thing or not at all
             }
-            if (settling.containsKey(entity.getUUID())) {
-                continue;
-            }
-            Vec3 before = new Vec3(entity.xo, entity.yo, entity.zo);
-            if (!GateTraversal.crossed(shape, before, entity.position())) {
+            boolean stepped = stepped(entity.getUUID(), entity.position(), seen);
+            if (settling.containsKey(entity.getUUID()) || !stepped) {
                 continue;
             }
             AABB bounds = entity.getBoundingBox();
@@ -620,6 +659,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             entity.hurtMarked = true;
             entity.fallDistance = 0.0F;
             settling.put(entity.getUUID(), REENTRY_TICKS);
+            watch.forget(entity.getUUID());
             markArrived(level, far);
             moved++;
         }

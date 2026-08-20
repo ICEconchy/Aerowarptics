@@ -215,10 +215,10 @@ public final class AWConfig {
         GATE_STRESS = SERVER_BUILDER
                 .comment("Stress the gate draws while it is holding an aperture open, before size.",
                         "A gate standing dark costs nothing: essence opens a connection, rotation holds it.")
-                .defineInRange("gateStress", 8.0D, 0.0D, 1_024.0D);
+                .defineInRange("gateStress", 4.0D, 0.0D, 1_024.0D);
         GATE_STRESS_PER_BLOCK = SERVER_BUILDER
                 .comment("Extra stress per block of opening while held open.")
-                .defineInRange("gateStressPerBlock", 0.75D, 0.0D, 64.0D);
+                .defineInRange("gateStressPerBlock", 0.25D, 0.0D, 64.0D);
         GATE_MINIMUM_RPM = SERVER_BUILDER
                 .comment("Rotation speed needed to hold a gate open. Falling below it drops the",
                         "connection - which is the whole of what makes rotation the holding cost.")

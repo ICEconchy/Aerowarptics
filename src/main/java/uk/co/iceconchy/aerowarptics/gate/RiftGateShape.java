@@ -63,6 +63,17 @@ public record RiftGateShape(Direction.Axis span,
         return normal() == Direction.Axis.X ? new Vec3(side, 0.0D, 0.0D) : new Vec3(0.0D, 0.0D, side);
     }
 
+    /**
+     * Which side of the gate's plane a point is on.
+     *
+     * <p>A plain boolean rather than a sign, because the only thing anything ever does with it is
+     * compare it against the last one - and a sign has three values, one of which is a point sitting
+     * exactly on the plane with nothing useful to say.
+     */
+    public boolean side(Vec3 point) {
+        return distanceToPlane(point) >= 0.0D;
+    }
+
     /** How far a point sits from the gate's plane, signed along the normal axis. */
     public double distanceToPlane(Vec3 point) {
         Vec3 centre = centre();
