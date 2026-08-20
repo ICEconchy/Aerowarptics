@@ -6,7 +6,6 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
@@ -518,8 +517,10 @@ public final class RiftEffectManager {
             }
             buffers.endBatch(AWRenderTypes.RIFT_MEMBRANE);
         } else {
-            // Additive light over everything, including the face it is burning around.
-            VertexConsumer fire = buffers.getBuffer(RenderType.lightning());
+            // Additive light over everything, including the face it is burning around. Two-sided:
+            // an aperture is a hole people stand on both sides of, and a culled glow means half of
+            // them are looking at a bare occluder.
+            VertexConsumer fire = buffers.getBuffer(AWRenderTypes.RIFT_FIRE);
             for (ActiveRift rift : ACTIVE) {
                 drawHaze(fire, matrix, rift, partialTick);
                 drawFarLight(fire, matrix, rift, partialTick);
@@ -527,7 +528,7 @@ public final class RiftEffectManager {
                 drawCracks(fire, matrix, rift, partialTick, eye);
                 drawSpark(fire, matrix, rift, partialTick, eye);
             }
-            buffers.endBatch(RenderType.lightning());
+            buffers.endBatch(AWRenderTypes.RIFT_FIRE);
 
             // Glass last, and translucent rather than additive: a shard passing in front of a burning
             // rim should darken it, not add to it, or every piece disappears into the light it came

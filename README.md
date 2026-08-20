@@ -386,6 +386,13 @@ is the whole mechanism: anything past its plane is painted over and genuinely go
 front of it survives the depth test and stays visible. A hull flying through is therefore occluded for
 real, section by section, as it crosses.
 
+Every surface a rift is made of is **two-sided**, and all of them have to be. People stand on both
+sides of an aperture, and a gate is walked through from either end. The additive half of it used to
+borrow `RenderType.lightning()`, which does not disable culling - so the fire, the torn rim, the cracks
+and the seal were all drawn on one face only, and the other side of a gate was a bare dark disc. It
+also writes depth, which is not a thing a glow should do to the world behind it, and it draws into the
+weather buffer. `AWRenderTypes.RIFT_FIRE` is the same additive blend with none of that.
+
 It is worth being clear about what this is *not*. Sable draws airship blocks through vanilla chunk
 rendering, so cutting the hull itself at the portal plane would mean replacing Minecraft's core chunk
 shaders with ones that carry a clip plane — global surgery, from an addon, that would fight shader

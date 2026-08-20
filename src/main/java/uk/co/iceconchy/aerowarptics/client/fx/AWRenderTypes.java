@@ -43,6 +43,31 @@ public final class AWRenderTypes extends RenderStateShard {
                     .createCompositeState(false));
 
     /**
+     * The fire burning on and around a rift: additive, and visible from both sides.
+     *
+     * <p>Deliberately not {@link RenderType#lightning()}, which was the obvious thing to reach for and
+     * is wrong here in three ways. It has no {@code NO_CULL}, so every quad is back-face culled from
+     * one side - and an aperture is a hole in space that people stand on both sides of, so half the
+     * time the fire, the rim, the cracks and the seal simply were not drawn. It also writes depth,
+     * which is not a thing a glow should do to the world behind it, and it renders into the weather
+     * buffer, which is somebody else's framebuffer.
+     */
+    public static final RenderType RIFT_FIRE = RenderType.create(
+            "aerowarptics_rift_fire",
+            DefaultVertexFormat.POSITION_COLOR,
+            VertexFormat.Mode.QUADS,
+            2048,
+            false,
+            true,
+            RenderType.CompositeState.builder()
+                    .setShaderState(POSITION_COLOR_SHADER)
+                    .setTransparencyState(LIGHTNING_TRANSPARENCY)
+                    .setCullState(NO_CULL)
+                    .setDepthTestState(LEQUAL_DEPTH_TEST)
+                    .setWriteMaskState(COLOR_WRITE)
+                    .createCompositeState(false));
+
+    /**
      * Projected light: translucent, unlit, and it does not write depth.
      *
      * <p>Used for the Astrolabe's terrain hologram. Not writing depth is what lets the far side of the
