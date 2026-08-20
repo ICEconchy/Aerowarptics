@@ -206,7 +206,20 @@ The aperture is the same one a Rift Drive tears, down to the shattering - the pa
 falls away in glass exactly as described under [Breaking space open](#breaking-space-open). It grows no
 throat, because a doorway is not a tunnel, and it is **held** rather than timed: the gate renews it from
 its own client tick, so somebody who walks up to a gate that opened before they arrived still sees it
-standing. The renderer learned two things for this - an aperture can be an ellipse now, fitted to a
+standing.
+
+Closing is the same fracture run the other way. Every piece comes back out of the dark, turning as it
+falls, and lands where it was cut from - **from the rim inwards**, so the hole shuts down to a point
+rather than fading out evenly, and there is a flash as it seals. Deliberately not the opening played
+backwards, which reads as a rewind: the shards arrive from outside rather than retracing the paths they
+left by.
+
+That close used to be invisible, and for a reason worth writing down. A held aperture's hold is
+effectively forever, and ages are interpolated as **floats** - past sixteen million, a float cannot
+tell one tick from the next, so the entire twenty-tick close landed inside a single representable step
+and the hole simply snapped out of existence. Letting go now ends the hold *at the moment it happens*
+rather than winding the clock forward to the end of it, which keeps the whole animation in numbers
+small enough to count in. The renderer learned two things for this - an aperture can be an ellipse now, fitted to a
 rectangular ring, and it can be kept up indefinitely instead of running on an open-hold-close clock.
 
 ### Spatial Siphon

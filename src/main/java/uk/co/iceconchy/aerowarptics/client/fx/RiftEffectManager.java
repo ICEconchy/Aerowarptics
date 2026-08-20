@@ -113,6 +113,21 @@ public final class RiftEffectManager {
      */
     private static final int HOLD_TICKS = 6;
 
+    /** How far through a close the sealing flash begins. The last fifth of it. */
+    private static final float SEAL_SPARK = 0.8F;
+
+    /**
+     * How long a held aperture stands if nothing ever closes it, in ticks. Five days.
+     *
+     * <p>Not {@code Integer.MAX_VALUE}: ages are interpolated as floats, and past sixteen million a
+     * float cannot tell one tick from the next. Anything a gate does would still be exact after the
+     * collapse cuts the hold short, but a number nothing can count in is a trap for the next person.
+     */
+    private static final int HELD_FOREVER = 10_000_000;
+
+    /** Ticks a gate's aperture takes to seal. Matches the block entity's own closing state. */
+    private static final int GATE_CLOSE_TICKS = 20;
+
     /** How far down the bore the light at the end of it sits. */
     private static final float FAR_LIGHT = 0.985F;
 
@@ -135,7 +150,8 @@ public final class RiftEffectManager {
         double radius;
         final int colour;
         final int openTicks;
-        final int holdTicks;
+        /** Not final: a collapse cuts the hold short at the moment it happens. See {@link #collapse}. */
+        int holdTicks;
         final int closeTicks;
         int age;
         int lastAge;
@@ -220,11 +236,18 @@ public final class RiftEffectManager {
         /** Sends the aperture into its collapse now, whatever it had left to run. */
         void collapse() {
             // An aperture called off while it was still cracking never broke, and must not be heard
-            // breaking: the jump forward below would otherwise take it past the moment that fires.
+            // breaking: cutting the hold below would otherwise take it past the moment that fires.
             broken = true;
-            age = Math.max(age, openTicks + holdTicks);
+            if (age >= openTicks + holdTicks) {
+                return; // already letting go
+            }
+            // The hold is ended here rather than the clock being wound forward to the end of it.
+            // A held aperture holds for days, and an age out at ten million has less float precision
+            // than the close is long - the whole twenty ticks of it would land inside one
+            // representable step, and the hole would snap shut instead of closing.
+            holdTicks = Math.max(0, age - openTicks);
             // Land the previous age on the new one too, or the next frame interpolates across the
-            // jump and the aperture appears to flinch before it collapses.
+            // change and the aperture appears to flinch before it collapses.
             lastAge = age;
         }
 
@@ -259,6 +282,18 @@ public final class RiftEffectManager {
         /** Ticks since the pane began to break. Negative while it is still only cracking. */
         float sinceBreak(float partialTick) {
             return Mth.lerp(partialTick, lastAge, age) - openTicks * RiftShatter.CRACK_PHASE;
+        }
+
+        /** 0..1 through the close, or {@code 0} while the aperture is still standing. */
+        float sealProgress(float partialTick) {
+            float time = Mth.lerp(partialTick, lastAge, age);
+            float elapsed = time - openTicks - holdTicks;
+            return elapsed <= 0.0F ? 0.0F : Math.min(1.0F, elapsed / Math.max(1.0F, closeTicks));
+        }
+
+        /** Whether the aperture has been told to let go, however far through that it is. */
+        boolean isCollapsing() {
+            return age >= openTicks + holdTicks;
         }
 
     }
@@ -297,11 +332,30 @@ public final class RiftEffectManager {
             }
         }
         ActiveRift rift = new ActiveRift(centre, normal, halfWidth, colour, 0.0F,
-                Math.max(1, openTicks), Integer.MAX_VALUE / 2, 20);
+                Math.max(1, openTicks), HELD_FOREVER, GATE_CLOSE_TICKS);
         rift.aspect = (float) (halfHeight / Math.max(1.0e-3D, halfWidth));
         rift.holder = holder;
         rift.keepAlive = HOLD_TICKS;
         ACTIVE.add(rift);
+    }
+
+    /**
+     * Starts a held aperture closing, and keeps it alive long enough to be seen doing it.
+     *
+     * <p>Separate from {@link #release} because a gate spends a second in its closing state before it
+     * is idle, and that second is the whole of the animation. Releasing it only at the end meant the
+     * aperture stood at full size for the entire close and then shrank afterwards, which reads as a
+     * gate that shuts a beat late.
+     */
+    public static void seal(long holder) {
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.holder == holder) {
+                rift.keepAlive = HOLD_TICKS;
+                if (!rift.isCollapsing()) {
+                    rift.collapse();
+                }
+            }
+        }
     }
 
     /** Lets a held aperture go, without waiting for it to notice it has been forgotten. */
@@ -471,6 +525,7 @@ public final class RiftEffectManager {
                 drawFarLight(fire, matrix, rift, partialTick);
                 drawFire(fire, matrix, rift, partialTick, eye);
                 drawCracks(fire, matrix, rift, partialTick, eye);
+                drawSpark(fire, matrix, rift, partialTick, eye);
             }
             buffers.endBatch(RenderType.lightning());
 
@@ -480,6 +535,7 @@ public final class RiftEffectManager {
             VertexConsumer glass = buffers.getBuffer(AWRenderTypes.RIFT_SHARD);
             for (ActiveRift rift : ACTIVE) {
                 drawShards(glass, matrix, rift, partialTick, eye);
+                drawSeal(glass, matrix, rift, partialTick, eye);
                 drawMotes(glass, matrix, rift, partialTick, eye);
             }
             buffers.endBatch(AWRenderTypes.RIFT_SHARD);
@@ -904,6 +960,131 @@ public final class RiftEffectManager {
             corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
                     u3 - centreU, v3 - centreV, shardRed, shardGreen, shardBlue, alpha);
         }
+    }
+
+    /**
+     * Space closing over the hole.
+     *
+     * <p>The same fracture the aperture broke along, run the other way: every piece comes back out of
+     * the dark, turning as it falls, and lands where it was cut from. Not the opening played in
+     * reverse, which reads as a rewind - the pieces arrive from outside rather than retracing the
+     * paths they left by, and they come home from the rim inwards so the hole shuts down to a point.
+     */
+    private static void drawSeal(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                 float partialTick, Vec3 eye) {
+        float progress = rift.sealProgress(partialTick);
+        if (progress <= 0.0F || progress >= 1.0F) {
+            return;
+        }
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+        // Sized off the aperture as it was, not as it is. The hole is shrinking under the glass, and
+        // shards that shrank with it would look like a picture of a rift rather than pieces of one.
+        double cover = rift.radius;
+
+        for (RiftShatter.Shard shard : rift.shards) {
+            float life = RiftShatter.sealLife(progress, shard.midRadius());
+            float fade = RiftShatter.sealFade(life);
+            if (fade <= 0.0F) {
+                continue;
+            }
+            // One at the rim, nothing at home: the piece falls inwards as its life runs out.
+            float out = 1.0F - RiftShatter.travel(life);
+
+            double rim0 = RiftTear.rim(shard.angle0(), rift.rimTime);
+            double rim1 = RiftTear.rim(shard.angle1(), rift.rimTime);
+            double cos0 = Math.cos(shard.angle0());
+            double sin0 = Math.sin(shard.angle0());
+            double cos1 = Math.cos(shard.angle1());
+            double sin1 = Math.sin(shard.angle1());
+
+            double near0 = cover * rim0 * shard.innerT();
+            double far0 = cover * rim0 * shard.outerT();
+            double near1 = cover * rim1 * shard.innerT();
+            double far1 = cover * rim1 * shard.outerT();
+
+            double u0 = cos0 * near0;
+            double v0 = sin0 * near0;
+            double u1 = cos1 * near1;
+            double v1 = sin1 * near1;
+            double u2 = cos1 * far1;
+            double v2 = sin1 * far1;
+            double u3 = cos0 * far0;
+            double v3 = sin0 * far0;
+
+            double centreU = (u0 + u1 + u2 + u3) * 0.25D;
+            double centreV = (v0 + v1 + v2 + v3) * 0.25D;
+
+            // Still turning as it comes in, and square by the time it lands.
+            float turn = shard.spin() * out * RiftShatter.BREAK_SPREAD * 3.0F;
+            float axisU = Mth.cos(shard.axis());
+            float axisV = Mth.sin(shard.axis());
+            Vector3f alongU = new Vector3f(1.0F, 0.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+            Vector3f alongV = new Vector3f(0.0F, 1.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+            Vector3f facing = new Vector3f(0.0F, 0.0F, 1.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+
+            double outward = shard.outward() * cover * out;
+            double baseU = centreU + Math.cos(shard.midAngle()) * outward;
+            double baseV = centreV + Math.sin(shard.midAngle()) * outward;
+            double baseW = shard.push() * cover * 0.45D * out;
+
+            float sheen = glint(rift, eye, facing, baseU, baseV, baseW);
+            float white = sheen * sheen;
+            float lit = 0.45F + 0.55F * sheen;
+            float alpha = fade * (0.22F + 0.78F * sheen) * 0.9F;
+            float shardRed = Mth.lerp(white, red, 1.0F) * lit;
+            float shardGreen = Mth.lerp(white, green, 1.0F) * lit;
+            float shardBlue = Mth.lerp(white, blue, 1.0F) * lit;
+
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    u0 - centreU, v0 - centreV, shardRed, shardGreen, shardBlue, alpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    u1 - centreU, v1 - centreV, shardRed, shardGreen, shardBlue, alpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    u2 - centreU, v2 - centreV, shardRed, shardGreen, shardBlue, alpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    u3 - centreU, v3 - centreV, shardRed, shardGreen, shardBlue, alpha);
+        }
+    }
+
+    /**
+     * The moment it seals.
+     *
+     * <p>A hole that shrinks to nothing has no ending - it is simply smaller and smaller until it is
+     * not there, and the eye cannot tell the last frame from the one before. A flash on the last of
+     * the close gives the closing somewhere to arrive, the way the impact gives the opening somewhere
+     * to start.
+     */
+    private static void drawSpark(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                  float partialTick, Vec3 eye) {
+        float progress = rift.sealProgress(partialTick);
+        if (progress <= SEAL_SPARK) {
+            return;
+        }
+        float flash = Mth.clamp((progress - SEAL_SPARK) / (1.0F - SEAL_SPARK), 0.0F, 1.0F);
+        // Brightest at the instant of sealing and gone immediately after, rather than a glow that
+        // lingers on a hole which no longer exists.
+        float alpha = Mth.sin(flash * (float) Math.PI);
+        if (alpha <= 0.001F) {
+            return;
+        }
+
+        double towardsEye = (eye.x - rift.centre.x) * rift.normal.x
+                + (eye.y - rift.centre.y) * rift.normal.y
+                + (eye.z - rift.centre.z) * rift.normal.z;
+        float bias = towardsEye >= 0.0D ? FIRE_BIAS : -FIRE_BIAS;
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+        double size = rift.radius * (0.05D + 0.30D * flash);
+
+        localVertex(consumer, matrix, rift, 0.0D, size, bias, 1.0F, 1.0F, 1.0F, alpha);
+        localVertex(consumer, matrix, rift, size, 0.0D, bias, red, green, blue, alpha * 0.5F);
+        localVertex(consumer, matrix, rift, 0.0D, -size, bias, 1.0F, 1.0F, 1.0F, alpha);
+        localVertex(consumer, matrix, rift, -size, 0.0D, bias, red, green, blue, alpha * 0.5F);
     }
 
     /**

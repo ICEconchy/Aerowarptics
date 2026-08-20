@@ -46,7 +46,16 @@ public final class RiftShatter {
     public static final float SHARD_LIFE = 45.0F;
 
     /** Ticks between the middle of the pane breaking and the rim breaking. */
-    private static final float BREAK_SPREAD = 6.0F;
+    public static final float BREAK_SPREAD = 6.0F;
+
+    /**
+     * How much of a seal is spent waiting, for the piece that comes home last.
+     *
+     * <p>Space closes from the rim inwards, which is the opposite order to the way it broke. The
+     * outermost pieces are back in place while the middle is still open, so the hole shuts down to a
+     * point rather than fading out evenly - and a point is something the eye can watch close.
+     */
+    public static final float SEAL_STAGGER = 0.35F;
 
     private RiftShatter() {
     }
@@ -208,6 +217,34 @@ public final class RiftShatter {
         float t = Mth.clamp(life, 0.0F, 1.0F);
         float remaining = 1.0F - t;
         return 1.0F - remaining * remaining;
+    }
+
+    /**
+     * How far through its own return a piece is, given how far through the seal the aperture is.
+     *
+     * <p>Negative before this piece has started coming back, past one once it is home.
+     *
+     * @param midRadius where the piece sits, from the middle of the pane out to the rim
+     */
+    public static float sealLife(float sealProgress, float midRadius) {
+        float waited = (1.0F - midRadius) * SEAL_STAGGER;
+        return (sealProgress - waited) / (1.0F - SEAL_STAGGER);
+    }
+
+    /**
+     * How visible a returning shard is, 0..1.
+     *
+     * <p>The mirror of {@link #fade}: it arrives out of nothing, is brightest on the way in, and is
+     * gone by the time it lands. A piece still visible when it gets home would be a shard sitting in a
+     * hole that has just closed over it.
+     */
+    public static float sealFade(float life) {
+        if (life <= 0.0F || life >= 1.0F) {
+            return 0.0F;
+        }
+        float rise = Mth.clamp(life * 5.0F, 0.0F, 1.0F);
+        float fall = 1.0F - life * life * life;
+        return rise * fall;
     }
 
     /**

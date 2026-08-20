@@ -226,6 +226,52 @@ class RiftShatterTest {
         }
     }
 
+    // ------------------------------------------------------------------ seal
+
+    @Test
+    void aReturningShardIsInvisibleBeforeAndAfterItsReturn() {
+        assertEquals(0.0F, RiftShatter.sealFade(-0.2F));
+        assertEquals(0.0F, RiftShatter.sealFade(0.0F));
+        assertEquals(0.0F, RiftShatter.sealFade(1.0F), "a shard was still lit once it was home");
+        assertEquals(0.0F, RiftShatter.sealFade(1.5F));
+        for (int step = 1; step < 100; step++) {
+            float fade = RiftShatter.sealFade(step / 100.0F);
+            assertTrue(fade > 0.0F && fade <= 1.0F, "a returning shard left its visible range: " + fade);
+        }
+    }
+
+    /**
+     * The hole shuts down to a point rather than fading out evenly.
+     *
+     * <p>Space closes from the rim inwards, which is the opposite order to the way it broke. At any
+     * moment during a seal the outermost pieces have to be further along their return than the
+     * innermost, or the whole thing collapses uniformly and there is nothing to watch.
+     */
+    @Test
+    void theRimComesHomeBeforeTheMiddle() {
+        for (int step = 1; step < 100; step++) {
+            float progress = step / 100.0F;
+            float rim = RiftShatter.sealLife(progress, 1.0F);
+            float middle = RiftShatter.sealLife(progress, 0.0F);
+            assertTrue(rim > middle, "the middle sealed before the rim at " + progress);
+        }
+    }
+
+    @Test
+    void theWholePaneIsBackByTheEndOfTheSeal() {
+        // Including the piece that waits longest. A shard still on its way in when the aperture has
+        // gone is a shard left hanging in front of solid space.
+        for (float mid = 0.0F; mid <= 1.0F; mid += 0.05F) {
+            assertTrue(RiftShatter.sealLife(1.0F, mid) >= 1.0F,
+                    "a shard at " + mid + " had not come home when the seal finished");
+        }
+        // And nothing has started before the seal does.
+        for (float mid = 0.0F; mid <= 1.0F; mid += 0.05F) {
+            assertTrue(RiftShatter.sealLife(0.0F, mid) <= 0.0F,
+                    "a shard at " + mid + " started returning before the aperture began to close");
+        }
+    }
+
     @Test
     void theCracksRunOutAndStayOut() {
         assertEquals(0.0F, RiftShatter.crackReach(0.0F));

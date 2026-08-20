@@ -89,6 +89,13 @@ final class ClientRuntime {
             RiftEffectManager.release(holder);
             return;
         }
+        if (gate.state() == uk.co.iceconchy.aerowarptics.gate.RiftGateState.CLOSING) {
+            // The gate's closing state is the animation, not the pause before it. Holding the
+            // aperture open through it and letting go afterwards left the hole standing at full size
+            // for a second and then shrinking, which reads as a gate that shuts a beat late.
+            RiftEffectManager.seal(holder);
+            return;
+        }
         net.minecraft.world.phys.Vec3 normal =
                 shape.normal() == net.minecraft.core.Direction.Axis.X
                         ? new net.minecraft.world.phys.Vec3(1.0D, 0.0D, 0.0D)

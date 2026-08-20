@@ -322,6 +322,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         dialler = false;
         lastFailure = reason;
         transition(RiftGateState.CLOSING);
+        playSound(SoundEvents.BEACON_DEACTIVATE, 0.7F, 0.8F);
         if (wasPaying) {
             // Still showing an aperture, so `transition` saw no change worth reporting - but this end
             // has stopped paying for it, and the network is entitled to know that straight away.
