@@ -7,6 +7,7 @@ import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.network.ClientboundCorridorPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundAstrolabeChartPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundDriveConsolePacket;
+import uk.co.iceconchy.aerowarptics.network.ClientboundGateDialPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpEffectPacket;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 
@@ -35,6 +36,26 @@ public final class AWClientHooks {
     public static void requestAstrolabeChart(net.minecraft.core.BlockPos tablePos) {
         if (client()) {
             ClientRuntime.requestAstrolabeChart(tablePos);
+        }
+    }
+
+    /** A player clicked a Rift Gate's controller. */
+    public static void requestGateDial(net.minecraft.core.BlockPos gatePos) {
+        if (client()) {
+            ClientRuntime.requestGateDial(gatePos);
+        }
+    }
+
+    public static void acceptGateDial(ClientboundGateDialPacket packet) {
+        if (client()) {
+            ClientRuntime.acceptGateDial(packet);
+        }
+    }
+
+    /** Ambient gate visuals, driven from the gate's own client tick. */
+    public static void tickGateAperture(uk.co.iceconchy.aerowarptics.gate.RiftGateBlockEntity gate) {
+        if (client()) {
+            ClientRuntime.tickGateAperture(gate);
         }
     }
 

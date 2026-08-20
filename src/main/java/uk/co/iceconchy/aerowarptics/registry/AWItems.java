@@ -37,6 +37,12 @@ public final class AWItems {
     public static final DeferredItem<BlockItem> WARP_ANCHOR =
             ITEMS.registerSimpleBlockItem("warp_anchor", AWBlocks.WARP_ANCHOR);
 
+    public static final DeferredItem<BlockItem> RIFT_GATE_FRAME =
+            ITEMS.registerSimpleBlockItem("rift_gate_frame", AWBlocks.RIFT_GATE_FRAME);
+
+    public static final DeferredItem<BlockItem> RIFT_GATE =
+            ITEMS.registerSimpleBlockItem("rift_gate", AWBlocks.RIFT_GATE);
+
     public static final DeferredItem<BlockItem> ASTROLABE =
             ITEMS.registerSimpleBlockItem("astrolabe", AWBlocks.ASTROLABE);
 

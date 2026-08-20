@@ -103,22 +103,44 @@ class ResourceIntegrityTest {
         assertTrue(problems.isEmpty(), String.join("\n", problems));
     }
 
-    @Test
-    void everyBlockAndItemHasABlockstateOrModelAndAnIcon() {
-        List<String> problems = new ArrayList<>();
+    /**
+     * Blocks drawn by a GeckoLib renderer rather than a baked model.
+     *
+     * <p>These need a flat inventory icon of their own, because the thing that draws them in the world
+     * cannot draw them in a hand. A block with an ordinary cube model needs no such thing - its item
+     * model is the block model - so demanding one of every block would be demanding a texture nothing
+     * would ever show.
+     */
+    private static List<String> animatedBlocks() {
         List<String> blocks = new ArrayList<>(Stream.of(RiftDriveTier.values())
                 .map(RiftDriveTier::blockName).toList());
         blocks.add("warp_anchor");
         blocks.add("astrolabe");
         blocks.add("spatial_siphon");
+        return blocks;
+    }
 
-        for (String block : blocks) {
+    /** Everything this mod puts in the world, however it is drawn. */
+    private static List<String> allBlocks() {
+        List<String> blocks = animatedBlocks();
+        blocks.add("rift_gate");
+        blocks.add("rift_gate_frame");
+        return blocks;
+    }
+
+    @Test
+    void everyBlockAndItemHasABlockstateOrModelAndAnIcon() {
+        List<String> problems = new ArrayList<>();
+
+        for (String block : allBlocks()) {
             if (!Files.exists(ASSETS.resolve("blockstates").resolve(block + ".json"))) {
                 problems.add("no blockstate for " + block);
             }
             if (!Files.exists(ASSETS.resolve("models/item").resolve(block + ".json"))) {
                 problems.add("no item model for " + block);
             }
+        }
+        for (String block : animatedBlocks()) {
             if (!Files.exists(ASSETS.resolve("textures/item").resolve(block + ".png"))) {
                 problems.add("no inventory icon for " + block);
             }
@@ -285,13 +307,8 @@ class ResourceIntegrityTest {
     void everyBlockDropsItselfAndOnlyCreativeGearIsUncraftable() {
         Path data = RESOURCES.resolve("data/aerowarptics");
         List<String> problems = new ArrayList<>();
-        List<String> blocks = new ArrayList<>(Stream.of(RiftDriveTier.values())
-                .map(RiftDriveTier::blockName).toList());
-        blocks.add("warp_anchor");
-        blocks.add("astrolabe");
-        blocks.add("spatial_siphon");
 
-        for (String block : blocks) {
+        for (String block : allBlocks()) {
             boolean craftable = Files.exists(data.resolve("recipe").resolve(block + ".json"));
             boolean creativeOnly = block.equals(RiftDriveTier.CREATIVE.blockName());
             if (craftable && creativeOnly) {

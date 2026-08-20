@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "OBO",
+    "BAB",
+    "OBO"
+  ],
+  "key": {
+    "O": {
+      "item": "minecraft:obsidian"
+    },
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "A": {
+      "item": "minecraft:amethyst_shard"
+    }
+  },
+  "result": {
+    "id": "aerowarptics:rift_gate_frame",
+    "count": 8
+  }
+}

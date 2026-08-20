@@ -52,6 +52,15 @@ public final class AWConfig {
     public static final ModConfigSpec.IntValue MAX_INTERACTION_DISTANCE;
     public static final ModConfigSpec.IntValue MAX_ANCHORS_PER_PLAYER;
 
+    public static final ModConfigSpec.IntValue GATE_DIAL_COST;
+    public static final ModConfigSpec.IntValue GATE_DIAL_COST_PER_BLOCK;
+    public static final ModConfigSpec.DoubleValue GATE_STRESS;
+    public static final ModConfigSpec.DoubleValue GATE_STRESS_PER_BLOCK;
+    public static final ModConfigSpec.IntValue GATE_MINIMUM_RPM;
+    public static final ModConfigSpec.IntValue GATE_DIAL_TICKS;
+    public static final ModConfigSpec.IntValue GATE_IDLE_TICKS;
+    public static final ModConfigSpec.IntValue MAX_GATES_PER_PLAYER;
+
     public static final ModConfigSpec.DoubleValue FAILURE_CHARGE_PENALTY;
     public static final ModConfigSpec.IntValue FAILURE_COOLDOWN_TICKS;
     public static final ModConfigSpec.BooleanValue DANGEROUS_FAILURES;
@@ -192,6 +201,38 @@ public final class AWConfig {
         MAX_ANCHORS_PER_PLAYER = SERVER_BUILDER
                 .comment("Maximum number of registered Warp Anchors a single player may own. 0 disables the limit.")
                 .defineInRange("maxAnchorsPerPlayer", 0, 0, 10_000);
+        SERVER_BUILDER.pop();
+
+        SERVER_BUILDER.comment("Rift Gates: the standing doorways vehicles and people drive through.")
+                .push("gates");
+        GATE_DIAL_COST = SERVER_BUILDER
+                .comment("Rift Essence, in millibuckets, spent striking a connection, before size.")
+                .defineInRange("gateDialCost", 250, 0, 1_000_000);
+        GATE_DIAL_COST_PER_BLOCK = SERVER_BUILDER
+                .comment("Extra millibuckets per block of opening. A bigger doorway is a bigger tear,",
+                        "which is what stops the largest gate being the obvious one to build everywhere.")
+                .defineInRange("gateDialCostPerBlock", 12, 0, 10_000);
+        GATE_STRESS = SERVER_BUILDER
+                .comment("Stress the gate draws while it is holding an aperture open, before size.",
+                        "A gate standing dark costs nothing: essence opens a connection, rotation holds it.")
+                .defineInRange("gateStress", 8.0D, 0.0D, 1_024.0D);
+        GATE_STRESS_PER_BLOCK = SERVER_BUILDER
+                .comment("Extra stress per block of opening while held open.")
+                .defineInRange("gateStressPerBlock", 0.75D, 0.0D, 64.0D);
+        GATE_MINIMUM_RPM = SERVER_BUILDER
+                .comment("Rotation speed needed to hold a gate open. Falling below it drops the",
+                        "connection - which is the whole of what makes rotation the holding cost.")
+                .defineInRange("gateMinimumRpm", 32, 1, 256);
+        GATE_DIAL_TICKS = SERVER_BUILDER
+                .comment("Ticks between striking a connection and the aperture being safe to cross.")
+                .defineInRange("gateDialTicks", 40, 5, 600);
+        GATE_IDLE_TICKS = SERVER_BUILDER
+                .comment("Ticks a connection is held with nothing crossing before it lets go.",
+                        "0 holds it open indefinitely, which costs stress for as long as it stands.")
+                .defineInRange("gateIdleTicks", 1_200, 0, 72_000);
+        MAX_GATES_PER_PLAYER = SERVER_BUILDER
+                .comment("Maximum number of Rift Gates a single player may own. 0 disables the limit.")
+                .defineInRange("maxGatesPerPlayer", 0, 0, 10_000);
         SERVER_BUILDER.pop();
 
         SERVER_BUILDER.comment("What happens when a warp cannot complete.").push("failure");

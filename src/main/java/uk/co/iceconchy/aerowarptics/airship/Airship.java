@@ -244,6 +244,23 @@ public final class Airship {
     }
 
     /**
+     * How fast the airship is going, in blocks per tick.
+     *
+     * <p>Converted on the way out for the same reason {@link #driveVelocity} converts on the way in:
+     * the pipeline integrates in blocks per second, and everything above this class thinks in blocks
+     * per tick. A gate carrying momentum across has to hand back what it was given.
+     */
+    public Vector3d velocity() {
+        PhysicsPipeline pipeline = pipeline();
+        Vector3d linear = new Vector3d();
+        if (pipeline != null && !subLevel.isRemoved()) {
+            pipeline.getLinearVelocity(subLevel, linear);
+            linear.mul(1.0D / PHYSICS_TICKS_PER_SECOND);
+        }
+        return linear;
+    }
+
+    /**
      * Commands the airship's velocity outright for this tick.
      *
      * <p>Used while the server is flying the ship through a warp. Setting velocity rather than

@@ -119,6 +119,82 @@ a shift. `TerrainPalette` scales the colour's own channels instead, and
 [`TerrainPaletteTest`](src/test/java/uk/co/iceconchy/aerowarptics/TerrainPaletteTest.java) asserts that
 grass is greener than it is blue and water is bluer than it is red.
 
+### Rift Gate
+
+A doorway you build the size you need, and drive through.
+
+Lay a **closed ring of Rift Gate Frame** standing on end, in either vertical plane, and put a **Rift
+Gate** controller anywhere in it - including a corner, which is where most people put one. The opening
+inside is found the way a nether portal's is, flood filled inward and bounded by frame, so its size and
+proportions are yours. Feed the controller a shaft and a supply of Rift Essence, right-click it, name
+it, and dial another gate.
+
+Anything that crosses the plane comes out of the far gate: **on foot, on a mob, and in an Aeronautics
+land vehicle**. A vehicle is a Sable sub-level exactly as an airship is - a wheel mount is a
+`BlockEntitySubLevelActor`, the same as a Rift Drive - so a car goes through on the same code that
+carries a hull across a warp, passengers and cargo included. An airship will go through too if the ring
+is big enough, which is a consequence rather than a feature, but a welcome one.
+
+**The opening is the size limit.** This is not a balance decision. The aperture hides what falls inside
+its own silhouette and nothing else, so a vehicle wider or taller than the ring would be visible
+sticking out of the portal at both ends of the journey at once - the one thing the illusion cannot
+survive. Something too big is stopped dead on the near side and told why. Building a bigger ring is how
+you pass a bigger machine, and that is what makes free-form sizing the point of the block rather than a
+convenience.
+
+#### What it costs
+
+**Essence to open, rotation to hold.** A dial spends Rift Essence - a base charge plus a per-block
+charge, so a bigger doorway is a bigger tear - and the gate then draws stress for as long as the
+connection stands, scaled the same way. Let the shaft stall and the connection drops. A gate standing
+dark draws **nothing at all**: its stress impact is zero until it has an aperture, which is what stops
+a player being punished for building a doorway they use twice a day. Create caches a block's impact, so
+the gate detaches and re-attaches itself from the network when that changes rather than lying about it.
+
+This is also the first thing that consumes what a **Spatial Siphon** collects. You warp to gather
+essence; you spend essence to run doorways.
+
+#### Where you come out
+
+Two gates are rarely the same size and usually not the same way round, so a crossing is carried over as
+a **fraction** of the opening and a **rotation** of everything else. Enter the top left of a large gate
+and you leave by the top left of a small one, rather than being deposited in its frame. Momentum and
+facing turn with you, so driving in at speed means driving out at speed, pointed the right way.
+
+The part worth testing is the handedness. A portal that reflects instead of rotating puts a vehicle out
+with its left on its right, which looks like a turn from one side and shows up later as a car that
+steers backwards. `GateTraversalTest` pins it with a round trip: going through and coming straight back
+has to return you to the same part of the opening, the same height and the same heading. A reflection
+passes every other test in the file and fails that one, because reflecting twice is not a rotation.
+
+There is deliberately **no half turn** anywhere in that maths. A gate's plane has two faces, and which
+one you leave by is decided by which way you were going - turning somebody a hundred and eighty degrees
+as well would send them back the way they came.
+
+#### The rest of the rules
+
+- **Same dimension only.** Sable cannot move a sub-level between levels, so a gate in another dimension
+  is somewhere a vehicle could never follow its driver. A door that takes half of what goes through it
+  is worse than no door, so the dial list is filtered rather than the refusal being a surprise.
+- **Gates are named, owned and access-controlled**, on the same rules as Warp Anchors and reusing the
+  same `WarpAnchorAccess` - so who may travel where is written once and behaves the same at a chart
+  table and at a doorway.
+- **A crossing is a change of side, not presence in a box.** Standing in the opening is not going
+  anywhere; something whose last position was one side of the plane and whose current one is the other
+  has been through, however fast it was moving.
+- **The far end is held loaded** while a connection stands, by a ticket that expires and is renewed
+  rather than one that is released. Something that must be renewed cannot leak; it can only stop.
+- **A gate that unloads drops its connection but keeps its registration.** Chunk unload and block break
+  are different events, and treating them alike would delete a gate from the world every time nobody
+  was standing near it.
+
+The aperture is the same one a Rift Drive tears, down to the shattering - the pane cracks, breaks and
+falls away in glass exactly as described under [Breaking space open](#breaking-space-open). It grows no
+throat, because a doorway is not a tunnel, and it is **held** rather than timed: the gate renews it from
+its own client tick, so somebody who walks up to a gate that opened before they arrived still sees it
+standing. The renderer learned two things for this - an aperture can be an ellipse now, fitted to a
+rectangular ring, and it can be kept up indefinitely instead of running on an open-hold-close clock.
+
 ### Spatial Siphon
 
 A glass vessel on a brass foot. Every time the ship it is bolted to comes out of a rift, it catches a

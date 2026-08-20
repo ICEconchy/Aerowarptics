@@ -105,6 +105,14 @@ public final class RiftEffectManager {
     private static final int GATE_EVERY = 4;
     /** How much brighter a gate is than the bore around it. */
     private static final float GATE_GLOW = 0.55F;
+    /**
+     * Ticks a held aperture survives without being renewed.
+     *
+     * <p>Comfortably more than a tick so a dropped frame does not flicker it, and comfortably less
+     * than a second so a gate that closes is dark before anybody drives at it.
+     */
+    private static final int HOLD_TICKS = 6;
+
     /** How far down the bore the light at the end of it sits. */
     private static final float FAR_LIGHT = 0.985F;
 
@@ -124,7 +132,7 @@ public final class RiftEffectManager {
         final Vector3f normal;
         final Vector3f right;
         final Vector3f up;
-        final double radius;
+        double radius;
         final int colour;
         final int openTicks;
         final int holdTicks;
@@ -153,6 +161,27 @@ public final class RiftEffectManager {
         boolean broken;
         /** What is loose inside the bore, if this aperture ever grows one. */
         final RiftDebris.Mote[] motes;
+
+        /**
+         * How much taller than wide the aperture is.
+         *
+         * <p>A drive tears a circle because nothing constrains its shape. A gate's aperture is the
+         * hole a player built, so it has to be able to be a rectangle's worth of ellipse instead.
+         */
+        float aspect = 1.0F;
+
+        /**
+         * Ticks left before a held aperture gives up waiting to be renewed, or {@code 0} for one
+         * running on its own clock.
+         *
+         * <p>Gates are open for as long as they are open, which is not a length of time anything can
+         * know in advance. Rather than an explicit close - which can be missed by a chunk unload, a
+         * disconnect or a gate somebody else broke - a held aperture has to be told it still exists.
+         * Something that must be renewed cannot leak; it can only stop.
+         */
+        int keepAlive;
+        /** Identity of the block holding this aperture open, or {@code 0} for a warp's own rift. */
+        long holder;
 
         ActiveRift(Vec3 centre, Vec3 normal, double radius, int colour, float throat,
                    int openTicks, int holdTicks, int closeTicks) {
@@ -244,6 +273,45 @@ public final class RiftEffectManager {
         }
         ACTIVE.add(new ActiveRift(packet.centre(), packet.normal(), packet.radius(), colour,
                 packet.throat(), openTicks, holdTicks, closeTicks));
+    }
+
+    /**
+     * Keeps a gate's aperture up for another moment.
+     *
+     * <p>Called from the gate's own client tick rather than pushed by the server, so a player walking
+     * up to an aperture that opened before they arrived sees it. Creates one if there is not one
+     * already, and otherwise brings its size and shape up to date - a gate whose ring is rebuilt while
+     * it stands open changes shape under the player rather than needing to be closed and reopened.
+     */
+    public static void hold(long holder, Vec3 centre, Vec3 normal, double halfWidth, double halfHeight,
+                            int colour, int openTicks) {
+        if (!AWConfig.RIFT_DISTORTION.get()) {
+            return;
+        }
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.holder == holder) {
+                rift.keepAlive = HOLD_TICKS;
+                rift.radius = halfWidth;
+                rift.aspect = (float) (halfHeight / Math.max(1.0e-3D, halfWidth));
+                return;
+            }
+        }
+        ActiveRift rift = new ActiveRift(centre, normal, halfWidth, colour, 0.0F,
+                Math.max(1, openTicks), Integer.MAX_VALUE / 2, 20);
+        rift.aspect = (float) (halfHeight / Math.max(1.0e-3D, halfWidth));
+        rift.holder = holder;
+        rift.keepAlive = HOLD_TICKS;
+        ACTIVE.add(rift);
+    }
+
+    /** Lets a held aperture go, without waiting for it to notice it has been forgotten. */
+    public static void release(long holder) {
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.holder == holder) {
+                rift.keepAlive = 0;
+                rift.collapse();
+            }
+        }
     }
 
     /**
@@ -349,6 +417,11 @@ public final class RiftEffectManager {
             rift.throatOpen += (target - rift.throatOpen) / THROAT_FADE;
             if (rift.throatOpen < 0.004F) {
                 rift.throatOpen = 0.0F;
+            }
+            // A held aperture that has stopped being renewed is one whose gate has closed, been
+            // broken, or gone out of range. Either way it is nobody's any more, so it collapses.
+            if (rift.holder != 0L && rift.keepAlive > 0 && --rift.keepAlive == 0) {
+                rift.collapse();
             }
             if (rift.expired()) {
                 iterator.remove();
@@ -842,6 +915,7 @@ public final class RiftEffectManager {
      */
     private static float glint(ActiveRift rift, Vec3 eye, Vector3f facing,
                                double u, double v, double w) {
+        v *= rift.aspect;
         double x = rift.centre.x + rift.right.x * u + rift.up.x * v + rift.normal.x * w;
         double y = rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * w;
         double z = rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * w;
@@ -875,6 +949,10 @@ public final class RiftEffectManager {
     private static void localVertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                     double u, double v, double w,
                                     float red, float green, float blue, float alpha) {
+        // The up axis carries the aperture's aspect, so the glass, the debris and the cracks are all
+        // squashed to the same shape as the hole they belong to rather than sitting circular inside a
+        // rectangular one.
+        v *= rift.aspect;
         float x = (float) (rift.centre.x + rift.right.x * u + rift.up.x * v + rift.normal.x * w);
         float y = (float) (rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * w);
         float z = (float) (rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * w);
@@ -1106,7 +1184,7 @@ public final class RiftEffectManager {
                                      double angle, double radius, double along,
                                      float red, float green, float blue, float glow) {
         double cos = Math.cos(angle) * radius;
-        double sin = Math.sin(angle) * radius;
+        double sin = Math.sin(angle) * radius * rift.aspect;
         float x = (float) (rift.centre.x + rift.right.x * cos + rift.up.x * sin + rift.normal.x * along);
         float y = (float) (rift.centre.y + rift.right.y * cos + rift.up.y * sin + rift.normal.y * along);
         float z = (float) (rift.centre.z + rift.right.z * cos + rift.up.z * sin + rift.normal.z * along);
@@ -1127,7 +1205,7 @@ public final class RiftEffectManager {
     private static void emit(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float bias,
                              double angle, double radius, float red, float green, float blue, float alpha) {
         double cos = Math.cos(angle) * radius;
-        double sin = Math.sin(angle) * radius;
+        double sin = Math.sin(angle) * radius * rift.aspect;
         float x = (float) (rift.centre.x + rift.right.x * cos + rift.up.x * sin) + rift.normal.x * bias;
         float y = (float) (rift.centre.y + rift.right.y * cos + rift.up.y * sin) + rift.normal.y * bias;
         float z = (float) (rift.centre.z + rift.right.z * cos + rift.up.z * sin) + rift.normal.z * bias;

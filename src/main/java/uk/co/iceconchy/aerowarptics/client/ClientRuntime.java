@@ -11,10 +11,14 @@ import uk.co.iceconchy.aerowarptics.client.fx.WarpCorridorOverlay;
 import uk.co.iceconchy.aerowarptics.client.fx.WarpEffects;
 import uk.co.iceconchy.aerowarptics.client.screen.AstrolabeChartScreen;
 import uk.co.iceconchy.aerowarptics.client.screen.RiftDriveConsoleScreen;
+import uk.co.iceconchy.aerowarptics.client.fx.RiftEffectManager;
+import uk.co.iceconchy.aerowarptics.client.screen.RiftGateDialScreen;
 import uk.co.iceconchy.aerowarptics.client.screen.WarpAnchorScreen;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.network.ClientboundCorridorPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundAstrolabeChartPacket;
+import uk.co.iceconchy.aerowarptics.network.ClientboundGateDialPacket;
+import uk.co.iceconchy.aerowarptics.network.ServerboundGatePacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundDriveConsolePacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpEffectPacket;
 import uk.co.iceconchy.aerowarptics.network.ServerboundAstrolabePacket;
@@ -40,6 +44,57 @@ final class ClientRuntime {
 
     static void requestAstrolabeChart(net.minecraft.core.BlockPos tablePos) {
         PacketDistributor.sendToServer(ServerboundAstrolabePacket.open(tablePos));
+    }
+
+    /**
+     * The colour a gate's aperture burns.
+     *
+     * <p>Its own, rather than any drive tier's. A doorway standing in a field is not the same thing as
+     * a ship's drive tearing one open, and telling them apart at a glance is worth one constant.
+     */
+    private static final int GATE_COLOUR = 0xA24BFF;
+
+    /**
+     * Ticks a gate's aperture takes to shatter open.
+     *
+     * <p>A constant rather than the server's dial time. This decides how long a piece of animation
+     * runs and nothing else, and a client reading a server setting to find out is a coin toss over a
+     * number that does not matter.
+     */
+    private static final int GATE_OPEN_TICKS = 40;
+
+    static void requestGateDial(net.minecraft.core.BlockPos gatePos) {
+        PacketDistributor.sendToServer(ServerboundGatePacket.open(gatePos));
+    }
+
+    static void acceptGateDial(ClientboundGateDialPacket packet) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.screen instanceof RiftGateDialScreen open && open.matches(packet.gatePos())) {
+            open.accept(packet);
+            return;
+        }
+        ScreenOpener.open(new RiftGateDialScreen(packet));
+    }
+
+    /**
+     * Keeps a gate's aperture standing.
+     *
+     * <p>Held rather than opened once, so it survives the player leaving and coming back, and closes
+     * on its own if the gate stops saying it is there. See {@code RiftEffectManager.hold}.
+     */
+    static void tickGateAperture(uk.co.iceconchy.aerowarptics.gate.RiftGateBlockEntity gate) {
+        long holder = gate.getBlockPos().asLong();
+        uk.co.iceconchy.aerowarptics.gate.RiftGateShape shape = gate.shape();
+        if (shape == null || !gate.state().hasAperture()) {
+            RiftEffectManager.release(holder);
+            return;
+        }
+        net.minecraft.world.phys.Vec3 normal =
+                shape.normal() == net.minecraft.core.Direction.Axis.X
+                        ? new net.minecraft.world.phys.Vec3(1.0D, 0.0D, 0.0D)
+                        : new net.minecraft.world.phys.Vec3(0.0D, 0.0D, 1.0D);
+        RiftEffectManager.hold(holder, shape.centre(), normal, shape.halfWidth(), shape.halfHeight(),
+                GATE_COLOUR, GATE_OPEN_TICKS);
     }
 
     static void openWarpAnchorScreen(WarpAnchorBlockEntity anchor) {

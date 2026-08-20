@@ -11,6 +11,8 @@ import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorBlock;
 import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlock;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlock;
+import uk.co.iceconchy.aerowarptics.gate.RiftGateBlock;
+import uk.co.iceconchy.aerowarptics.gate.RiftGateFrameBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 
 import java.util.EnumMap;
@@ -48,6 +50,29 @@ public final class AWBlocks {
                     .sound(SoundType.COPPER)
                     .lightLevel(state -> 4)
                     .noOcclusion()
+                    .requiresCorrectToolForDrops()));
+
+    /**
+     * A block of gate frame.
+     *
+     * <p>Inert on purpose. The frame of a gate is a wall, and forty blocks of wall do not need forty
+     * block entities in them - the controller finds its ring by looking rather than by being told.
+     */
+    public static final DeferredBlock<RiftGateFrameBlock> RIFT_GATE_FRAME = BLOCKS.register("rift_gate_frame",
+            () -> new RiftGateFrameBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_PURPLE)
+                    .strength(4.0F, 12.0F)
+                    .sound(SoundType.COPPER)
+                    .lightLevel(state -> 3)
+                    .requiresCorrectToolForDrops()));
+
+    /** The one piece of the ring that thinks. Counts as frame, so it may sit anywhere in the circle. */
+    public static final DeferredBlock<RiftGateBlock> RIFT_GATE = BLOCKS.register("rift_gate",
+            () -> new RiftGateBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_PURPLE)
+                    .strength(4.0F, 12.0F)
+                    .sound(SoundType.COPPER)
+                    .lightLevel(state -> 7)
                     .requiresCorrectToolForDrops()));
 
     public static final DeferredBlock<WarpAnchorBlock> WARP_ANCHOR = BLOCKS.register("warp_anchor",

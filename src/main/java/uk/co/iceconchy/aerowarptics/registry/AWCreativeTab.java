@@ -25,6 +25,8 @@ public final class AWCreativeTab {
                         }
                         output.accept(AWItems.WARP_ANCHOR.get());
                         output.accept(AWItems.ASTROLABE.get());
+                        output.accept(AWItems.RIFT_GATE.get());
+                        output.accept(AWItems.RIFT_GATE_FRAME.get());
                         output.accept(AWItems.SPATIAL_SIPHON.get());
                         output.accept(AWItems.RIFT_ESSENCE_BUCKET.get());
                         output.accept(AWItems.RIFT_CORE.get());

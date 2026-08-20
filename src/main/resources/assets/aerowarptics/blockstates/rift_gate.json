@@ -1,0 +1,29 @@
+{
+  "variants": {
+    "facing=up": {
+      "model": "aerowarptics:block/rift_gate"
+    },
+    "facing=down": {
+      "model": "aerowarptics:block/rift_gate",
+      "x": 180
+    },
+    "facing=north": {
+      "model": "aerowarptics:block/rift_gate",
+      "x": 90
+    },
+    "facing=south": {
+      "model": "aerowarptics:block/rift_gate",
+      "x": 270
+    },
+    "facing=east": {
+      "model": "aerowarptics:block/rift_gate",
+      "x": 90,
+      "y": 90
+    },
+    "facing=west": {
+      "model": "aerowarptics:block/rift_gate",
+      "x": 90,
+      "y": 270
+    }
+  }
+}

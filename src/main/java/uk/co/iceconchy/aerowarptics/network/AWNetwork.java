@@ -24,7 +24,7 @@ import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 public final class AWNetwork {
 
     /** Bumped when a payload's shape changes. */
-    private static final String VERSION = "2";
+    private static final String VERSION = "3";
 
     private AWNetwork() {
     }
@@ -41,6 +41,9 @@ public final class AWNetwork {
         registrar.playToServer(ServerboundWarpCommandPacket.TYPE,
                 ServerboundWarpCommandPacket.STREAM_CODEC,
                 ServerboundWarpCommandPacket::handle);
+        registrar.playToServer(ServerboundGatePacket.TYPE,
+                ServerboundGatePacket.STREAM_CODEC,
+                ServerboundGatePacket::handle);
         registrar.playToServer(ServerboundConfigureAnchorPacket.TYPE,
                 ServerboundConfigureAnchorPacket.STREAM_CODEC,
                 ServerboundConfigureAnchorPacket::handle);
@@ -54,6 +57,9 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundAstrolabeChartPacket.Preview.TYPE,
                 ClientboundAstrolabeChartPacket.Preview.STREAM_CODEC,
                 ClientboundAstrolabeChartPacket.Preview::handle);
+        registrar.playToClient(ClientboundGateDialPacket.TYPE,
+                ClientboundGateDialPacket.STREAM_CODEC,
+                ClientboundGateDialPacket::handle);
         registrar.playToClient(ClientboundWarpEffectPacket.TYPE,
                 ClientboundWarpEffectPacket.STREAM_CODEC,
                 ClientboundWarpEffectPacket::handle);

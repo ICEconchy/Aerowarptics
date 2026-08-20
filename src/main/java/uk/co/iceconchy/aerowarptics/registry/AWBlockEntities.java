@@ -11,6 +11,7 @@ import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorBlockEntity;
 import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlockEntity;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlock;
+import uk.co.iceconchy.aerowarptics.gate.RiftGateBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 
@@ -41,6 +42,11 @@ public final class AWBlockEntities {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SpatialSiphonBlockEntity>> SPATIAL_SIPHON =
             BLOCK_ENTITIES.register("spatial_siphon", () -> BlockEntityType.Builder.of(
                             SpatialSiphonBlockEntity::new, AWBlocks.SPATIAL_SIPHON.get())
+                    .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RiftGateBlockEntity>> RIFT_GATE =
+            BLOCK_ENTITIES.register("rift_gate", () -> BlockEntityType.Builder.of(
+                            RiftGateBlockEntity::new, AWBlocks.RIFT_GATE.get())
                     .build(null));
 
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<WarpAnchorBlockEntity>> WARP_ANCHOR =
