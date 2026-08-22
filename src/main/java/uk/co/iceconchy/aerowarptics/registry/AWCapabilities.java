@@ -28,5 +28,18 @@ public final class AWCapabilities {
         // without it a gate is a machine that asks for Rift Essence and gives you no way to give it any.
         event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_GATE.get(),
                 (gate, side) -> gate.tank());
+        // Same story for the probe: soundings are paid for in essence, and a probe you cannot pipe
+        // into is a probe fed one bucket at a time.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_PROBE.get(),
+                (probe, side) -> probe.tank());
+        // And the chute, which spends essence per item and would otherwise have to be filled by hand
+        // one bucket at a time - on a machine whose entire purpose is not being tended by hand.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_CHUTE.get(),
+                (chute, side) -> chute.tank());
+        // And its mouth as an inventory, on every side, which is the whole of how a chute is fed:
+        // a Create funnel fitted to any face fills it exactly as it would fill a chest. The chute
+        // stores nothing - an insert either completes the whole journey or is refused.
+        event.registerBlockEntity(Capabilities.ItemHandler.BLOCK, AWBlockEntities.RIFT_CHUTE.get(),
+                (chute, side) -> chute.mouth());
     }
 }

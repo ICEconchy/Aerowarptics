@@ -8,11 +8,13 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorBlock;
+import uk.co.iceconchy.aerowarptics.chute.RiftChuteBlock;
 import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlock;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlock;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateBlock;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateFrameBlock;
+import uk.co.iceconchy.aerowarptics.probe.RiftProbeBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 
 import java.util.EnumMap;
@@ -73,6 +75,37 @@ public final class AWBlocks {
                     .strength(4.0F, 12.0F)
                     .sound(SoundType.COPPER)
                     .lightLevel(state -> 7)
+                    .requiresCorrectToolForDrops()));
+
+    /**
+     * The Rift Probe: the one machine here that finds a destination rather than remembering one.
+     *
+     * <p>Lit a little brighter than the siphon because it is doing something rather than collecting
+     * something, and no-occlusion because its dish is narrower than a full block.
+     */
+    public static final DeferredBlock<RiftProbeBlock> RIFT_PROBE = BLOCKS.register("rift_probe",
+            () -> new RiftProbeBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_PURPLE)
+                    .strength(3.5F, 8.0F)
+                    .sound(SoundType.COPPER)
+                    .lightLevel(state -> 6)
+                    .noOcclusion()
+                    .requiresCorrectToolForDrops()));
+
+    /**
+     * The Rift Chute: a belt-fed hole in space.
+     *
+     * <p>Lit only faintly - the light in the block is the rift it holds, drawn by the renderer, and a
+     * block that glowed just as brightly with its rift collapsed would be telling the player it was
+     * working when it was not.
+     */
+    public static final DeferredBlock<RiftChuteBlock> RIFT_CHUTE = BLOCKS.register("rift_chute",
+            () -> new RiftChuteBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_PURPLE)
+                    .strength(3.0F, 8.0F)
+                    .sound(SoundType.COPPER)
+                    .lightLevel(state -> 3)
+                    .noOcclusion()
                     .requiresCorrectToolForDrops()));
 
     public static final DeferredBlock<WarpAnchorBlock> WARP_ANCHOR = BLOCKS.register("warp_anchor",

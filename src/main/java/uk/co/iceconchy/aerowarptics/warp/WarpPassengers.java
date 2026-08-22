@@ -29,16 +29,28 @@ import java.util.UUID;
  * <ul>
  *   <li><b>Always</b>, the borrowed momentum is taken back. Whatever else happens to someone who comes
  *       off a warping ship, being thrown half a kilometre is not it.</li>
- *   <li><b>Inside the fold</b> - once the bow is through the aperture and until the stern is back out -
- *       they are also put back where they were standing. Not as a courtesy: there is no ground inside
- *       an aperture, no air, and nowhere to walk to, so a passenger left behind there is a passenger
- *       deleted. On the approach and on the way out the world is real and falling off a ship is an
- *       ordinary thing to do, so they are allowed to.</li>
+ *   <li><b>Once the bow is through the aperture</b>, and until the hull has settled, they are also put
+ *       back where they were standing. Not as a courtesy: there is no ground inside an aperture, no
+ *       air, and nowhere to walk to, and on the run out the hull is still being flown at speed towards
+ *       somewhere the passenger never chose. Only on the approach, with the world still real and the
+ *       ship still where they boarded it, is stepping off a thing they are allowed to do.</li>
  * </ul>
  *
  * <p>Seats are remembered in ship space, which is what makes putting somebody back meaningful at all:
  * the deck they fell off has since moved, and on the far side of the corridor it has moved to another
  * part of the world entirely. Their seat has not.
+ *
+ * <h2>Coming off is not the only way to be lost</h2>
+ * The obvious failure is a passenger who is no longer on the sub-level, and that is the one this
+ * class was first written for. The crossing produces a subtler one. A client briefly loses the hull
+ * around the teleport, and a client with nothing under it falls - while the server, seeing them still
+ * inside the hull's bounds on the way down, goes on answering "yes, aboard" until they are through the
+ * keel. So a passenger who is <em>still aboard</em> but sinking through their own deck is recovered
+ * too, on the evidence of the sinking rather than on Sable's answer.
+ *
+ * <p>And the manifest counts riders. A player sitting in a seat is a passenger of that seat, which
+ * {@code Airship.passengers()} deliberately skips - correct for moving the ship, wrong for this, and
+ * the reason sitting down used to make no difference at all.
  */
 public final class WarpPassengers {
 
@@ -59,6 +71,38 @@ public final class WarpPassengers {
     }
 
     /**
+     * Whether a passenger who has come adrift at this point should be put back.
+     *
+     * <p>Wider than {@link #insideTheFold}, and deliberately so. Coming out of the exit aperture is
+     * not inside a hole in space any more, but the hull is still being flown by the drive at speed
+     * towards a resting place the passenger never chose - so somebody who comes off during the run
+     * out is no more responsible for it than somebody who came off in the corridor, and is just as
+     * far from anywhere they meant to be.
+     *
+     * <p>Leaving the run out uncovered was a real hole: strays were <em>forgotten</em> during it
+     * rather than recovered, so {@link #settle} could not put them back either, and the last stage of
+     * every journey quietly wrote off anyone who had not made it aboard yet.
+     */
+    public static boolean recoverable(WarpFlight.Stage stage) {
+        return insideTheFold(stage) || stage == WarpFlight.Stage.EMERGE;
+    }
+
+    /**
+     * How far below their seat a passenger may sink before they are put back on it.
+     *
+     * <p>This is what catches the failure the fold crossing actually produces. A client briefly loses
+     * the sub-level around the teleport - Sable logs {@code "Received a sub-level movement packet for
+     * a non-existent sub-level"} while it catches up - and a client with no ship under it starts
+     * falling. The server still believes that player is aboard, because they are still inside the
+     * hull's bounds on the way down, so asking Sable "are they on the ship" answers yes right up
+     * until they are through the keel and it is too late.
+     *
+     * <p>Two blocks is below anything a floor can be stepped off inside a hull and well above the
+     * noise of standing on a deck that is moving.
+     */
+    private static final double SLIP = 2.0D;
+
+    /**
      * Notes who is aboard, and deals with anybody who is not any more.
      *
      * <p>Called once per tick of the flight, before the hull is moved, so the seats recorded are the
@@ -67,13 +111,33 @@ public final class WarpPassengers {
      * @return how many passengers had to be put back this tick
      */
     public int hold(Airship airship, WarpFlight.Stage stage) {
+        boolean recovering = recoverable(stage);
+        int recovered = 0;
         Set<UUID> present = new HashSet<>();
-        for (Entity entity : airship.passengers()) {
-            present.add(entity.getUUID());
-            seats.put(entity.getUUID(), airship.toShip(entity.position()));
+
+        for (Entity entity : manifest(airship)) {
+            UUID id = entity.getUUID();
+            if (!present.add(id)) {
+                continue;
+            }
+            Vec3 here = airship.toShip(entity.position());
+            Vec3 seat = seats.get(id);
+
+            // Only a supported passenger's position is worth remembering. Somebody in mid-air is
+            // either jumping or falling, and in both cases the seat worth putting them back in is the
+            // last one they were actually standing in.
+            if (seat == null || supported(entity)) {
+                seats.put(id, here);
+                continue;
+            }
+            if (recovering && seat.y - here.y > SLIP) {
+                // Sinking through their own deck: the client has lost the hull and is falling on its
+                // own account, while the server still counts them aboard.
+                reseat(airship, entity, seat);
+                recovered++;
+            }
         }
 
-        int recovered = 0;
         List<UUID> lost = new ArrayList<>();
         for (Map.Entry<UUID, Vec3> seat : seats.entrySet()) {
             if (present.contains(seat.getKey())) {
@@ -85,7 +149,7 @@ public final class WarpPassengers {
                 continue;
             }
             calm(stray);
-            if (!insideTheFold(stage)) {
+            if (!recovering) {
                 // They are off the ship somewhere real, and that is allowed. Stop remembering them,
                 // or the next stage would haul them back aboard from wherever they landed.
                 lost.add(seat.getKey());
@@ -96,6 +160,34 @@ public final class WarpPassengers {
         }
         lost.forEach(seats::remove);
         return recovered;
+    }
+
+    /**
+     * Everyone the hull is carrying, riders included.
+     *
+     * <p>{@code Airship.passengers()} skips anything that is riding something else, because for
+     * <em>moving</em> the hull that is right - a rider is carried by its vehicle and must not be
+     * shoved about independently of it. For <em>recovering</em> one it is exactly wrong: a player in a
+     * seat who gets dismounted mid-warp was never on the manifest, so nothing noticed they had gone
+     * and nothing put them back. That is why sitting down did not help.
+     *
+     * <p>{@code crew()} already resolves a player through whatever they are riding, so the union of
+     * the two is every entity aboard plus every player aboard something aboard.
+     */
+    private static List<Entity> manifest(Airship airship) {
+        List<Entity> aboard = new ArrayList<>(airship.passengers());
+        aboard.addAll(airship.crew());
+        return aboard;
+    }
+
+    /**
+     * Whether something is being held up rather than falling.
+     *
+     * <p>A rider counts: whatever it is sitting in is responsible for it, and its own
+     * {@code onGround} is meaningless.
+     */
+    private static boolean supported(Entity entity) {
+        return entity.onGround() || entity.isPassenger();
     }
 
     /**
@@ -111,7 +203,7 @@ public final class WarpPassengers {
      */
     public void settle(Airship airship) {
         Set<UUID> aboard = new HashSet<>();
-        for (Entity entity : airship.passengers()) {
+        for (Entity entity : manifest(airship)) {
             aboard.add(entity.getUUID());
             entity.fallDistance = 0.0F;
         }

@@ -216,7 +216,16 @@ public final class RiftGateStructure {
         if (interior.size() < MIN_AREA) {
             return null;
         }
-        RiftGateShape shape = new RiftGateShape(span, minX, minY, minZ, maxX, maxY, maxZ);
+        // The mask is the whole point of flood filling: a ring is whatever shape somebody built,
+        // and the bounding box around it is not the opening. Carrying only the box made the aperture
+        // bulge through the frame and let a traveller cross beside the hole rather than through it.
+        RiftGateShape box = new RiftGateShape(span, minX, minY, minZ, maxX, maxY, maxZ);
+        java.util.BitSet mask = new java.util.BitSet(box.width() * box.height());
+        for (BlockPos pos : interior) {
+            int across = span == Direction.Axis.X ? pos.getX() - minX : pos.getZ() - minZ;
+            mask.set((pos.getY() - minY) * box.width() + across);
+        }
+        RiftGateShape shape = new RiftGateShape(span, minX, minY, minZ, maxX, maxY, maxZ, mask);
         int longest = Math.max(shape.width(), shape.height());
         int shortest = Math.min(shape.width(), shape.height());
         return longest > shortest * MAX_ASPECT ? null : new Opening(shape, Set.copyOf(interior));

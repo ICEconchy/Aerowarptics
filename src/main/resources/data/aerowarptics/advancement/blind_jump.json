@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_probe"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.blind_jump.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.blind_jump.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "blind": {
+      "trigger": "aerowarptics:warp_completed",
+      "conditions": {
+        "fix": true
+      }
+    }
+  },
+  "requirements": [
+    [
+      "blind"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:rift_probe"
+}

@@ -204,6 +204,25 @@ public final class AirshipWarpData {
     }
 
     /**
+     * Gives up the way back.
+     *
+     * <p>Called the moment the hull is through the fold. Until then the origin is a rescue: a warp
+     * that dies with the ship still on the near side can put it back where it started. Afterwards it
+     * is a hazard, because the ship is not stranded any more - it has arrived - and "put it back
+     * where it started" means dragging a hull that got where it was going four thousand blocks
+     * backwards.
+     *
+     * <p>That is not hypothetical. An interrupted warp left the origin behind, {@code
+     * releaseStaleClaim} found a claim it thought was stranded, and the ship was returned to its
+     * mooring some seconds after visibly arriving at the destination.
+     */
+    public void forgetOrigin() {
+        CompoundTag tag = root();
+        tag.remove(KEY_ORIGIN);
+        store(tag);
+    }
+
+    /**
      * Puts the airship back where it set off from, if that is known.
      *
      * <p>This is the safety net for an interrupted transit. It is a no-op for a warp that never left

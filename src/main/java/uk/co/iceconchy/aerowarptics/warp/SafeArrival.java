@@ -10,6 +10,7 @@ import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniondc;
@@ -204,12 +205,25 @@ public final class SafeArrival {
     }
 
     /**
-     * Samples blocks inside the volume.
+     * Whether anything solid stands in the volume - checked at every block, not sampled.
      *
-     * <p>Large airships are sampled on a stride rather than block-by-block, bounded by
-     * {@code maxShipBlockSamples}, so the check stays cheap for a flying city while still catching
-     * terrain. The stride is chosen from the volume, so a big hull is sampled coarsely and a small one
-     * exactly.
+     * <p>This used to walk a stride chosen so a flying city cost about as much to test as a skiff.
+     * That made it a sampler, and a sampler cannot answer this question: at a stride of two a
+     * one-block floor is invisible, at four a three-block wall is, and a two-hundred-block hull
+     * stepped over anything up to eight blocks thick. Mountains were caught because mountains are
+     * thick. Buildings, bridge decks and tree trunks were not, and a ship cleared to arrive would
+     * materialise inside them.
+     *
+     * <p>What makes an exhaustive check affordable is skipping rather than sampling. Almost all of
+     * the volume a hull sweeps is open air, and a chunk section that holds nothing but air knows so -
+     * {@code LevelChunkSection.hasOnlyAir} is a flag, not a search. So whole sixteen-block cubes of
+     * sky are dismissed without a single block read, and only sections with something in them are
+     * walked, one at a time, stopping at the first thing that would stop the hull.
+     *
+     * <p>The budget is shared across those sections and is a safety valve rather than a shortcut:
+     * running out means the volume could not be <em>proved</em> clear, and an unproven volume is
+     * treated as obstructed. That is the whole difference from the old budget, which quietly made
+     * the test coarser and let the ship through.
      */
     private static boolean containsBlocks(ServerLevel level, BoundingBox3dc bounds) {
         int minX = (int) Math.floor(bounds.minX());
@@ -218,31 +232,61 @@ public final class SafeArrival {
         int maxX = (int) Math.ceil(bounds.maxX());
         int maxY = Math.min(level.getMaxBuildHeight() - 1, (int) Math.ceil(bounds.maxY()));
         int maxZ = (int) Math.ceil(bounds.maxZ());
+        if (minX > maxX || minY > maxY || minZ > maxZ) {
+            return false;
+        }
 
-        long spanX = Math.max(1L, maxX - minX + 1L);
-        long spanY = Math.max(1L, maxY - minY + 1L);
-        long spanZ = Math.max(1L, maxZ - minZ + 1L);
-        long total = spanX * spanY * spanZ;
-
-        int budget = AWConfig.MAX_SHIP_BLOCK_SAMPLES.get();
-        int stride = total <= budget ? 1 : (int) Math.max(1L, Math.round(Math.cbrt((double) total / budget)));
-
+        long budget = Math.max(1L, (long) AWConfig.MAX_ARRIVAL_BLOCK_CHECKS.get());
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        for (int y = minY; y <= maxY; y += stride) {
-            for (int x = minX; x <= maxX; x += stride) {
-                for (int z = minZ; z <= maxZ; z += stride) {
-                    cursor.set(x, y, z);
-                    BlockState state = level.getBlockState(cursor);
-                    if (state.isAir()) {
+        ObstructionScan.Solid solid = (x, y, z) -> {
+            cursor.set(x, y, z);
+            BlockState state = level.getBlockState(cursor);
+            return !state.isAir() && !state.getCollisionShape(level, cursor).isEmpty();
+        };
+
+        for (int sectionY = minY >> 4; sectionY <= (maxY >> 4); sectionY++) {
+            for (int chunkX = minX >> 4; chunkX <= (maxX >> 4); chunkX++) {
+                for (int chunkZ = minZ >> 4; chunkZ <= (maxZ >> 4); chunkZ++) {
+                    LevelChunk chunk = level.getChunk(chunkX, chunkZ);
+                    if (isSectionEmpty(chunk, sectionY)) {
                         continue;
                     }
-                    if (!state.getCollisionShape(level, cursor).isEmpty()) {
+                    // Only the part of this section the hull actually reaches into.
+                    int fromX = Math.max(minX, chunkX << 4);
+                    int toX = Math.min(maxX, (chunkX << 4) + 15);
+                    int fromY = Math.max(minY, sectionY << 4);
+                    int toY = Math.min(maxY, (sectionY << 4) + 15);
+                    int fromZ = Math.max(minZ, chunkZ << 4);
+                    int toZ = Math.min(maxZ, (chunkZ << 4) + 15);
+
+                    ObstructionScan.Verdict verdict =
+                            ObstructionScan.scan(fromX, fromY, fromZ, toX, toY, toZ, budget, solid);
+                    if (verdict != ObstructionScan.Verdict.CLEAR) {
+                        // OBSTRUCTED and TOO_LARGE are both "do not put a ship here".
+                        return true;
+                    }
+                    budget -= ObstructionScan.volumeOf(fromX, fromY, fromZ, toX, toY, toZ);
+                    if (budget <= 0L) {
                         return true;
                     }
                 }
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a chunk section holds nothing but air.
+     *
+     * <p>Outside the world's own vertical range there is no section at all, which is as empty as it
+     * gets - a hull above the build limit is in open sky by definition.
+     */
+    private static boolean isSectionEmpty(LevelChunk chunk, int sectionY) {
+        int index = chunk.getSectionIndexFromSectionY(sectionY);
+        if (index < 0 || index >= chunk.getSections().length) {
+            return true;
+        }
+        return chunk.getSections()[index].hasOnlyAir();
     }
 
     /** Convenience: is the anchor's own chunk available at all? */

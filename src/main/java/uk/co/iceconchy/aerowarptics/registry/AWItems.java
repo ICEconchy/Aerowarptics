@@ -9,6 +9,7 @@ import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
+import uk.co.iceconchy.aerowarptics.guide.HandbookItem;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -17,6 +18,15 @@ import java.util.Map;
 public final class AWItems {
 
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(AeroWarptics.MODID);
+
+    /**
+     * The guide, as an item.
+     *
+     * <p>First in the file and first in the creative tab, because it is the one thing here that is
+     * about the other twelve.
+     */
+    public static final DeferredItem<Item> HANDBOOK =
+            ITEMS.register("handbook", () -> new HandbookItem(new Item.Properties().stacksTo(1)));
 
     /** The shared machinery core every Rift Drive is built around. */
     public static final DeferredItem<Item> RIFT_CORE =
@@ -45,6 +55,12 @@ public final class AWItems {
 
     public static final DeferredItem<BlockItem> ASTROLABE =
             ITEMS.registerSimpleBlockItem("astrolabe", AWBlocks.ASTROLABE);
+
+    public static final DeferredItem<BlockItem> RIFT_CHUTE =
+            ITEMS.registerSimpleBlockItem("rift_chute", AWBlocks.RIFT_CHUTE);
+
+    public static final DeferredItem<BlockItem> RIFT_PROBE =
+            ITEMS.registerSimpleBlockItem("rift_probe", AWBlocks.RIFT_PROBE);
 
     public static final DeferredItem<BlockItem> SPATIAL_SIPHON =
             ITEMS.registerSimpleBlockItem("spatial_siphon", AWBlocks.SPATIAL_SIPHON);

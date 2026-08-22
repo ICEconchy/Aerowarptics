@@ -15,6 +15,7 @@ import uk.co.iceconchy.aerowarptics.anchor.WarpAnchor;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorRegistry;
 import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
+import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 import uk.co.iceconchy.aerowarptics.warp.WarpValidator;
 
@@ -81,18 +82,27 @@ public record ClientboundDriveConsolePacket(BlockPos drivePos,
 
         String courseName = "";
         WarpFailure courseFailure = WarpFailure.NONE;
-        UUID course = drive.standingDestination();
+        WarpCourse course = drive.standingCourse();
         if (course == null) {
             courseFailure = WarpFailure.ANCHOR_MISSING;
         } else if (drive.getLevel() instanceof net.minecraft.server.level.ServerLevel level) {
-            WarpAnchor anchor = WarpAnchorRegistry.get(level).byId(course);
-            if (anchor == null) {
-                courseFailure = WarpFailure.ANCHOR_MISSING;
+            if (course.isAnchor()) {
+                WarpAnchor anchor = WarpAnchorRegistry.get(level).byId(course.anchorId());
+                if (anchor == null) {
+                    courseFailure = WarpFailure.ANCHOR_MISSING;
+                } else {
+                    // Read fresh rather than from the course: an anchor can be renamed after a
+                    // course is set, and a console showing the old name is quietly lying.
+                    courseName = anchor.displayName();
+                    courseFailure = airship == null
+                            ? WarpFailure.NO_AIRSHIP
+                            : WarpValidator.validateDestination(airship, anchor, drive.tier(), drive.charge());
+                }
             } else {
-                courseName = anchor.displayName();
+                courseName = course.label();
                 courseFailure = airship == null
                         ? WarpFailure.NO_AIRSHIP
-                        : WarpValidator.validateDestination(airship, anchor, drive.tier(), drive.charge());
+                        : WarpValidator.validateFix(airship, course.fix(), drive.tier(), drive.charge());
             }
         }
 

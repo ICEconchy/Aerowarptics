@@ -1,5 +1,6 @@
 package uk.co.iceconchy.aerowarptics.warp;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
@@ -32,7 +33,33 @@ public final class ArrivalTicket {
             TicketType.create("aerowarptics:warp_arrival", Comparator.comparingLong(ChunkPos::toLong),
                     LIFESPAN_TICKS);
 
+    /**
+     * The drive's own chunk, held for the duration of a flight.
+     *
+     * <p>A drive lives in its airship's plot, which is an ordinary chunk of the level at extraordinary
+     * coordinates - and an ordinary chunk can be unloaded. If that happens mid-warp the drive comes
+     * back off disk, finds a sequence running, and drops it: the flight ends silently at whatever
+     * stage it had reached and nothing finishes the journey or settles the crew.
+     *
+     * <p>Which is not hypothetical. It shows up on large hulls, where moving the plot is expensive
+     * enough to stall the server, and it is what {@code WarpTrace.interrupted} now reports.
+     */
+    private static final TicketType<ChunkPos> WARP_DRIVE =
+            TicketType.create("aerowarptics:warp_drive", Comparator.comparingLong(ChunkPos::toLong),
+                    LIFESPAN_TICKS);
+
     private ArrivalTicket() {
+    }
+
+    /**
+     * Claims the ground the drive itself is standing on.
+     *
+     * <p>One chunk either side, because a hull's plot is small and the only thing that has to survive
+     * is the block entity running the sequence.
+     */
+    public static void holdDrive(ServerLevel level, BlockPos drivePos) {
+        ChunkPos chunk = new ChunkPos(drivePos);
+        level.getChunkSource().addRegionTicket(WARP_DRIVE, chunk, 2, chunk);
     }
 
     /**

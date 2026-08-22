@@ -36,7 +36,9 @@ import java.util.UUID;
  * @param hasDrive     whether the hull carries a drive at all
  * @param access       why the chart is unusable, or {@link WarpFailure#NONE}
  * @param selected     the course the table is already set to, so the chart opens on it
- * @param quotes       one entry per anchor the player may see
+ * @param totalAvailable how many anchors the player may see in total, which is more than
+ *                       {@code quotes} holds when the chart had to be capped to fit a packet
+ * @param quotes       one entry per anchor the player may see, best first once capped
  */
 public record ClientboundAstrolabeChartPacket(BlockPos astrolabePos,
                                               int tierIndex,
@@ -46,7 +48,31 @@ public record ClientboundAstrolabeChartPacket(BlockPos astrolabePos,
                                               boolean hasDrive,
                                               WarpFailure access,
                                               @Nullable UUID selected,
+                                              @Nullable BlockPos courseFix,
+                                              String courseLabel,
+                                              int totalAvailable,
                                               List<WarpQuote> quotes) implements CustomPacketPayload {
+
+    /** Whether there were more destinations than the chart could be sent. */
+    public boolean truncated() {
+        return totalAvailable > quotes.size();
+    }
+
+    /**
+     * Whether the ship is aimed at somewhere no anchor marks.
+     *
+     * <p>A Rift Probe can set the drive's course to a bare position, and when it has, none of the
+     * anchors in this list is the destination. The chart used to go on highlighting whichever anchor
+     * it had last been shown, which made it quietly wrong about where the ship was going - the one
+     * thing a chart must not be.
+     */
+    public boolean courseIsFix() {
+        return courseFix != null;
+    }
+
+    public boolean hasCourse() {
+        return selected != null || courseFix != null;
+    }
 
     public static final Type<ClientboundAstrolabeChartPacket> TYPE =
             new Type<>(AeroWarptics.id("astrolabe_chart"));
@@ -71,7 +97,14 @@ public record ClientboundAstrolabeChartPacket(BlockPos astrolabePos,
         if (packet.selected != null) {
             buf.writeUUID(packet.selected);
         }
-        WarpQuote.STREAM_CODEC.apply(ByteBufCodecs.list(256)).encode(buf, packet.quotes);
+        buf.writeBoolean(packet.courseFix != null);
+        if (packet.courseFix != null) {
+            buf.writeBlockPos(packet.courseFix);
+        }
+        buf.writeUtf(packet.courseLabel, 64);
+        buf.writeVarInt(packet.totalAvailable);
+        WarpQuote.STREAM_CODEC.apply(ByteBufCodecs.list(PacketLists.MAX_ROWS))
+                .encode(buf, packet.quotes);
     }
 
     private static ClientboundAstrolabeChartPacket decode(RegistryFriendlyByteBuf buf) {
@@ -84,7 +117,10 @@ public record ClientboundAstrolabeChartPacket(BlockPos astrolabePos,
                 buf.readBoolean(),
                 buf.readEnum(WarpFailure.class),
                 buf.readBoolean() ? buf.readUUID() : null,
-                WarpQuote.STREAM_CODEC.apply(ByteBufCodecs.list(256)).decode(buf));
+                buf.readBoolean() ? buf.readBlockPos() : null,
+                buf.readUtf(64),
+                buf.readVarInt(),
+                WarpQuote.STREAM_CODEC.apply(ByteBufCodecs.list(PacketLists.MAX_ROWS)).decode(buf));
     }
 
     public static void handle(ClientboundAstrolabeChartPacket packet, IPayloadContext context) {

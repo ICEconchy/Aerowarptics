@@ -222,6 +222,50 @@ rather than winding the clock forward to the end of it, which keeps the whole an
 small enough to count in. The renderer learned two things for this - an aperture can be an ellipse now, fitted to a
 rectangular ring, and it can be kept up indefinitely instead of running on an open-hold-close clock.
 
+### Rift Probe
+
+Every other destination in this mod is a place somebody carried a block to. That makes the map a
+closed loop — you can only warp to where you have already walked — and the probe is what opens it.
+
+Point the dial at one of eight bearings, set a distance on the slider, and throw a **sounding**. The
+probe tears a rift open at that spot, holds the far ground long enough to read it, and brings back the
+same top-down survey the Astrolabe draws of an anchor. You then decide on exactly the evidence you
+would have had anywhere else: the shape of the coastline, how high the ground stands, how much of the
+picture actually came back.
+
+The waiting is not theatre. `DestinationSurvey` reads only chunks that are already loaded, which is
+right for an anchor — somebody has been there — and useless for a probe, where nobody has and the
+terrain may not exist yet. So `ProbeTicket` claims the region first and the probe polls until enough
+of it has arrived. **The progress bar is the server generating the world.** When it has not finished
+by the configured timeout, the probe reads what is there and reports the reading as *thin* rather than
+either lying about it or waiting forever.
+
+Bearings are normalised, which matters more than it sounds: a north-east sounding of three thousand
+travels three thousand blocks, not four thousand two hundred. Built from raw `(1, 1)` offsets, diagonal
+soundings would quietly cost the same and reach forty percent further, and nobody would ever report
+that as a bug — they would just stop using the other six directions.
+
+Rift Essence pays for it, and reaching further costs more. That is the loop closing: a Spatial Siphon
+collects essence from journeys you have already made, and a probe spends it finding somewhere you have
+not.
+
+What comes back is a **fix**, not an anchor — a bare position, with nothing at the far end. Setting a
+course from it arms the drive exactly as choosing an anchor does, and the flight is identical. Bring an
+anchor with you if you want to come back.
+
+#### Courses that are not anchors
+
+This is the one change the probe forced on the rest of the mod. The drive used to store a destination
+as an anchor UUID and re-resolve it through the registry at four separate points. A sounding has no
+anchor at the far end and never will, so a destination is now a `WarpCourse`: either an anchor to look
+up or a fix to fly at, exactly one of the two, enforced in the constructor. A course that was neither
+would be a drive that believes it has somewhere to go and cannot say where — which surfaces as an
+aborted warp halfway down a corridor rather than as a refusal at the console.
+
+Everything downstream asks the course rather than the registry. The two things only an anchor can
+answer — is it switched off, may this player see it — are simply skipped for a fix, which is correct:
+a position cannot be switched off, and the sounding that produced it was already vouched for.
+
 ### Spatial Siphon
 
 A glass vessel on a brass foot. Every time the ship it is bolted to comes out of a rift, it catches a
@@ -337,6 +381,43 @@ However the journey ends — arrival or abort — the manifest is settled last, 
 put wherever it is finally going to be. So somebody who came off mid-corridor arrives with the ship
 rather than at the coordinates of a rift that no longer exists, and nobody takes fall damage for a
 descent the server was flying.
+
+### Telling the client it was a teleport
+
+Sable syncs a sub-level's pose as a stream of snapshots, and there is no "that was a teleport" flag
+anywhere in it. A client simply sees the ship somewhere else on the next tick and carries on — which
+is fine for a ship that flew there, and badly wrong for one that jumped four thousand blocks.
+
+`SubLevelEntityCollision` sweeps an entity against a moving platform by mapping the entity's box into
+the sub-level's frame at the **previous** pose and at the **current** one, then unioning the two.
+Across a long warp that union is a box the length of the whole journey, and once its volume passes
+`1.25e8` Sable logs
+
+```
+Enormous local sub-level collision bounds, quitting.
+```
+
+and abandons the collision entirely. With no collision there is no deck under the crew, so they drop
+through the ship; and with the hull's client-side bounds nonsense, it stops being drawn — which looks
+exactly like the airship having been deleted. **One cause, both symptoms**, and only on long jumps
+because a short one stays under the limit.
+
+The line falls in an awkward place. Two real warps from the same session, back to back: 4,626 blocks
+tripped it and 4,221 blocks did not, both landing within a few percent of the limit. That is why the
+symptom read as intermittent rather than as "long warps are broken".
+
+The server never had the problem — `Airship.relocate` collapses the pose delta on its own sub-level
+the moment the teleport lands, which is what the `updateLastPose()` there is for. `FoldCrossings` is
+that same collapse applied to the copies the clients hold: when a hull crosses the fold, everyone who
+can see either end is sent the ship's id, and their client collapses the delta as soon as the jump
+shows up.
+
+It is a *window* rather than a single instruction, because the notice and Sable's pose snapshot are
+independent streams with no ordering between them — the notice usually arrives while the client still
+believes the ship is at the old position, and collapsing then would do nothing at all. So the notice
+opens a watch, and the collapse happens on whichever tick the jump actually appears. The watch runs
+on both `ClientTickEvent.Pre` and `.Post`: entity movement happens *inside* the client tick, so a
+check that only ran afterwards would be a tick late and the crew would already be falling.
 
 ### Breaking space open
 
@@ -659,6 +740,193 @@ and five Singularity Cores to build one Singularity, which cascaded to something
 Refined Radiance. Nobody writes that on purpose; it is what happens when a 5×5 pattern is drawn for how
 it looks and never counted up.
 
+## Teaching the mod
+
+None of the above is discoverable. A Rift Gate is forty blocks of wall that does nothing until it is
+powered, dialled and paired with a second gate somewhere else, and a player who builds one and waits
+learns nothing from the silence. Four separate systems address that, aimed at four moments.
+
+### The Navigator's Handbook
+
+The others each answer a question a player has already got as far as asking. Ponder shows one machine
+working, JEI says what an item is, and the advancement tree says what to do next. None of them answers
+*how do I fly a ship somewhere*, because that is eight steps across four blocks and no single scene
+holds it — so there is a book.
+
+Craft it from a book, a brass sheet and an amethyst shard, right-click, and it opens as a book: two
+pages at a time, a ribbon per chapter along the top board, arrows at the corners, a contents page that
+jumps. Eight chapters — the drive, anchors and charts, launching, the probe, gates, essence and cargo,
+and what to do when nothing happens — sixteen pages, each with an animated diagram at the top of it.
+
+The animation is not decoration and neither are the diagrams. A book that jumped between spreads would
+give a reader no sense of where they were in it, which is the one sense a book has and a wiki does not:
+a page turned forward comes off the right, a page turned back comes off the left, and after two of them
+nobody needs telling which arrow does what. The leaf is drawn squashing towards the spine — a
+horizontal scale about the gutter, which is as close to foreshortening as a flat GUI gets — with a
+shadow thrown on the sheet it is passing over, because a cross-fade carries none of that. And the
+interesting half of most of these machines is a thing that happens *over time*: a shaft turning, a
+needle settling on the bow, a traveller entering one gate and leaving another the right way round. A
+still picture of a Rift Gate is a rectangle.
+
+What is written lives in `guide/GuideBook.java` and what it looks like lives in the screen, and both
+halves are free of Minecraft where they can be — which is what lets `GuidebookTest` prove things a
+guide book normally has to be read to discover:
+
+- every line has a translation, so no page renders a raw key;
+- every page has room for the words on it, measured with a font model that errs towards over-wide, so
+  no sentence is drawn below the paper where nothing would ever tell you it was there;
+- every chapter fills whole spreads, so no chapter starts on the wrong side of somebody else's;
+- every ribbon lands on its own chapter, and the steps in a chapter run 1, 2, 3 with nothing skipped;
+- and every diagram stays inside the box its page gave it, walked across its whole animation rather
+  than checked on one frame.
+
+That last one is why `AWDraw` exists: the drawings are written against a single method that puts a
+coloured rectangle somewhere, so the screen hands over `graphics::fill` and a test hands over something
+that writes the rectangles down. Four of these diagrams overhung their box on the first attempt, by two
+to nine pixels each — a marker ring that grew too far, a ring gate half as tall again as its space —
+and the symptom would have been faint purple over the first line of the text underneath. Nobody reports
+that as a bug. Everybody notices the page looking wrong.
+
+### Ponder scenes
+
+Holding **[W]** over any of this mod's items plays a scene explaining it, in the same window Create
+uses for its own. Seven of them: the Spatial Siphon, the Warp Anchor, the Astrolabe, the Rift Probe, the Rift Drive,
+and two for the Rift Gate — building the ring, and getting something through it. They are grouped into two
+chapters of the Ponder index, `Warp Travel` and `Rift Gates`, so a player who only wanted a doorway
+between two bases does not have to read about airships to find it.
+
+Two scenes do not show the thing they are about, deliberately. A warp moves a Sable sub-level and a
+Ponder scene has no airship in it; a gate's aperture is drawn by the client from live gate state and a
+Ponder level has none. Rather than animate a lie, those scenes teach what a player can act on before
+they reach the console — where the machine goes, what it consumes, what decides whether it will run —
+and leave the spectacle to be seen from the deck. That is the more useful half anyway: what people get
+wrong about a gate is the ring, the power and the pairing, none of which an animation would have told
+them.
+
+Ponder scenes are ordinary Minecraft structure templates, and Create builds its own by standing in a
+world with a schematic wand. That is not something a build can reproduce, so this mod's are written as
+code and generated:
+
+```bash
+python tools/ponder_schematics.py
+```
+
+The layouts are then readable, a change to one shows up as a diff, and the base plate and camera
+conventions match Create's so the scenes sit at the same angle and scale.
+
+The text needs more care than it looks like it does. Ponder resolves scene text through `I18n` and
+**does not** fall back to the string written in the storyboard, so a missing entry is not an untranslated
+line — it is a raw `aerowarptics.ponder.rift_gate.text_3` shown to the player mid-tutorial. Worse, the
+keys are positional: `text_1`, `text_2` and so on are handed out in the order the `.text(...)` calls
+run, so a sentence inserted into the middle of a scene silently renumbers every sentence after it and
+puts the wrong words under the right picture. Keeping two files in step by hand loses that game, so the
+entries are generated from the storyboards:
+
+```bash
+python tools/ponder_lang.py
+```
+
+`PonderTextTest` runs the same parse and fails the build when the language file has drifted, when a
+scene has no schematic, or when a translation belongs to a scene that no longer exists.
+
+### Advancements
+
+Thirteen advancements on one tree, rooted at the Rift Core, branching into the anchor-and-chart line, the
+drive-and-warp line, and the gates. They double as the progression the mod otherwise only implies.
+
+Most hang off vanilla's `inventory_changed`, because "you are holding one" is what most of them mean.
+Two things have no vanilla equivalent and get a trigger of their own:
+
+- `aerowarptics:warp_completed` fires for **everyone aboard** when a hull finishes a jump — not just
+  whoever pressed the button, because a warp is something a crew goes through together. It reports the
+  distance actually crossed, the drive tier that did it, and whether the destination was a probe's fix
+  rather than a placed anchor — so `The Long Way Round` can ask for two thousand blocks and
+  `Nobody Has Been Here` can ask for a blind jump, without either number or flag being baked in.
+- `aerowarptics:gate_travel` fires when a player comes out of the far side of a gate, and reports
+  whether they crossed on foot or as cargo. The two are separate achievements: walking in needs a
+  dialled gate and nothing else, while taking a vehicle through needs one wide enough at *both* ends,
+  which is the part people get wrong. Left together, the hard one would be handed out for the easy one.
+
+The tree is declared once and generated, because every entry needs the same five things said the same
+way and the titles live in a different file from the advancements that use them:
+
+```bash
+python tools/advancements.py
+```
+
+`AdvancementTest` guards the failures that are silent rather than loud — a criterion naming a trigger
+the mod never registers simply never fires, a parent pointing at nothing drops a whole branch off the
+screen, and a missing title renders as its own lang key. It checks the tree is connected and acyclic,
+that every custom trigger is one `AWCriteria` actually registers, that every icon is an item that
+exists, and that nothing is left translated that no advancement uses.
+
+### JEI
+
+This mod adds no recipe types of its own — everything is crafted on a bench or mixed in a basin, and
+JEI finds those unaided. What it cannot find is the part that matters: that a drive has to be *built
+into* an airship, that a gate needs a partner, that essence comes out of travelling rather than out of
+the ground. Those go on each item's information page, which is the first place a player looks after
+"how do I make it".
+
+They are kept short on purpose. The long version is the Ponder scene, and anything written twice
+eventually disagrees with itself, so the JEI pages say what the item is and what commonly goes wrong
+with it and leave the walkthrough alone.
+
+The plugin class is only ever loaded by JEI itself, so the mod runs unchanged without it; the
+dependency is declared optional and client-side.
+
+## The screens
+
+Seven of them: the drive's console, the Astrolabe's chart, a gate's dial panel, an anchor's settings,
+the probe and a chute's panel — which share a palette, a set of drawn shapes and, the part that was
+missing, a layout — plus the Navigator's Handbook, which deliberately shares only the last of those. A
+handbook is not a machine, and dressing it in the machines' brass-on-near-black would have made it read
+as one more readout screen rather than as something you sat down with, so it has leather boards,
+parchment and its own palette in `AWBookStyle`.
+
+Before, each screen carried its own handful of magic offsets, and the only way to discover that two
+panels overlapped or that one hung off the edge was to open the game and look at it. Two of them had
+exactly one pixel of margin left, entirely by accident. So the layouts now live in `AWLayouts` as
+plain arithmetic with no Minecraft in it at all, which means `ScreenLayoutTest` can call them
+directly and check that:
+
+- nothing starts outside the window or runs past its interior — measured against the interior, because
+  Catnip's box draws its border *outside* the bounds it is given, so the last eight pixels of a window
+  are frame rather than floor;
+- no two panels share a pixel, and neighbouring framed panels leave room for both their borders;
+- every panel is big enough to hold two lines and every button wide enough for its label;
+- the terrain preview panel is exactly the size of the survey grid it draws, checked against
+  `DestinationSurvey`'s own arithmetic so the two cannot drift;
+- each list shows enough rows to be worth scrolling.
+
+That test found two real bugs the moment it was written. One was a caption drawn ten pixels above a
+six-pixel band, which put it on top of the panel above it.
+
+### Motion
+
+Deliberately restrained, and all of it attached to something that is actually happening:
+
+- **Bars chase their readings.** A drive told its charge is now eighty percent slides there rather than
+  jumping, and a bar that is filling carries a travelling highlight — so "charging" and "stuck at 40%"
+  look different, which they did not before.
+- **Selection slides.** The marker beside the chosen row on a list eases between rows instead of
+  teleporting, which makes it obvious that the list moved rather than the selection.
+- **A live gate breathes.** The one connected gate in the dial list pulses gently. It is the single
+  fact on that screen worth seeing without reading.
+- **The probe's needle turns the short way round.** Re-aiming from north-west to north swings
+  forty-five degrees, not three hundred and fifteen. Without that the instrument reads as broken
+  rather than adjusted.
+- **The handbook turns its pages.** A leaf squashes into the spine and opens out of it on the other
+  side, casting a shadow on the sheet below; the ink on a fresh spread settles line by line rather than
+  landing all at once; and every diagram on it runs off the same clock. See *The Navigator's Handbook*
+  above for why none of that is ornament.
+- **The probe sweeps while it is reaching.** There is genuinely no progress to report while chunks
+  generate beyond "still going", so the ring is scanned rather than a percentage being invented.
+
+`AWAnim` holds the easing and the chasing value, and is free of Minecraft so the curves can be tested.
+The failure mode of an easing function is not a crash — it is a bar that never quite arrives, or one
+that overshoots into a shape the eye reads as a glitch — so both are asserted.
+
 ## Configuration
 
 `config/aerowarptics-server.toml` — range, cost formula, arrival search and clearance buffer, the
@@ -728,6 +996,25 @@ Both directories are on the compile classpath and on the dev runtime classpath.
 ./gradlew test
 ```
 
+Some resources are generated rather than written by hand. Regenerate them after changing what they
+are built from, and re-run the tests, which are what notice if you forget:
+
+```bash
+python tools/ponder_schematics.py
+```
+
+```bash
+python tools/ponder_lang.py
+```
+
+```bash
+python tools/advancements.py
+```
+
+```bash
+python tools/probe_textures.py
+```
+
 ---
 
 ## Limitations
@@ -742,6 +1029,11 @@ Rather than fake it by teleporting players, the addon refuses the warp with a cl
 a real extension point: register a `CrossDimensionWarp.Handler` and set `allowCrossDimensionWarp`, and
 the rest of the pipeline — anchors, cost, validation, the state machine, the effects — already works
 across dimensions unchanged.
+
+**A sounding cannot leave its own dimension,** for the same reason a warp cannot: a probe hands the
+drive a position in the ship's own level, and the drive has nowhere else to take it. It also cannot
+survive a reload — the chunk ticket holding that ground open has gone, so a probe interrupted mid-
+sounding comes back idle rather than waiting on chunks nothing is keeping loaded.
 
 **Airship ownership.** Neither Sable nor Simulated tracks who owns a vessel, so authority over a drive
 is proximity plus presence: you must be within reach of it and, by default, standing on the ship it is

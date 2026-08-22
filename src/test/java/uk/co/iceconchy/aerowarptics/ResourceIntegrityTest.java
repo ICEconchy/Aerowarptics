@@ -145,7 +145,8 @@ class ResourceIntegrityTest {
                 problems.add("no inventory icon for " + block);
             }
         }
-        for (String item : List.of("rift_core", "rift_lens", "stabiliser_ring", "singularity_core")) {
+        for (String item : List.of("rift_core", "rift_lens", "stabiliser_ring", "singularity_core",
+                "handbook")) {
             if (!Files.exists(ASSETS.resolve("models/item").resolve(item + ".json"))) {
                 problems.add("no item model for " + item);
             }

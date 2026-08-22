@@ -16,6 +16,7 @@ import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlockEntity;
 import uk.co.iceconchy.aerowarptics.astrolabe.DestinationSurvey;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
+import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 import uk.co.iceconchy.aerowarptics.warp.WarpQuote;
 import uk.co.iceconchy.aerowarptics.warp.WarpValidator;
@@ -138,9 +139,21 @@ public record ServerboundAstrolabePacket(BlockPos tablePos, Action action, UUID 
         WarpFailure access = drive == null ? WarpFailure.NO_AIRSHIP : WarpValidator.validatePlayer(player, drive);
         RiftDriveTier tier = drive == null ? RiftDriveTier.MK_I : drive.tier();
         float charge = drive == null ? 0.0F : drive.charge();
-        List<WarpQuote> quotes = drive == null || airship == null || access.isFailure()
-                ? List.of()
+        List<WarpQuote> available = drive == null || airship == null || access.isFailure()
+                ? List.<WarpQuote>of()
                 : WarpValidator.quoteAll(level, player, airship, tier, charge);
+        // Nothing upstream bounds this: anchors are unlimited by default and every one the player may
+        // see is quoted. Over the packet's limit the encoder throws rather than truncating, so the cap
+        // has to happen here, and the untruncated total goes with it so the chart can say so.
+        List<WarpQuote> quotes = PacketLists.cap(available, WarpQuote.NEAREST_USABLE_FIRST);
+
+        // The drive's own course, not the table's memory of what was last clicked here. A Rift Probe
+        // can aim the same drive at a bare position, and a chart that kept showing its own last
+        // selection would be confidently pointing at an anchor the ship is no longer going to.
+        WarpCourse course = drive == null ? null : drive.standingCourse();
+        UUID selected = course != null && course.isAnchor() ? course.anchorId() : null;
+        BlockPos fix = course != null && course.isFix() ? course.fix() : null;
+        String label = course == null ? "" : course.label();
 
         AWNetwork.sendTo(player, new ClientboundAstrolabeChartPacket(
                 table.getBlockPos(),
@@ -150,7 +163,10 @@ public record ServerboundAstrolabePacket(BlockPos tablePos, Action action, UUID 
                 airship == null || airship.name() == null ? "" : airship.name(),
                 drive != null,
                 access,
-                table.destination(),
+                selected,
+                fix,
+                label,
+                available.size(),
                 quotes));
     }
 

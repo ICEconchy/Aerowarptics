@@ -1,0 +1,35 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_drive_mk_iii"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.long_haul.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.long_haul.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "warped_far": {
+      "trigger": "aerowarptics:warp_completed",
+      "conditions": {
+        "distance": {
+          "min": 2000.0
+        }
+      }
+    }
+  },
+  "requirements": [
+    [
+      "warped_far"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:first_warp"
+}

@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "aerowarptics:block/rift_chute"
+  }
+}

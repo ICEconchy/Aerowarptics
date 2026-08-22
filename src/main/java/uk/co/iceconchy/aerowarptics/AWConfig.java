@@ -34,7 +34,7 @@ public final class AWConfig {
     public static final ModConfigSpec.IntValue SAFE_ARRIVAL_VERTICAL_RADIUS;
     public static final ModConfigSpec.IntValue SAFE_ARRIVAL_STEP;
     public static final ModConfigSpec.DoubleValue ARRIVAL_CLEARANCE;
-    public static final ModConfigSpec.IntValue MAX_SHIP_BLOCK_SAMPLES;
+    public static final ModConfigSpec.IntValue MAX_ARRIVAL_BLOCK_CHECKS;
 
     public static final ModConfigSpec.DoubleValue RIFT_LEAD_DISTANCE;
     public static final ModConfigSpec.DoubleValue RIFT_RADIUS_FACTOR;
@@ -60,6 +60,15 @@ public final class AWConfig {
     public static final ModConfigSpec.IntValue GATE_DIAL_TICKS;
     public static final ModConfigSpec.IntValue GATE_IDLE_TICKS;
     public static final ModConfigSpec.IntValue MAX_GATES_PER_PLAYER;
+
+    public static final ModConfigSpec.IntValue CHUTE_COST_PER_ITEM;
+    public static final ModConfigSpec.IntValue CHUTE_BATCH_SIZE;
+    public static final ModConfigSpec.IntValue PROBE_COST;
+    public static final ModConfigSpec.DoubleValue PROBE_COST_PER_BLOCK;
+    public static final ModConfigSpec.IntValue PROBE_MINIMUM_RANGE;
+    public static final ModConfigSpec.IntValue PROBE_MAXIMUM_RANGE;
+    public static final ModConfigSpec.IntValue PROBE_REACH_TICKS;
+    public static final ModConfigSpec.IntValue PROBE_TIMEOUT_TICKS;
 
     public static final ModConfigSpec.DoubleValue FAILURE_CHARGE_PENALTY;
     public static final ModConfigSpec.IntValue FAILURE_COOLDOWN_TICKS;
@@ -133,10 +142,19 @@ public final class AWConfig {
         ARRIVAL_CLEARANCE = SERVER_BUILDER
                 .comment("Extra clearance, in blocks, required around the airship on arrival.")
                 .defineInRange("arrivalClearance", 2.0D, 0.0D, 32.0D);
-        MAX_SHIP_BLOCK_SAMPLES = SERVER_BUILDER
-                .comment("Upper bound on blocks tested per candidate arrival position.",
-                        "Keeps the obstruction check cheap for very large airships.")
-                .defineInRange("maxShipBlockSamples", 4096, 64, 200_000);
+        MAX_ARRIVAL_BLOCK_CHECKS = SERVER_BUILDER
+                .comment("Most blocks the arrival check may read while proving one candidate clear.",
+                        "",
+                        "A safety valve, not a sampling rate. The check reads every block in the",
+                        "volume a hull would occupy - it has to, because a check that skipped any of",
+                        "them could clear a ship to arrive inside a one-block floor. Whole chunk",
+                        "sections of open air are dismissed without being read, so in practice only",
+                        "the parts of the volume with anything in them cost anything.",
+                        "",
+                        "Running out means the candidate could not be PROVED clear, and an unproven",
+                        "volume is refused rather than accepted. Lowering this does not make arrivals",
+                        "cheaper, it makes them fail.")
+                .defineInRange("maxArrivalBlockChecks", 4_000_000, 4_096, 64_000_000);
         SERVER_BUILDER.pop();
 
         SERVER_BUILDER.comment("The flight through the rift: the run at the entry aperture, the passage",
@@ -233,6 +251,48 @@ public final class AWConfig {
         MAX_GATES_PER_PLAYER = SERVER_BUILDER
                 .comment("Maximum number of Rift Gates a single player may own. 0 disables the limit.")
                 .defineInRange("maxGatesPerPlayer", 0, 0, 10_000);
+        SERVER_BUILDER.pop();
+
+        SERVER_BUILDER.comment("Rift Probes: soundings thrown at ground nobody has stood on.")
+                .push("probe");
+        PROBE_COST = SERVER_BUILDER
+                .comment("Rift Essence, in millibuckets, spent throwing a sounding, before distance.")
+                .defineInRange("probeCost", 400, 0, 1_000_000);
+        PROBE_COST_PER_BLOCK = SERVER_BUILDER
+                .comment("Extra millibuckets per block of range. Reaching further costs more, which is",
+                        "what keeps a probe a decision rather than something to spam at the horizon.")
+                .defineInRange("probeCostPerBlock", 0.35D, 0.0D, 100.0D);
+        PROBE_MINIMUM_RANGE = SERVER_BUILDER
+                .comment("Closest a sounding may be thrown, in blocks. Below this a probe is only",
+                        "surveying ground the ship could already see.")
+                .defineInRange("probeMinimumRange", 512, 16, 1_000_000);
+        PROBE_MAXIMUM_RANGE = SERVER_BUILDER
+                .comment("Furthest a sounding may be thrown, in blocks. A probe is still bounded by the",
+                        "drive's own range when the course is actually flown.")
+                .defineInRange("probeMaximumRange", 24_000, 32, 10_000_000);
+        PROBE_REACH_TICKS = SERVER_BUILDER
+                .comment("Shortest a sounding takes. The wait is the server bringing that ground into",
+                        "being, so this is a floor on it rather than a delay for its own sake.")
+                .defineInRange("probeReachTicks", 60, 0, 12_000);
+        PROBE_TIMEOUT_TICKS = SERVER_BUILDER
+                .comment("Ticks after which a sounding reads whatever has arrived and stops waiting.",
+                        "A thin reading is reported as thin rather than being waited on forever.")
+                .defineInRange("probeTimeoutTicks", 400, 20, 72_000);
+        SERVER_BUILDER.pop();
+
+        SERVER_BUILDER.comment("Rift Chutes: belt-fed holes in space that hand items to another chute.")
+                .push("chute");
+        CHUTE_COST_PER_ITEM = SERVER_BUILDER
+                .comment("Rift Essence, in millibuckets, spent for each item that crosses.",
+                        "Charged per item rather than per transfer, so moving a stack costs a stack's",
+                        "worth - otherwise one expensive rift becomes free bulk logistics.",
+                        "Set to 0 to make chutes run on nothing.")
+                .defineInRange("chuteCostPerItem", 2, 0, 10_000);
+        CHUTE_BATCH_SIZE = SERVER_BUILDER
+                .comment("Most items one chute may send in a single transfer.",
+                        "Caps the burst rather than the throughput: a chute still transfers several",
+                        "times a second, but it cannot move an entire double chest in one tick.")
+                .defineInRange("chuteBatchSize", 16, 1, 64);
         SERVER_BUILDER.pop();
 
         SERVER_BUILDER.comment("What happens when a warp cannot complete.").push("failure");

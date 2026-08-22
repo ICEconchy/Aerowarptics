@@ -24,7 +24,7 @@ import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 public final class AWNetwork {
 
     /** Bumped when a payload's shape changes. */
-    private static final String VERSION = "3";
+    private static final String VERSION = "6";
 
     private AWNetwork() {
     }
@@ -44,6 +44,13 @@ public final class AWNetwork {
         registrar.playToServer(ServerboundGatePacket.TYPE,
                 ServerboundGatePacket.STREAM_CODEC,
                 ServerboundGatePacket::handle);
+        registrar.playToServer(ServerboundProbePacket.TYPE,
+                ServerboundProbePacket.STREAM_CODEC,
+                ServerboundProbePacket::handle);
+        registrar.playToServer(ServerboundChutePacket.TYPE,
+                ServerboundChutePacket.STREAM_CODEC,
+                ServerboundChutePacket::handle);
+
         registrar.playToServer(ServerboundConfigureAnchorPacket.TYPE,
                 ServerboundConfigureAnchorPacket.STREAM_CODEC,
                 ServerboundConfigureAnchorPacket::handle);
@@ -57,12 +64,25 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundAstrolabeChartPacket.Preview.TYPE,
                 ClientboundAstrolabeChartPacket.Preview.STREAM_CODEC,
                 ClientboundAstrolabeChartPacket.Preview::handle);
+        registrar.playToClient(ClientboundProbePacket.TYPE,
+                ClientboundProbePacket.STREAM_CODEC,
+                ClientboundProbePacket::handle);
+        registrar.playToClient(ClientboundProbeReadingPacket.TYPE,
+                ClientboundProbeReadingPacket.STREAM_CODEC,
+                ClientboundProbeReadingPacket::handle);
+        registrar.playToClient(ClientboundChutePanelPacket.TYPE,
+                ClientboundChutePanelPacket.STREAM_CODEC,
+                ClientboundChutePanelPacket::handle);
+
         registrar.playToClient(ClientboundGateDialPacket.TYPE,
                 ClientboundGateDialPacket.STREAM_CODEC,
                 ClientboundGateDialPacket::handle);
         registrar.playToClient(ClientboundWarpEffectPacket.TYPE,
                 ClientboundWarpEffectPacket.STREAM_CODEC,
                 ClientboundWarpEffectPacket::handle);
+        registrar.playToClient(ClientboundFoldCrossedPacket.TYPE,
+                ClientboundFoldCrossedPacket.STREAM_CODEC,
+                ClientboundFoldCrossedPacket::handle);
         registrar.playToClient(ClientboundCorridorPacket.TYPE,
                 ClientboundCorridorPacket.STREAM_CODEC,
                 ClientboundCorridorPacket::handle);

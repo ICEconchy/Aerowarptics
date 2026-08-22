@@ -205,6 +205,31 @@ public final class Airship {
      * @param retainedVelocity fraction of the pre-warp velocity to restore, {@code 0} to arrive at rest
      * @return {@code true} when the pipeline accepted the move
      */
+    /**
+     * Tells a player's own client where the hull just put them.
+     *
+     * <p>{@code popEntityLocal} writes the new position straight onto the entity - {@code
+     * sable$setPosSuperRaw}, no packet. For anything the server owns outright that is the whole job.
+     * A player's client owns its own position: told nothing, it carries on at the old coordinates and
+     * the raw write is undone by the very next movement packet it sends. Across a warp that means the
+     * ship arrives and the player does not.
+     *
+     * <p>This was survivable for a long time by accident. {@code WarpPassengers.hold} runs on every
+     * later tick of the flight, notices the player is nowhere near their seat and issues a real
+     * correction - so on a hull small enough for the warp to finish cleanly, the player looked like
+     * they had been carried across. On a large one the flight was being dropped at the crossing
+     * before any of those ticks ran, and there was nothing else in the system that ever told the
+     * client. Doing it here makes the teleport work on its own, rather than on the recovery.
+     */
+    private static void tell(Entity entity) {
+        if (entity instanceof ServerPlayer player) {
+            // The one call that also resets what the client thinks it is doing. teleportTo would be
+            // another raw write with the same problem.
+            player.connection.teleport(player.getX(), player.getY(), player.getZ(),
+                    player.getYRot(), player.getXRot());
+        }
+    }
+
     public boolean relocate(Vector3dc destination, Quaterniondc orientation, double retainedVelocity) {
         PhysicsPipeline pipeline = pipeline();
         if (pipeline == null || subLevel.isRemoved()) {
@@ -227,6 +252,7 @@ public final class Airship {
         // teleport() writes straight into logicalPose, so the pop below already uses the new frame.
         for (Entity entity : aboard) {
             SubLevelHelper.popEntityLocal(subLevel, entity);
+            tell(entity);
         }
 
         if (retainedVelocity > 0.0D) {

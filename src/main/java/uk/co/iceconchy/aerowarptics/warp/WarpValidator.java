@@ -1,5 +1,6 @@
 package uk.co.iceconchy.aerowarptics.warp;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
@@ -64,6 +65,34 @@ public final class WarpValidator {
                 effectiveMass(airship),
                 charge,
                 WarpCost.fromConfig(tier));
+    }
+
+    /**
+     * Checks a destination that nobody has marked.
+     *
+     * <p>The counterpart of {@link #validateDestination} for a Rift Probe's fix. It asks the same
+     * rules the same way - is it in range, can the drive afford it - minus the two questions only an
+     * anchor can answer. A fix is always in the ship's own level, because that is the only place a
+     * sounding can reach, and a position cannot be switched off.
+     */
+    public static WarpFailure validateFix(Airship airship, BlockPos fix, RiftDriveTier tier, double charge) {
+        return WarpRules.checkDestination(
+                true,
+                true,
+                CrossDimensionWarp.isSupported(),
+                distanceTo(airship, fix),
+                effectiveMass(airship),
+                charge,
+                WarpCost.fromConfig(tier));
+    }
+
+    /** World distance between the airship's centre and a block. */
+    public static double distanceTo(Airship airship, BlockPos target) {
+        Vector3d centre = airship.centre(new Vector3d());
+        double dx = centre.x - (target.getX() + 0.5D);
+        double dy = centre.y - (target.getY() + 0.5D);
+        double dz = centre.z - (target.getZ() + 0.5D);
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     /** World distance between the airship and an anchor, or {@code -1} across dimensions. */

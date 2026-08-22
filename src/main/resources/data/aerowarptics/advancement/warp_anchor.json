@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:warp_anchor"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.warp_anchor.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.warp_anchor.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "warp_anchor": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "aerowarptics:warp_anchor"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "warp_anchor"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:root"
+}

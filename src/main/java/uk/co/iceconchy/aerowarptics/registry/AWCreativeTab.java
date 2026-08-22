@@ -20,13 +20,16 @@ public final class AWCreativeTab {
                     .title(Component.translatable("itemGroup.aerowarptics"))
                     .icon(() -> AWItems.RIFT_DRIVES.get(RiftDriveTier.MK_I).get().getDefaultInstance())
                     .displayItems((parameters, output) -> {
+                        output.accept(AWItems.HANDBOOK.get());
                         for (RiftDriveTier tier : RiftDriveTier.values()) {
                             output.accept(AWItems.RIFT_DRIVES.get(tier).get());
                         }
                         output.accept(AWItems.WARP_ANCHOR.get());
                         output.accept(AWItems.ASTROLABE.get());
+                        output.accept(AWItems.RIFT_PROBE.get());
                         output.accept(AWItems.RIFT_GATE.get());
                         output.accept(AWItems.RIFT_GATE_FRAME.get());
+                        output.accept(AWItems.RIFT_CHUTE.get());
                         output.accept(AWItems.SPATIAL_SIPHON.get());
                         output.accept(AWItems.RIFT_ESSENCE_BUCKET.get());
                         output.accept(AWItems.RIFT_CORE.get());

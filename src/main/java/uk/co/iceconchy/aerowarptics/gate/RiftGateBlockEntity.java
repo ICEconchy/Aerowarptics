@@ -27,6 +27,7 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniond;
 import org.joml.Vector3d;
 import uk.co.iceconchy.aerowarptics.AWConfig;
+import uk.co.iceconchy.aerowarptics.advancement.AWCriteria;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
@@ -551,10 +552,22 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         return moved;
     }
 
-    /** Notes where something is, and says whether it has just gone through. */
+    /**
+     * Notes where something is, and says whether it has just gone through the opening.
+     *
+     * <p>The side is always recorded, but a change of side only counts as a crossing where the
+     * opening actually is. A ring is flood filled and is very often not a rectangle, so the aperture
+     * is drawn over the bounding box while the hole is some shape inside it - and without this,
+     * brushing the fire beside an L-shaped opening sent a traveller through a piece of solid wall.
+     *
+     * <p>Recording the side even outside the opening is deliberate. Somebody who walks round the
+     * frame from one face to the other has genuinely changed sides, and forgetting that would have
+     * them counted as crossing the moment they stepped back into the hole.
+     */
     private boolean stepped(UUID id, Vec3 point, Set<UUID> seen) {
         seen.add(id);
-        return watch.stepped(id, shape.side(point));
+        boolean changedSide = watch.stepped(id, shape.side(point));
+        return changedSide && shape.contains(point);
     }
 
     private int moveVehicles(ServerLevel level, RiftGate far, Set<UUID> seen) {
@@ -586,6 +599,10 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                 continue;
             }
 
+            // Read the crew before the hull moves: afterwards it is somewhere else entirely, and
+            // whoever was aboard is found by looking at where it is now.
+            List<ServerPlayer> aboard = vehicle.crew();
+
             GateTraversal.Arrival arrival =
                     GateTraversal.map(shape, far.shape(), centre, toVec(vehicle.velocity()));
             // The arrival is where the hull's middle goes, and relocate places its origin, so the one
@@ -602,6 +619,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                 settling.put(vehicle.uuid(), REENTRY_TICKS);
                 watch.forget(vehicle.uuid());
                 markArrived(level, far);
+                AWCriteria.gateTravelled(aboard, true);
                 moved++;
             }
         }
@@ -662,6 +680,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             settling.put(entity.getUUID(), REENTRY_TICKS);
             watch.forget(entity.getUUID());
             markArrived(level, far);
+            if (entity instanceof ServerPlayer walker) {
+                AWCriteria.gateTravelled(List.of(walker), false);
+            }
             moved++;
         }
         return moved;

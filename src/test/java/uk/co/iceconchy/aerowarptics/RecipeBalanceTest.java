@@ -48,6 +48,7 @@ class RecipeBalanceTest {
      * than an accident.
      */
     private static final Map<String, Double> EFFORT = Map.ofEntries(
+            Map.entry("minecraft:book", 3.0D),
             Map.entry("minecraft:glass", 0.5D),
             Map.entry("minecraft:amethyst_shard", 1.0D),
             Map.entry("minecraft:lodestone", 12.0D),
@@ -77,6 +78,7 @@ class RecipeBalanceTest {
 
     /** Everything this mod expects to be craftable one way or another. */
     private static final List<String> CRAFTABLE = List.of(
+            "aerowarptics:handbook",
             "aerowarptics:rift_lens",
             "aerowarptics:rift_core",
             "aerowarptics:stabiliser_ring",

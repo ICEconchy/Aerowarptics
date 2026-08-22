@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_probe"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.rift_probe.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.rift_probe.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "rift_probe": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "aerowarptics:rift_probe"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "rift_probe"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:spatial_siphon"
+}

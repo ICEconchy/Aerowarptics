@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "BBB",
+    "BLB",
+    " B "
+  ],
+  "key": {
+    "B": {
+      "item": "create:brass_casing"
+    },
+    "L": {
+      "item": "aerowarptics:rift_lens"
+    }
+  },
+  "result": {
+    "count": 2,
+    "id": "aerowarptics:rift_chute"
+  }
+}

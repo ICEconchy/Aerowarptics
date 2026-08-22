@@ -9,6 +9,8 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorBlockEntity;
 import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlockEntity;
+import uk.co.iceconchy.aerowarptics.chute.RiftChuteBlockEntity;
+import uk.co.iceconchy.aerowarptics.probe.RiftProbeBlockEntity;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlock;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateBlockEntity;
@@ -47,6 +49,16 @@ public final class AWBlockEntities {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RiftGateBlockEntity>> RIFT_GATE =
             BLOCK_ENTITIES.register("rift_gate", () -> BlockEntityType.Builder.of(
                             RiftGateBlockEntity::new, AWBlocks.RIFT_GATE.get())
+                    .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RiftProbeBlockEntity>> RIFT_PROBE =
+            BLOCK_ENTITIES.register("rift_probe", () -> BlockEntityType.Builder.of(
+                            RiftProbeBlockEntity::new, AWBlocks.RIFT_PROBE.get())
+                    .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RiftChuteBlockEntity>> RIFT_CHUTE =
+            BLOCK_ENTITIES.register("rift_chute", () -> BlockEntityType.Builder.of(
+                            RiftChuteBlockEntity::new, AWBlocks.RIFT_CHUTE.get())
                     .build(null));
 
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<WarpAnchorBlockEntity>> WARP_ANCHOR =

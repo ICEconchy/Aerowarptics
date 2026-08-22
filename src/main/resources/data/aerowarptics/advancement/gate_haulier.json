@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_gate"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.gate_haulier.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.gate_haulier.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "aboard": {
+      "trigger": "aerowarptics:gate_travel",
+      "conditions": {
+        "vehicle": true
+      }
+    }
+  },
+  "requirements": [
+    [
+      "aboard"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:gate_traveller"
+}

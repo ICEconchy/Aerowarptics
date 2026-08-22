@@ -178,6 +178,61 @@ public final class RiftEffectManager {
         final RiftDebris.Mote[] motes;
 
         /**
+         * How far the opening reaches at each angle, or {@code null} for a plain ellipse.
+         *
+         * <p>What lets an aperture bend to the ring it is standing in. A gate's opening is flood
+         * filled and is very often not a rectangle, so an ellipse fitted to its bounding box bulges
+         * straight through the frame. Every part of a rift is drawn radially - the face, the torn
+         * rim, the fire, the cracks, the glass - so scaling the reach per angle bends all of it at
+         * once, rather than teaching each of them about the shape separately.
+         */
+        float[] profile;
+
+        /**
+         * The rim's radius at an angle: its wander, scaled to whatever the opening allows there.
+         *
+         * <p>Everything that used to call {@code RiftTear.rim} directly goes through here instead,
+         * which is what keeps the tear and the shape from having to know about each other.
+         *
+         * <h2>Why the tear is turned inside out for a shaped aperture</h2>
+         * {@link RiftTear#rim} returns {@code [1, 1 + RAG]} - it is always at least the full radius,
+         * because a rift is <em>meant</em> to overshoot its opening a little so the ragged edge bleeds
+         * onto the frame around it. That is right for a rectangle, where the frame is what it spills
+         * onto, and quite wrong for a flood-filled ring, where the same overshoot spills through the
+         * gap into open sky.
+         *
+         * <p>So where there is a profile the wander is remapped from {@code [1, 1+RAG]} down to
+         * {@code [1-RAG, 1]} by subtracting {@code RAG}. The edge still crawls by the same amount; it
+         * simply crawls inwards from the opening rather than outwards past it, and the aperture can
+         * never cross the frame however the wander lands.
+         */
+        double reach(double angle, float time) {
+            float torn = RiftTear.rim(angle, time);
+            if (profile == null || profile.length == 0) {
+                return torn;
+            }
+            return profileAt(angle) * (torn - RiftTear.RAG);
+        }
+
+        /**
+         * The profile sampled at an angle - the <em>smaller</em> of its two nearest entries.
+         *
+         * <p>Not interpolated, deliberately. Linear interpolation between a long ray down an arm and
+         * a short one into a notch draws a straight diagonal between them, and that diagonal cuts
+         * outside the inner corner it is supposed to be following. Taking the lesser of the two can
+         * never exceed either, so the aperture stays inside the opening between samples as well as
+         * at them - at the cost of the corner reading a touch tight, which is the right way round to
+         * be wrong.
+         */
+        private double profileAt(double angle) {
+            double turns = angle / (Math.PI * 2.0D);
+            double at = (turns - Math.floor(turns)) * profile.length;
+            int low = ((int) at) % profile.length;
+            int high = (low + 1) % profile.length;
+            return Math.min(profile[low], profile[high]);
+        }
+
+        /**
          * How much taller than wide the aperture is.
          *
          * <p>A drive tears a circle because nothing constrains its shape. A gate's aperture is the
@@ -346,6 +401,53 @@ public final class RiftEffectManager {
      * aperture stood at full size for the entire close and then shrank afterwards, which reads as a
      * gate that shuts a beat late.
      */
+    /**
+     * Re-aims a held aperture so it faces a given direction.
+     *
+     * <p>Only a Rift Chute needs this. Its housing is open on all four sides, so a rift with a fixed
+     * normal would be edge-on and effectively invisible from half the angles a player can stand at.
+     * Turning it to face the camera each frame is what makes one small aperture readable from
+     * anywhere - the same trick the corridor's streaks already use, applied to the whole pane.
+     *
+     * <p>The fracture turns with the plane, which is correct: the glass was cut in this frame, so it
+     * stays the same break seen from a different side rather than becoming a different break.
+     */
+    public static void aim(long holder, Vec3 direction) {
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.holder != holder) {
+                continue;
+            }
+            Vector3f forward = new Vector3f((float) direction.x, (float) direction.y, (float) direction.z);
+            if (forward.lengthSquared() < 1.0e-6F) {
+                return;
+            }
+            forward.normalize();
+            rift.normal.set(forward);
+            Vector3f seed = Math.abs(forward.y) > 0.9F
+                    ? new Vector3f(1.0F, 0.0F, 0.0F)
+                    : new Vector3f(0.0F, 1.0F, 0.0F);
+            rift.right.set(new Vector3f(forward).cross(seed).normalize());
+            rift.up.set(new Vector3f(forward).cross(rift.right).normalize());
+            return;
+        }
+    }
+
+    /**
+     * Gives a held aperture the shape of the opening it stands in.
+     *
+     * <p>Separate from {@link #hold} for the same reason {@link #aim} is: the profile is worked out
+     * from the gate's mask and only the gate knows it, while everything else about an aperture is the
+     * same whoever tore it. Passing {@code null} restores the plain ellipse.
+     */
+    public static void shapeTo(long holder, float[] profile) {
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.holder == holder) {
+                rift.profile = profile;
+                return;
+            }
+        }
+    }
+
     public static void seal(long holder) {
         for (ActiveRift rift : ACTIVE) {
             if (rift.holder == holder) {
@@ -573,8 +675,8 @@ public final class RiftEffectManager {
             for (int segment = 0; segment < SEGMENTS; segment++) {
                 double a0 = (segment / (double) SEGMENTS) * Math.PI * 2.0D;
                 double a1 = ((segment + 1) / (double) SEGMENTS) * Math.PI * 2.0D;
-                double rim0 = cover * RiftTear.rim(a0, time);
-                double rim1 = cover * RiftTear.rim(a1, time);
+                double rim0 = cover * rift.reach(a0, time);
+                double rim1 = cover * rift.reach(a1, time);
 
                 face(consumer, matrix, rift, a0, rim0 * innerT, red, green, blue, innerGlow);
                 face(consumer, matrix, rift, a1, rim1 * innerT, red, green, blue, innerGlow);
@@ -630,8 +732,8 @@ public final class RiftEffectManager {
             for (int segment = 0; segment < SEGMENTS; segment++) {
                 double a0 = (segment / (double) SEGMENTS) * Math.PI * 2.0D;
                 double a1 = ((segment + 1) / (double) SEGMENTS) * Math.PI * 2.0D;
-                double rim0 = cover * RiftTear.rim(a0, time);
-                double rim1 = cover * RiftTear.rim(a1, time);
+                double rim0 = cover * rift.reach(a0, time);
+                double rim1 = cover * rift.reach(a1, time);
 
                 throatVertex(consumer, matrix, rift, a0, rim0 * nearWidth, depth * nearT, red, green, blue, nearGlow);
                 throatVertex(consumer, matrix, rift, a1, rim1 * nearWidth, depth * nearT, red, green, blue, nearGlow);
@@ -678,8 +780,8 @@ public final class RiftEffectManager {
             for (int segment = 0; segment < SEGMENTS; segment++) {
                 double a0 = (segment / (double) SEGMENTS) * Math.PI * 2.0D;
                 double a1 = ((segment + 1) / (double) SEGMENTS) * Math.PI * 2.0D;
-                double rim0 = cover * RiftTear.rim(a0, time);
-                double rim1 = cover * RiftTear.rim(a1, time);
+                double rim0 = cover * rift.reach(a0, time);
+                double rim1 = cover * rift.reach(a1, time);
 
                 // Flares outward as it goes back, so the sleeve reads as vapour coming off the tear
                 // rather than as a second, larger tube.
@@ -770,8 +872,8 @@ public final class RiftEffectManager {
             for (int segment = 0; segment < SEGMENTS; segment++) {
                 double a0 = (segment / (double) SEGMENTS) * Math.PI * 2.0D + spin;
                 double a1 = ((segment + 1) / (double) SEGMENTS) * Math.PI * 2.0D + spin;
-                double rim0 = cover * RiftTear.rim(a0, time);
-                double rim1 = cover * RiftTear.rim(a1, time);
+                double rim0 = cover * rift.reach(a0, time);
+                double rim1 = cover * rift.reach(a1, time);
 
                 // A gap chases around each band, so the rim shimmers rather than sitting flat.
                 float flicker = 0.65F + 0.35F * Mth.sin((float) (a0 * 3.0D + time * 4.0F));
@@ -794,8 +896,8 @@ public final class RiftEffectManager {
         for (int segment = 0; segment < SEGMENTS; segment++) {
             double a0 = (segment / (double) SEGMENTS) * Math.PI * 2.0D;
             double a1 = ((segment + 1) / (double) SEGMENTS) * Math.PI * 2.0D;
-            double rim0 = cover * RiftTear.rim(a0, time);
-            double rim1 = cover * RiftTear.rim(a1, time);
+            double rim0 = cover * rift.reach(a0, time);
+            double rim1 = cover * rift.reach(a1, time);
 
             float reach0 = 0.35F + 0.65F * RiftTear.lick(a0, time);
             float reach1 = 0.35F + 0.65F * RiftTear.lick(a1, time);
@@ -849,7 +951,7 @@ public final class RiftEffectManager {
             double across = Math.sin(angle);
             double sideU = -across;
             double sideV = along;
-            double tip = cover * RiftTear.rim(angle, rift.rimTime) * reach;
+            double tip = cover * rift.reach(angle, rift.rimTime) * reach;
             double root = cover * CRACK_ROOT;
             double point = cover * CRACK_TIP;
 
@@ -905,8 +1007,8 @@ public final class RiftEffectManager {
             }
             float travel = RiftShatter.travel(elapsed / RiftShatter.SHARD_LIFE);
 
-            double rim0 = RiftTear.rim(shard.angle0(), rift.rimTime);
-            double rim1 = RiftTear.rim(shard.angle1(), rift.rimTime);
+            double rim0 = rift.reach(shard.angle0(), rift.rimTime);
+            double rim1 = rift.reach(shard.angle1(), rift.rimTime);
             double cos0 = Math.cos(shard.angle0());
             double sin0 = Math.sin(shard.angle0());
             double cos1 = Math.cos(shard.angle1());
@@ -994,8 +1096,8 @@ public final class RiftEffectManager {
             // One at the rim, nothing at home: the piece falls inwards as its life runs out.
             float out = 1.0F - RiftShatter.travel(life);
 
-            double rim0 = RiftTear.rim(shard.angle0(), rift.rimTime);
-            double rim1 = RiftTear.rim(shard.angle1(), rift.rimTime);
+            double rim0 = rift.reach(shard.angle0(), rift.rimTime);
+            double rim1 = rift.reach(shard.angle1(), rift.rimTime);
             double cos0 = Math.cos(shard.angle0());
             double sin0 = Math.sin(shard.angle0());
             double cos1 = Math.cos(shard.angle1());
@@ -1252,7 +1354,7 @@ public final class RiftEffectManager {
                 continue; // inside the cone where the bore has already closed
             }
 
-            double bore = cover * RiftTear.rim(mote.angle(), time) * width;
+            double bore = cover * rift.reach(mote.angle(), time) * width;
             double u = Math.cos(mote.angle()) * bore * mote.radius();
             double v = Math.sin(mote.angle()) * bore * mote.radius();
             double w = depth * at;

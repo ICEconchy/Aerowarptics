@@ -7,6 +7,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import org.slf4j.Logger;
+import uk.co.iceconchy.aerowarptics.advancement.AWCriteria;
 import uk.co.iceconchy.aerowarptics.network.AWNetwork;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
@@ -41,6 +42,7 @@ public class AeroWarptics {
         AWSounds.register(modEventBus);
         AWParticles.register(modEventBus);
         AWCreativeTab.register(modEventBus);
+        AWCriteria.register(modEventBus);
 
         modEventBus.addListener(AWNetwork::register);
         modEventBus.addListener(AWStress::onCommonSetup);

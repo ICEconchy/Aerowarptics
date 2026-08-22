@@ -3,6 +3,8 @@ package uk.co.iceconchy.aerowarptics.client.fx;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.ryanhcode.sable.Sable;
+import dev.ryanhcode.sable.companion.math.Pose3dc;
+import dev.ryanhcode.sable.sublevel.ClientSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -79,6 +81,18 @@ public final class TerrainHologram {
      */
     private static final int MIN_REBUILD_TICKS = 10;
 
+    /**
+     * Furthest the samples may be drawn from the middle of the table, in blocks.
+     *
+     * <p>{@link #REBUILD_DISTANCE} blocks of travel works out at about a quarter of this, so in
+     * ordinary flight the limit is never reached. It is here for the case the rebuild floor cannot
+     * cover - a hull in a warp corridor moves nine blocks a tick, and without a stop the chart would
+     * slide clean off its table on the one part of the journey where it cannot be rebuilt fast
+     * enough. Past the limit the terrain goes back to being dragged along, which is wrong but is at
+     * least still on the table.
+     */
+    private static final float MAX_SHIFT = 0.3F;
+
     /** Rows either side of the scan line that are lifted as it passes. */
     private static final int BAND = 3;
 
@@ -99,6 +113,15 @@ public final class TerrainHologram {
     private Vec3 builtAround = Vec3.ZERO;
 
     /**
+     * World column the first sample was taken from.
+     *
+     * <p>Kept because the grid is anchored to whole blocks but the table it is drawn over is not, and
+     * on a moving ship the two drift apart between rebuilds. See {@link #render}.
+     */
+    private int originX;
+    private int originZ;
+
+    /**
      * Rebuilds the sample grid if it has gone stale.
      *
      * @param centre where in the world the table currently is
@@ -113,8 +136,8 @@ public final class TerrainHologram {
         builtAround = centre;
         built = true;
 
-        int originX = Mth.floor(centre.x) - CELLS * STEP / 2;
-        int originZ = Mth.floor(centre.z) - CELLS * STEP / 2;
+        originX = Mth.floor(centre.x) - CELLS * STEP / 2;
+        originZ = Mth.floor(centre.z) - CELLS * STEP / 2;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
         // Chunk presence is checked once per chunk rather than once per sample.
@@ -189,14 +212,27 @@ public final class TerrainHologram {
      * @param sweep 0..1 position of the scan line that travels across the map
      * @param alpha overall opacity, so the projection can fade in rather than snap on
      */
-    public void render(PoseStack poseStack, VertexConsumer buffer, float sweep, float alpha) {
+    public void render(PoseStack poseStack, VertexConsumer buffer, float sweep, float alpha, Vec3 centre) {
         if (!built) {
             return;
         }
         Matrix4f matrix = poseStack.last().pose();
         float cell = SPAN / CELLS;
-        float half = SPAN / 2.0F;
         int scanRow = Mth.clamp((int) (sweep * CELLS), 0, CELLS - 1);
+
+        // Where the samples belong relative to where the table is now.
+        //
+        // The grid is anchored to whole world columns, and it is only rebuilt every so often - but the
+        // ship carrying the table moves continuously. Drawing the grid centred on the table regardless
+        // dragged the whole landscape along with the hull and then snapped it back on the next rebuild,
+        // which on a moving ship is most of what "the map jitters" was. Offsetting by the distance the
+        // table has travelled since the samples were taken pins the terrain to the ground it was read
+        // off, so the ship slides across its own chart and a rebuild changes nothing anybody can see.
+        float shiftX = Mth.clamp((float) (originX + CELLS * STEP / 2.0D - centre.x) * cell / STEP,
+                -MAX_SHIFT, MAX_SHIFT);
+        float shiftZ = Mth.clamp((float) (originZ + CELLS * STEP / 2.0D - centre.z) * cell / STEP,
+                -MAX_SHIFT, MAX_SHIFT);
+        float half = SPAN / 2.0F;
 
         for (int row = 0; row < CELLS; row++) {
             // The scan line brightens a band as it passes, which is the whole of what stops a static
@@ -211,8 +247,8 @@ public final class TerrainHologram {
                 if (colour == 0) {
                     continue;
                 }
-                float x0 = -half + column * cell;
-                float z0 = -half + row * cell;
+                float x0 = -half + column * cell + shiftX;
+                float z0 = -half + row * cell + shiftZ;
                 float y = elevation(heights[index]);
 
                 quad(matrix, buffer, x0, y, z0, cell, withAlpha(brighten(colour, lift), faceAlpha));
@@ -236,9 +272,10 @@ public final class TerrainHologram {
 
         // Where the ship is: a bright mote at the middle, which is where the table always is. Sized in
         // cells rather than left at one, because one cell is now a single block and invisible.
+        // Deliberately not shifted with the terrain: this one is the table, which is the origin.
         float mote = cell * 3.0F;
-        int centre = (CELLS / 2) * CELLS + CELLS / 2;
-        quad(matrix, buffer, -mote * 0.5F, elevation(heights[centre]) + RELIEF_HEIGHT * 0.03F,
+        int here = (CELLS / 2) * CELLS + CELLS / 2;
+        quad(matrix, buffer, -mote * 0.5F, elevation(heights[here]) + RELIEF_HEIGHT * 0.03F,
                 -mote * 0.5F, mote, withAlpha(0xFFFFFF, alpha));
     }
 
@@ -292,15 +329,26 @@ public final class TerrainHologram {
     }
 
     /**
-     * Where a block actually is in the world, whatever it is standing on.
+     * Ship-to-world transform for the hull a block is riding, or {@code null} for one on the ground.
      *
      * <p>A table bolted to an airship has a block position inside that ship's plot - a reserved
      * corner of the world nowhere near where the ship appears to be - so its own coordinates are the
      * wrong thing to map. Sable's pose converts them back into somewhere that means something.
      */
-    public static Vec3 worldCentreOf(ClientLevel level, BlockPos pos) {
-        Vec3 local = Vec3.atCenterOf(pos);
+    public static Pose3dc poseOf(ClientLevel level, BlockPos pos, float partialTick) {
         SubLevel subLevel = Sable.HELPER.getContaining(level, pos);
-        return subLevel == null ? local : subLevel.logicalPose().transformPosition(local);
+        if (subLevel instanceof ClientSubLevel client) {
+            // The pose Sable draws the hull itself at, interpolated between network snapshots. Its
+            // logical pose only moves once a tick, so anything positioned from that stutters against
+            // the very blocks it is supposed to be sitting on.
+            return client.renderPose(partialTick);
+        }
+        return subLevel == null ? null : subLevel.logicalPose();
+    }
+
+    /** Where a block is in the world under a given pose - the middle of it, as the maps expect. */
+    public static Vec3 centreOf(BlockPos pos, Pose3dc pose) {
+        Vec3 local = Vec3.atCenterOf(pos);
+        return pose == null ? local : pose.transformPosition(local);
     }
 }

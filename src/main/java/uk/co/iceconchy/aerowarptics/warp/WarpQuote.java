@@ -6,6 +6,7 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
+import java.util.Comparator;
 import java.util.UUID;
 
 /**
@@ -35,6 +36,21 @@ public record WarpQuote(UUID anchorId,
 
     public static final StreamCodec<RegistryFriendlyByteBuf, WarpQuote> STREAM_CODEC =
             StreamCodec.of(WarpQuote::encode, WarpQuote::decode);
+
+    /**
+     * Which destinations are worth keeping when a chart has more than one packet can carry.
+     *
+     * <p>Reachable ones first, because a destination the drive cannot reach is not a destination; then
+     * same-dimension, because cross-dimension quotes have no distance to rank by and warping across
+     * dimensions is refused anyway; then nearest first. Name only breaks ties, so the ordering is
+     * total and two identical charts truncate identically.
+     */
+    public static final Comparator<WarpQuote> NEAREST_USABLE_FIRST =
+            Comparator.comparing((WarpQuote quote) -> !quote.usable())
+                    .thenComparing(quote -> !quote.sameDimension())
+                    .thenComparingDouble(WarpQuote::distance)
+                    .thenComparing(WarpQuote::name, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(quote -> quote.anchorId().toString());
 
     public boolean usable() {
         return !failure.isFailure();

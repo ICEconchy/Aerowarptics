@@ -147,6 +147,20 @@ public final class WarpTrace {
                 reason, pos(drivePos), flight == null ? "none" : flight.stage(), ticks);
     }
 
+    /**
+     * A warp that ended because its drive was read back off disk in the middle of it.
+     *
+     * <p>A warning, and deliberately not gated behind the trace setting like everything else here.
+     * This path used to be completely silent: it set the drive to its error state, dropped the flight
+     * and returned, so a warp that died this way was indistinguishable in the log from one that simply
+     * stopped happening. That cost three rounds of chasing the wrong bug, because the passenger
+     * recovery it skipped was exactly what was being investigated.
+     */
+    public static void interrupted(BlockPos drivePos, String stage, int ticks) {
+        AeroWarptics.LOGGER.warn("[warp] INTERRUPTED at {} stage={} after {}t - the drive was reloaded "
+                + "mid-flight, so the sequence was dropped", pos(drivePos), stage, ticks);
+    }
+
     /** A warp that finished. */
     public static void complete(BlockPos drivePos, Airship airship, Vector3dc intended) {
         if (!enabled()) {

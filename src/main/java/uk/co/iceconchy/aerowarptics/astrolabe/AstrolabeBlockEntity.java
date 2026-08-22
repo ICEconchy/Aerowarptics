@@ -27,6 +27,7 @@ import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchor;
+import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorRegistry;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
@@ -250,8 +251,27 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
         }
     }
 
+    /**
+     * What this table's ship is actually aimed at.
+     *
+     * <p>Asked of the <em>drive</em>, not of this table's own stored anchor. Since a Rift Probe can
+     * aim the same drive at a bare position, the drive's standing course is the only thing that knows
+     * where a ship is going - a chart table that reported its own last click would say "Mooring Spur"
+     * long after a probe had pointed the ship at open country.
+     *
+     * <p>Falls back to the table's own anchor only when there is no drive to ask, so a table laid out
+     * on the ground still shows what was last chosen at it.
+     */
     private String resolveDestinationName() {
-        if (destination == null || !(level instanceof ServerLevel serverLevel)) {
+        if (!(level instanceof ServerLevel serverLevel)) {
+            return "";
+        }
+        RiftDriveBlockEntity drive = drive();
+        if (drive != null) {
+            WarpCourse course = drive.standingCourse();
+            return course == null ? "" : course.label();
+        }
+        if (destination == null) {
             return "";
         }
         WarpAnchor anchor = WarpAnchorRegistry.get(serverLevel).byId(destination);
@@ -350,7 +370,7 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
         if (centre.destinationName.isBlank()) {
             AWLang.translate("gui.astrolabe.no_course").style(ChatFormatting.GRAY).forGoggles(tooltip, 1);
         } else {
-            AWLang.translate("gui.astrolabe.course", centre.destinationName)
+            AWLang.translate("gui.astrolabe.course_named", centre.destinationName)
                     .style(ChatFormatting.AQUA).forGoggles(tooltip, 1);
         }
         return true;

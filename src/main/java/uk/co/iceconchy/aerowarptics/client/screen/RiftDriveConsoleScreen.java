@@ -10,6 +10,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
+import uk.co.iceconchy.aerowarptics.client.screen.AWLayout.Rect;
 import uk.co.iceconchy.aerowarptics.drive.DriveHeading;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveState;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
@@ -26,19 +27,24 @@ import uk.co.iceconchy.aerowarptics.util.AWLang;
  * around a list of the conditions a jump needs, each of them either met or not, rather than around a
  * button that would refuse to work without saying why.
  *
- * <p>Courses are set at an Astrolabe Cartography Table and jumps are fired by a redstone input. Both
- * are shown here as requirements, so a drive that is waiting on one of them says so.
+ * <p>Courses are set at an Astrolabe Cartography Table or a Rift Probe, and jumps are fired by a
+ * redstone input. All of those are shown here as requirements, so a drive that is waiting on one of
+ * them says so.
  */
 @OnlyIn(Dist.CLIENT)
 public class RiftDriveConsoleScreen extends AbstractSimiScreen {
 
-    private static final int WINDOW_WIDTH = 264;
-    private static final int WINDOW_HEIGHT = 196;
     private static final int REFRESH_INTERVAL = 10;
+
+    private static final AWLayouts.Console LAYOUT = AWLayouts.console();
 
     private ClientboundDriveConsolePacket data;
     private int refreshTimer = REFRESH_INTERVAL;
     private int ticksOpen;
+
+    /** Both bars chase their readings, so a drive charging looks like one rather than ticking up. */
+    private final AWAnim.Eased charge = new AWAnim.Eased(0.2F);
+    private final AWAnim.Eased spin = new AWAnim.Eased(0.25F);
 
     private Button cancelButton;
     private Button headingButton;
@@ -46,6 +52,8 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
     public RiftDriveConsoleScreen(ClientboundDriveConsolePacket data) {
         super(AWLang.translate("gui.rift_drive.title").component());
         this.data = data;
+        this.charge.snap(data.charge());
+        this.spin.snap(data.spinProgress());
     }
 
     public boolean matches(BlockPos drivePos) {
@@ -55,23 +63,29 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
     /** Replaces the console's contents with a fresh server snapshot. */
     public void accept(ClientboundDriveConsolePacket packet) {
         this.data = packet;
+        charge.set(packet.charge());
+        spin.set(packet.spinProgress());
         updateButtons();
     }
 
     @Override
     protected void init() {
-        setWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        setWindowSize(AWLayouts.CONSOLE_WIDTH, AWLayouts.CONSOLE_HEIGHT);
         super.init();
+        guiLeft = AWLayout.anchor(width, AWLayouts.CONSOLE_WIDTH, guiLeft);
+        guiTop = AWLayout.anchor(height, AWLayouts.CONSOLE_HEIGHT, guiTop);
         clearWidgets();
 
-        int buttonY = guiTop + WINDOW_HEIGHT - 26;
+        Rect cancel = LAYOUT.cancel();
+        Rect heading = LAYOUT.heading();
+
         cancelButton = Button.builder(AWLang.translate("gui.rift_navigation.abort").component(), b -> sendCancel())
-                .bounds(guiLeft + 10, buttonY, 110, 18)
+                .bounds(guiLeft + cancel.x(), guiTop + cancel.y(), cancel.width(), cancel.height())
                 .build();
         headingButton = Button.builder(headingLabel(), b -> {
             PacketDistributor.sendToServer(ServerboundWarpCommandPacket.cycleHeading(data.drivePos()));
             playClick(1.0F);
-        }).bounds(guiLeft + WINDOW_WIDTH - 128, buttonY, 110, 18).build();
+        }).bounds(guiLeft + heading.x(), guiTop + heading.y(), heading.width(), heading.height()).build();
         headingButton.setTooltip(Tooltip.create(AWLang.translate("gui.rift_navigation.bow_hint").component()));
 
         addRenderableWidget(cancelButton);
@@ -80,6 +94,9 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
     }
 
     private void updateButtons() {
+        if (cancelButton == null || headingButton == null) {
+            return;
+        }
         RiftDriveState state = RiftDriveState.byIndex(data.stateIndex());
         cancelButton.active = state.isCancellable();
         cancelButton.setMessage(state.isCancellable()
@@ -121,6 +138,8 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
     public void tick() {
         super.tick();
         ticksOpen++;
+        charge.tick();
+        spin.tick();
         // Twice a second. This screen exists to be watched while somebody fixes whatever it is
         // complaining about, so it has to notice the fix.
         if (--refreshTimer <= 0) {
@@ -133,60 +152,56 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
 
     @Override
     protected void renderWindow(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
-        AWScreenStyle.window(graphics, guiLeft, guiTop, WINDOW_WIDTH, WINDOW_HEIGHT);
+        AWScreenStyle.window(graphics, guiLeft, guiTop, AWLayouts.CONSOLE_WIDTH, AWLayouts.CONSOLE_HEIGHT);
 
         RiftDriveTier tier = RiftDriveTier.byIndex(data.tierIndex());
         RiftDriveState state = RiftDriveState.byIndex(data.stateIndex());
-
-        graphics.drawString(font, AWLang.translate("gui.rift_drive.title").component(),
-                guiLeft + 10, guiTop + 10, AWScreenStyle.TITLE, false);
-        graphics.drawString(font, AWLang.translate(tier.translationKey()).component(),
-                guiLeft + 10, guiTop + 21, AWScreenStyle.LABEL, false);
-
         String ship = data.airshipName().isBlank()
                 ? AWLang.translate("gui.rift_navigation.unnamed_ship").string()
                 : data.airshipName();
-        graphics.drawString(font, ship, guiLeft + WINDOW_WIDTH - 16 - font.width(ship),
-                guiTop + 10, AWScreenStyle.LABEL, false);
 
-        Component stateLabel = AWLang.translate(state.translationKey()).component();
-        graphics.drawString(font, stateLabel, guiLeft + WINDOW_WIDTH - 16 - font.width(stateLabel),
-                guiTop + 21, stateColour(state), false);
+        AWScreenStyle.header(graphics, font, guiLeft, guiTop, LAYOUT.header(),
+                AWLang.translate("gui.rift_drive.title").component(),
+                AWLang.translate(tier.translationKey()).string(),
+                ship,
+                AWLang.translate(state.translationKey()).component(),
+                stateColour(state),
+                AWScreenStyle.LABEL);
 
         renderReadouts(graphics);
         renderRequirements(graphics);
-        renderBars(graphics, state);
+        renderBars(graphics, state, partialTicks);
     }
 
     private void renderReadouts(GuiGraphics graphics) {
-        int left = guiLeft + 10;
-        int top = guiTop + 36;
-        int width = 118;
-        AWScreenStyle.inset(graphics, left - 2, top - 2, width, 84);
+        Rect panel = LAYOUT.readouts();
+        AWScreenStyle.panel(graphics, guiLeft, guiTop, panel);
 
-        int line = top + 2;
-        line = readout(graphics, left, line, width, "gui.rift_drive.speed",
+        int left = guiLeft + panel.x() + 2;
+        int width = panel.width() - 4;
+        int line = guiTop + panel.y() + 2;
+
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_drive.speed").component(),
                 Math.round(data.currentRpm()) + " / " + data.requiredRpm(),
                 data.currentRpm() >= data.requiredRpm() ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
-        line = readout(graphics, left, line, width, "gui.rift_drive.stress",
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_drive.stress").component(),
                 String.format("%.0f su", data.stressImpact()), AWScreenStyle.VALUE);
-        line = readout(graphics, left, line, width, "gui.rift_navigation.range",
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_navigation.range").component(),
                 AWLang.distance(data.maximumRange()) + " m", AWScreenStyle.VALUE);
-        line = readout(graphics, left, line, width, "gui.rift_drive.mass",
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_drive.mass").component(),
                 AWLang.distance(data.airshipMass()), AWScreenStyle.VALUE);
-        line = readout(graphics, left, line, width, "gui.rift_navigation.charge",
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_navigation.charge").component(),
                 AWLang.percent(data.charge()),
                 data.charge() >= 1.0F ? AWScreenStyle.OK : AWScreenStyle.WARN);
-        readout(graphics, left, line, width, "gui.rift_navigation.cooldown_short",
+        AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_navigation.cooldown_short").component(),
                 data.cooldown() > 0 ? (data.cooldown() / 20) + "s" : "-",
                 data.cooldown() > 0 ? AWScreenStyle.WARN : AWScreenStyle.LABEL);
-    }
-
-    private int readout(GuiGraphics graphics, int left, int y, int width, String key, String value, int colour) {
-        graphics.drawString(font, AWLang.translate(key).component(), left + 2, y, AWScreenStyle.LABEL, false);
-        String trimmed = font.plainSubstrByWidth(value, width - 8);
-        graphics.drawString(font, trimmed, left + width - 8 - font.width(trimmed), y, colour, false);
-        return y + 13;
     }
 
     /**
@@ -196,13 +211,16 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
      * list is the same as working through what the server would object to first.
      */
     private void renderRequirements(GuiGraphics graphics) {
-        int left = guiLeft + 136;
-        int top = guiTop + 36;
-        int width = WINDOW_WIDTH - 154;
-        AWScreenStyle.inset(graphics, left - 2, top - 2, width, 84);
+        Rect panel = LAYOUT.requirements();
+        AWScreenStyle.panel(graphics, guiLeft, guiTop, panel);
+
+        int left = guiLeft + panel.x() + 2;
+        int top = guiTop + panel.y() + 2;
+        int width = panel.width() - 4;
 
         graphics.drawString(font, AWLang.translate("gui.rift_drive.requirements").component(),
-                left + 2, top + 2, AWScreenStyle.TITLE, false);
+                left, top, AWScreenStyle.TITLE, false);
+        AWScreenStyle.rule(graphics, left, top + 10, width);
 
         boolean aboard = !data.access().isFailure();
         boolean turning = data.currentRpm() >= data.requiredRpm();
@@ -217,57 +235,61 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
         line = requirement(graphics, left, line, width, "gui.rift_drive.req.charge", charged);
         line = requirement(graphics, left, line, width, "gui.rift_drive.req.course", course);
         line = requirement(graphics, left, line, width, "gui.rift_drive.req.reachable", reachable);
-        requirement(graphics, left, line, width,
+        line = requirement(graphics, left, line, width,
                 data.redstoneAllowed() ? "gui.rift_drive.req.signal" : "gui.rift_drive.req.signal_disabled",
                 data.redstoneAllowed() && ready);
 
         // What the course actually is, under the list it is a line of. A name is worth more than a
         // tick when the question is "am I pointed at the right place".
-        String label = course ? data.courseName()
-                : AWLang.translate("gui.astrolabe.no_course").string();
-        graphics.drawString(font, font.plainSubstrByWidth(label, width - 8),
-                left + 2, top + 71, course ? AWScreenStyle.OK : AWScreenStyle.LABEL, false);
+        AWScreenStyle.rule(graphics, left, line + 2, width);
+        String label = course ? data.courseName() : AWLang.translate("gui.astrolabe.no_course").string();
+        graphics.drawString(font, AWScreenStyle.trim(font, label, width - 2),
+                left, line + 7, course ? AWScreenStyle.OK : AWScreenStyle.LABEL, false);
     }
 
     private int requirement(GuiGraphics graphics, int left, int y, int width, String key, boolean met) {
-        AWScreenStyle.marker(graphics, left + 2, y, met);
-        String label = font.plainSubstrByWidth(AWLang.translate(key).string(), width - 20);
-        graphics.drawString(font, label, left + 12, y - 1, met ? AWScreenStyle.VALUE : AWScreenStyle.LABEL, false);
+        AWScreenStyle.marker(graphics, left, y, met);
+        String label = AWScreenStyle.trim(font, AWLang.translate(key).string(), width - 12);
+        graphics.drawString(font, label, left + 10, y - 1, met ? AWScreenStyle.VALUE : AWScreenStyle.LABEL, false);
         return y + 10;
     }
 
-    private void renderBars(GuiGraphics graphics, RiftDriveState state) {
-        int left = guiLeft + 10;
-        int width = WINDOW_WIDTH - 28;
-        int top = guiTop + WINDOW_HEIGHT - 52;
+    private void renderBars(GuiGraphics graphics, RiftDriveState state, float partialTicks) {
+        Rect chargeRect = LAYOUT.charge();
+        int left = guiLeft + chargeRect.x();
+        int width = chargeRect.width();
 
-        // A slow shimmer while charging so the bar reads as "working", not "stuck".
-        int pulse = (int) (Math.sin((ticksOpen % 80) / 80.0D * Math.PI * 2.0D) * 24.0D);
-        int chargeColour = data.charge() >= 1.0F
-                ? AWScreenStyle.OK
-                : 0xFF_00_00_00 | (Math.min(255, 0xC0 + pulse) << 16) | (0x90 << 8) | 0x3A;
-        bar(graphics, left, top, width, data.charge(), chargeColour);
+        graphics.drawString(font, AWLang.translate("gui.rift_navigation.charge").component(),
+                left, guiTop + chargeRect.y(), AWScreenStyle.LABEL, false);
+        int chargeBar = guiTop + chargeRect.y() + 10;
+
+        boolean full = data.charge() >= 1.0F;
+        int chargeColour = full ? AWScreenStyle.OK : AWScreenStyle.WARN;
+        if (full) {
+            AWScreenStyle.bar(graphics, left, chargeBar, width, AWLayouts.BAR,
+                    charge.get(partialTicks), chargeColour);
+        } else {
+            // A travelling highlight while it fills, so the bar reads as working rather than stuck.
+            AWScreenStyle.workingBar(graphics, left, chargeBar, width, AWLayouts.BAR,
+                    charge.get(partialTicks), chargeColour, ticksOpen + partialTicks);
+        }
 
         // The spin-up bar only means anything while the drive is winding up, and showing an empty one
         // the rest of the time would read as a second thing that is not ready.
+        Rect spinRect = LAYOUT.spin();
         if (state == RiftDriveState.STABILIZING) {
             graphics.drawString(font, AWLang.translate("gui.rift_drive.spin").component(),
-                    left, top + 9, AWScreenStyle.LABEL, false);
-            bar(graphics, left, top + 20, width, data.spinProgress(), 0xFF_C8_6C_FF);
+                    left, guiTop + spinRect.y(), AWScreenStyle.LABEL, false);
+            AWScreenStyle.workingBar(graphics, left, guiTop + spinRect.y() + 10, width, AWLayouts.BAR,
+                    spin.get(partialTicks), AWScreenStyle.ACCENT, ticksOpen + partialTicks);
         }
-    }
-
-    private static void bar(GuiGraphics graphics, int x, int y, int width, float fraction, int colour) {
-        graphics.fill(x, y, x + width, y + 5, 0xFF_1A_16_12);
-        int filled = (int) (width * Math.max(0.0F, Math.min(1.0F, fraction)));
-        graphics.fill(x, y, x + filled, y + 5, colour);
     }
 
     private static int stateColour(RiftDriveState state) {
         return switch (state) {
             case ERROR -> AWScreenStyle.BAD;
             case COOLDOWN -> AWScreenStyle.WARN;
-            case WARPING, ARRIVING, STABILIZING, DESTINATION_SELECTED -> 0xFF_C8_6C_FF;
+            case WARPING, ARRIVING, STABILIZING, DESTINATION_SELECTED -> AWScreenStyle.ACCENT;
             case CHARGED -> AWScreenStyle.OK;
             default -> AWScreenStyle.LABEL;
         };

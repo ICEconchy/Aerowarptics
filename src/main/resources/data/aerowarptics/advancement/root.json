@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_core"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.root.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.root.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false,
+    "background": "aerowarptics:textures/block/rift_gate_frame.png"
+  },
+  "criteria": {
+    "rift_core": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "aerowarptics:rift_core"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "rift_core"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

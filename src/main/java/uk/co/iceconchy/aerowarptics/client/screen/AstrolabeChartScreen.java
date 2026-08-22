@@ -10,6 +10,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import uk.co.iceconchy.aerowarptics.astrolabe.DestinationSurvey;
+import uk.co.iceconchy.aerowarptics.client.screen.AWLayout.Rect;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 import uk.co.iceconchy.aerowarptics.network.ClientboundAstrolabeChartPacket;
 import uk.co.iceconchy.aerowarptics.network.ServerboundAstrolabePacket;
@@ -32,17 +33,10 @@ import java.util.UUID;
 @OnlyIn(Dist.CLIENT)
 public class AstrolabeChartScreen extends AbstractSimiScreen {
 
-    private static final int WINDOW_WIDTH = 314;
-    private static final int WINDOW_HEIGHT = 262;
-    private static final int LIST_WIDTH = 150;
-    private static final int ROW_HEIGHT = 13;
-    private static final int VISIBLE_ROWS = 16;
     private static final int REFRESH_INTERVAL = 40;
 
-    /** Side of the preview panel, in pixels. One pixel per sampled block. */
-    private static final int PREVIEW_SIZE = 2 * DestinationSurvey.RADIUS / DestinationSurvey.STEP + 1;
-
-    private static final int CONTENT_TOP = 34;
+    private static final AWLayouts.Chart LAYOUT = AWLayouts.chart();
+    private static final int VISIBLE_ROWS = LAYOUT.visibleRows();
 
     private ClientboundAstrolabeChartPacket data;
     @Nullable
@@ -56,6 +50,13 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
     private int scroll;
     private int refreshTimer = REFRESH_INTERVAL;
     private int ticksOpen;
+
+    /**
+     * The marker beside the selected row, which slides rather than jumping.
+     *
+     * <p>Measured in rows from the top of the visible list, so scrolling moves it with the content.
+     */
+    private final AWAnim.Eased marker = new AWAnim.Eased(0.4F, -1.0F);
 
     public AstrolabeChartScreen(ClientboundAstrolabeChartPacket data) {
         super(AWLang.translate("gui.astrolabe.title").component());
@@ -118,8 +119,10 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
 
     @Override
     protected void init() {
-        setWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        setWindowSize(AWLayouts.CHART_WIDTH, AWLayouts.CHART_HEIGHT);
         super.init();
+        guiLeft = AWLayout.anchor(width, AWLayouts.CHART_WIDTH, guiLeft);
+        guiTop = AWLayout.anchor(height, AWLayouts.CHART_HEIGHT, guiTop);
         clearWidgets();
     }
 
@@ -143,6 +146,16 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
             }
         }
         return null;
+    }
+
+    private int selectedIndex() {
+        List<WarpQuote> quotes = data.quotes();
+        for (int index = 0; index < quotes.size(); index++) {
+            if (quotes.get(index).anchorId().equals(selected)) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     // ------------------------------------------------------------------ input
@@ -201,12 +214,13 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
     }
 
     private int rowAt(double mouseX, double mouseY) {
-        int listLeft = guiLeft + 10;
-        int listTop = guiTop + CONTENT_TOP;
-        if (mouseX < listLeft || mouseX > listLeft + LIST_WIDTH) {
+        Rect list = LAYOUT.list();
+        double x = mouseX - guiLeft;
+        double y = mouseY - guiTop;
+        if (!list.contains(x, y)) {
             return -1;
         }
-        int relative = (int) ((mouseY - listTop) / ROW_HEIGHT);
+        int relative = (int) ((y - list.y()) / AWLayout.ROW);
         if (relative < 0 || relative >= VISIBLE_ROWS) {
             return -1;
         }
@@ -217,6 +231,9 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
     public void tick() {
         super.tick();
         ticksOpen++;
+        int index = selectedIndex();
+        marker.set(index < 0 ? -1.0F : index - scroll);
+        marker.tick();
         if (--refreshTimer <= 0) {
             refreshTimer = REFRESH_INTERVAL;
             PacketDistributor.sendToServer(ServerboundAstrolabePacket.open(data.astrolabePos()));
@@ -227,42 +244,100 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
 
     @Override
     protected void renderWindow(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
-        AWScreenStyle.window(graphics, guiLeft, guiTop, WINDOW_WIDTH, WINDOW_HEIGHT);
-
-        graphics.drawString(font, AWLang.translate("gui.astrolabe.title").component(),
-                guiLeft + 10, guiTop + 10, AWScreenStyle.TITLE, false);
-
-        String ship = data.airshipName().isBlank()
-                ? AWLang.translate("gui.rift_navigation.unnamed_ship").string()
-                : data.airshipName();
-        graphics.drawString(font, ship, guiLeft + WINDOW_WIDTH - 16 - font.width(ship),
-                guiTop + 10, AWScreenStyle.LABEL, false);
+        AWScreenStyle.window(graphics, guiLeft, guiTop, AWLayouts.CHART_WIDTH, AWLayouts.CHART_HEIGHT);
 
         RiftDriveTier tier = RiftDriveTier.byIndex(data.tierIndex());
         String subtitle = data.hasDrive()
                 ? AWLang.translate(tier.translationKey()).string() + "  -  "
                         + AWLang.distance(data.maximumRange()) + " m"
                 : AWLang.translate("gui.astrolabe.no_drive").string();
-        graphics.drawString(font, subtitle, guiLeft + 10, guiTop + 21,
-                data.hasDrive() ? AWScreenStyle.LABEL : AWScreenStyle.BAD, false);
+        String ship = data.airshipName().isBlank()
+                ? AWLang.translate("gui.rift_navigation.unnamed_ship").string()
+                : data.airshipName();
 
-        renderList(graphics, mouseX, mouseY);
-        renderPreview(graphics);
+        AWScreenStyle.header(graphics, font, guiLeft, guiTop, LAYOUT.header(),
+                AWLang.translate("gui.astrolabe.title").component(),
+                subtitle,
+                ship,
+                data.truncated()
+                        ? AWLang.translate("gui.astrolabe.anchors_capped",
+                                data.quotes().size(), data.totalAvailable()).component()
+                        : Component.literal(data.quotes().size() + " "
+                                + AWLang.translate("gui.astrolabe.anchors").string()),
+                data.truncated() ? AWScreenStyle.WARN : AWScreenStyle.LABEL,
+                data.hasDrive() ? AWScreenStyle.LABEL : AWScreenStyle.BAD);
+
+        renderCourse(graphics);
+        renderList(graphics, mouseX, mouseY, partialTicks);
+        renderPreview(graphics, partialTicks);
         renderDetails(graphics);
     }
 
-    private void renderList(GuiGraphics graphics, int mouseX, int mouseY) {
-        int listLeft = guiLeft + 10;
-        int listTop = guiTop + CONTENT_TOP;
-        int listHeight = VISIBLE_ROWS * ROW_HEIGHT;
+    /**
+     * Where the ship is actually going, stated plainly and above everything else.
+     *
+     * <p>The list below is a list of anchors, and a Rift Probe can aim the same drive at a place no
+     * anchor marks. Without this line the chart would go on highlighting whichever anchor it last
+     * showed and be confidently wrong about the destination, which is the one thing a chart must
+     * never be.
+     */
+    private void renderCourse(GuiGraphics graphics) {
+        Rect strip = LAYOUT.course();
+        int left = guiLeft + strip.x();
+        int top = guiTop + strip.y() + 2;
 
-        AWScreenStyle.inset(graphics, listLeft - 2, listTop - 2, LIST_WIDTH, listHeight);
+        Component label = AWLang.translate("gui.astrolabe.course").component();
+        graphics.drawString(font, label, left, top, AWScreenStyle.LABEL, false);
+        int valueLeft = left + font.width(label.getString()) + 6;
+
+        if (!data.hasCourse()) {
+            graphics.drawString(font, AWLang.translate("gui.astrolabe.course_none").component(),
+                    valueLeft, top, AWScreenStyle.LABEL, false);
+            return;
+        }
+
+        String name = data.courseLabel().isBlank()
+                ? AWLang.translate("gui.rift_navigation.none").string()
+                : data.courseLabel();
+        int room = strip.width() - (valueLeft - left) - 4;
+
+        if (data.courseIsFix()) {
+            // The coordinates matter here in a way an anchor's never do: nothing is standing at the
+            // far end to be recognised by name, so the position is the only thing that identifies it.
+            BlockPos fix = data.courseFix();
+            String where = fix.getX() + ", " + fix.getY() + ", " + fix.getZ();
+            String source = AWLang.translate("gui.astrolabe.course_sounding").string();
+            graphics.drawString(font, AWScreenStyle.trim(font, name + "  " + where, room - font.width(source) - 8),
+                    valueLeft, top, AWScreenStyle.ACCENT, false);
+            graphics.drawString(font, source, guiLeft + strip.right() - font.width(source), top,
+                    AWScreenStyle.LABEL, false);
+        } else {
+            graphics.drawString(font, AWScreenStyle.trim(font, name, room),
+                    valueLeft, top, AWScreenStyle.OK, false);
+        }
+    }
+
+    private void renderList(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
+        Rect list = LAYOUT.list();
+        AWScreenStyle.panel(graphics, guiLeft, guiTop, list);
+
+        int left = guiLeft + list.x();
+        int top = guiTop + list.y();
 
         List<WarpQuote> quotes = data.quotes();
         if (quotes.isEmpty()) {
             graphics.drawString(font, AWLang.translate("gui.rift_navigation.no_anchors").component(),
-                    listLeft + 4, listTop + 4, AWScreenStyle.LABEL, false);
+                    left + 2, top + 4, AWScreenStyle.LABEL, false);
             return;
+        }
+
+        // The sliding selection marker, drawn under the rows so text stays crisp over it.
+        float markerRow = marker.get(partialTicks);
+        if (markerRow >= -0.5F && markerRow <= VISIBLE_ROWS - 0.5F) {
+            int y = top + Math.round(markerRow * AWLayout.ROW);
+            graphics.fill(left - AWLayout.INSET, y, left + list.width() - AWLayout.INSET,
+                    y + AWLayout.ROW, 0x33_49_D9_C4);
+            AWScreenStyle.selectionBar(graphics, left - AWLayout.INSET, y, AWLayout.ROW, AWScreenStyle.OK);
         }
 
         int hovered = rowAt(mouseX, mouseY);
@@ -272,35 +347,24 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
                 break;
             }
             WarpQuote quote = quotes.get(index);
-            int y = listTop + row * ROW_HEIGHT;
-            boolean isSelected = quote.anchorId().equals(selected);
+            int y = top + row * AWLayout.ROW;
 
-            if (isSelected) {
-                graphics.fill(listLeft - 2, y - 1, listLeft + LIST_WIDTH - 2, y + ROW_HEIGHT - 2, 0x40_49_D9_C4);
-            } else if (index == hovered) {
-                graphics.fill(listLeft - 2, y - 1, listLeft + LIST_WIDTH - 2, y + ROW_HEIGHT - 2, 0x22_FF_FF_FF);
+            if (index == hovered && !quote.anchorId().equals(selected)) {
+                graphics.fill(left - AWLayout.INSET, y, left + list.width() - AWLayout.INSET,
+                        y + AWLayout.ROW, 0x22_FF_FF_FF);
             }
 
             int colour = quote.usable() ? AWScreenStyle.VALUE : AWScreenStyle.BAD;
-            String marker = isSelected ? "> " : "  ";
-            String name = font.plainSubstrByWidth(quote.name(), LIST_WIDTH - 52);
-            graphics.drawString(font, marker + name, listLeft + 2, y + 2, colour, false);
-
             String right = quote.sameDimension() ? AWLang.distance(quote.distance()) : "--";
-            graphics.drawString(font, right, listLeft + LIST_WIDTH - 8 - font.width(right),
-                    y + 2, AWScreenStyle.LABEL, false);
+            int room = list.width() - font.width(right) - 16;
+            graphics.drawString(font, AWScreenStyle.trim(font, quote.name(), room),
+                    left + 6, y + 3, colour, false);
+            graphics.drawString(font, right, left + list.width() - font.width(right) - 8,
+                    y + 3, AWScreenStyle.LABEL, false);
         }
 
-        if (quotes.size() > VISIBLE_ROWS) {
-            int barHeight = Math.max(8, listHeight * VISIBLE_ROWS / quotes.size());
-            int maximum = quotes.size() - VISIBLE_ROWS;
-            int barY = listTop + (listHeight - barHeight) * scroll / Math.max(1, maximum);
-            graphics.fill(listLeft + LIST_WIDTH - 5, barY, listLeft + LIST_WIDTH - 3, barY + barHeight, 0x88_D9_C3_92);
-        }
-    }
-
-    private int previewLeft() {
-        return guiLeft + LIST_WIDTH + 22;
+        AWScreenStyle.scrollbar(graphics, left + list.width() - AWLayout.INSET, top,
+                VISIBLE_ROWS * AWLayout.ROW, quotes.size(), VISIBLE_ROWS, scroll);
     }
 
     /**
@@ -309,10 +373,12 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
      * <p>A baked texture rather than a field of rectangles - see {@link SurveyTexture} - which is what
      * makes a sample per block affordable to draw at all.
      */
-    private void renderPreview(GuiGraphics graphics) {
-        int left = previewLeft();
-        int top = guiTop + CONTENT_TOP;
-        AWScreenStyle.inset(graphics, left - 2, top - 2, PREVIEW_SIZE + 4, PREVIEW_SIZE + 4);
+    private void renderPreview(GuiGraphics graphics, float partialTicks) {
+        Rect panel = LAYOUT.preview();
+        AWScreenStyle.panel(graphics, guiLeft, guiTop, panel);
+
+        int left = guiLeft + panel.x();
+        int top = guiTop + panel.y();
 
         DestinationSurvey survey = preview;
         if (survey != null && previewTexture == null) {
@@ -322,8 +388,8 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
         if (survey == null || texture == null) {
             String message = AWLang.translate(selected == null
                     ? "gui.astrolabe.no_selection" : "gui.astrolabe.surveying").string();
-            graphics.drawString(font, message, left + (PREVIEW_SIZE - font.width(message)) / 2,
-                    top + PREVIEW_SIZE / 2 - 4, AWScreenStyle.LABEL, false);
+            graphics.drawString(font, message, left + (panel.width() - font.width(message)) / 2,
+                    top + panel.height() / 2 - 4, AWScreenStyle.LABEL, false);
             return;
         }
 
@@ -331,43 +397,51 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
 
         // The anchor itself, pulsing at the middle of its own survey. Without it the picture is a
         // patch of ground with no indication of which part of it the ship is aiming at.
-        int centreX = left + PREVIEW_SIZE / 2;
-        int centreY = top + PREVIEW_SIZE / 2;
-        int pulse = (int) (Math.abs(Math.sin(ticksOpen / 16.0D)) * 3.0D) + 3;
+        int centreX = left + AWLayouts.PREVIEW / 2;
+        int centreY = top + AWLayouts.PREVIEW / 2;
+        int pulse = Math.round(AWAnim.pulse(ticksOpen + partialTicks, 32.0F) * 3.0F) + 3;
         graphics.fill(centreX - pulse, centreY, centreX + pulse + 1, centreY + 1, 0xFF_FF_FF_FF);
         graphics.fill(centreX, centreY - pulse, centreX + 1, centreY + pulse + 1, 0xFF_FF_FF_FF);
 
         // North, because a top-down picture with no orientation is a picture of nowhere.
-        graphics.drawString(font, "N", left + PREVIEW_SIZE / 2 - 2, top + 2, 0xFF_FF_FF_FF, true);
+        graphics.drawString(font, "N", centreX - 2, top + 2, 0xFF_FF_FF_FF, true);
 
+        Rect scale = LAYOUT.scale();
         String scaleLabel = AWLang.translate("gui.astrolabe.scale", survey.radius() * 2).string();
-        graphics.drawString(font, scaleLabel, left, top + PREVIEW_SIZE + 5, AWScreenStyle.LABEL, false);
+        graphics.drawString(font, scaleLabel, guiLeft + scale.x(), guiTop + scale.y(),
+                AWScreenStyle.LABEL, false);
 
         String contours = AWLang.translate("gui.astrolabe.contours", DestinationSurvey.CONTOUR_INTERVAL).string();
-        graphics.drawString(font, contours, left + PREVIEW_SIZE - font.width(contours),
-                top + PREVIEW_SIZE + 5, AWScreenStyle.LABEL, false);
+        graphics.drawString(font, contours, guiLeft + scale.right() - font.width(contours),
+                guiTop + scale.y(), AWScreenStyle.LABEL, false);
     }
 
     private void renderDetails(GuiGraphics graphics) {
-        int left = previewLeft();
-        int top = guiTop + CONTENT_TOP + PREVIEW_SIZE + 20;
-        int width = PREVIEW_SIZE + 4;
-        AWScreenStyle.inset(graphics, left - 2, top - 2, width, 68);
+        Rect panel = LAYOUT.detail();
+        AWScreenStyle.panel(graphics, guiLeft, guiTop, panel);
+
+        int left = guiLeft + panel.x() + 2;
+        int top = guiTop + panel.y() + 2;
+        int width = panel.width() - 4;
 
         WarpQuote quote = selectedQuote();
         graphics.drawString(font, quote == null
                         ? AWLang.translate("gui.rift_navigation.none").string()
-                        : font.plainSubstrByWidth(quote.name(), width - 8),
-                left + 2, top + 2, AWScreenStyle.TITLE, false);
+                        : AWScreenStyle.trim(font, quote.name(), width - 2),
+                left, top, AWScreenStyle.TITLE, false);
+        AWScreenStyle.rule(graphics, left, top + 10, width);
 
         int line = top + 15;
-        line = detail(graphics, left, line, width, "gui.rift_navigation.distance",
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_navigation.distance").component(),
                 quote == null ? "-" : quote.sameDimension() ? AWLang.distance(quote.distance()) + " m" : "--",
                 AWScreenStyle.VALUE);
-        line = detail(graphics, left, line, width, "gui.rift_navigation.cost",
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_navigation.cost").component(),
                 quote == null ? "-" : AWLang.percent(quote.cost()),
                 quote != null && quote.cost() > data.charge() ? AWScreenStyle.BAD : AWScreenStyle.VALUE);
-        line = detail(graphics, left, line, width, "gui.astrolabe.ground", groundLabel(), AWScreenStyle.VALUE);
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.astrolabe.ground").component(), groundLabel(), AWScreenStyle.VALUE);
 
         Component status;
         int statusColour;
@@ -377,14 +451,20 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
         } else if (quote == null) {
             status = AWLang.translate("gui.rift_navigation.no_selection").component();
             statusColour = AWScreenStyle.WARN;
-        } else if (quote.usable()) {
+        } else if (quote.anchorId().equals(data.selected())) {
             status = AWLang.translate("gui.astrolabe.course_set").component();
             statusColour = AWScreenStyle.OK;
+        } else if (quote.usable()) {
+            // Reachable, but not where the ship is pointed. Saying "course set" under every anchor
+            // the drive merely could reach is how the chart used to look identical whether or not
+            // you had chosen anything.
+            status = AWLang.translate("gui.astrolabe.reachable").component();
+            statusColour = AWScreenStyle.LABEL;
         } else {
             status = AWLang.translate(quote.failure().translationKey()).component();
             statusColour = AWScreenStyle.BAD;
         }
-        detail(graphics, left, line, width, "gui.rift_navigation.status", status.getString(), statusColour);
+        AWScreenStyle.pill(graphics, font, left, line + 2, status.getString(), statusColour);
     }
 
     /**
@@ -404,13 +484,6 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
         int coverage = Math.round(survey.coverage() * 100.0F);
         String height = "y " + survey.groundY();
         return coverage >= 99 ? height : height + "  (" + coverage + "%)";
-    }
-
-    private int detail(GuiGraphics graphics, int left, int y, int width, String key, String value, int colour) {
-        graphics.drawString(font, AWLang.translate(key).component(), left + 2, y, AWScreenStyle.LABEL, false);
-        String trimmed = font.plainSubstrByWidth(value, width - 8);
-        graphics.drawString(font, trimmed, left + width - 8 - font.width(trimmed), y, colour, false);
-        return y + 13;
     }
 
     @Override

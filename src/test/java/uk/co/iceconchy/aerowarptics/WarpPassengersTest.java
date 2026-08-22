@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import uk.co.iceconchy.aerowarptics.warp.WarpFlight;
 import uk.co.iceconchy.aerowarptics.warp.WarpPassengers;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,5 +47,42 @@ class WarpPassengersTest {
         }
         assertTrue(inside == 3 && WarpFlight.Stage.values().length == 5,
                 "a stage was added without deciding what happens to the crew during it");
+    }
+
+    /**
+     * Recovery covers the run out as well as the fold.
+     *
+     * <p>It used to stop at the exit aperture, and strays were <em>forgotten</em> during the run out
+     * rather than held - so {@code settle} could not put them back either and the last stage of every
+     * journey quietly wrote off anyone not yet aboard. The hull is still under the drive's command
+     * for the whole of it.
+     */
+    @Test
+    void theRunOutIsStillTheShipsResponsibility() {
+        assertTrue(WarpPassengers.recoverable(WarpFlight.Stage.TRANSIT));
+        assertTrue(WarpPassengers.recoverable(WarpFlight.Stage.CORRIDOR));
+        assertTrue(WarpPassengers.recoverable(WarpFlight.Stage.BREACH));
+        assertTrue(WarpPassengers.recoverable(WarpFlight.Stage.EMERGE),
+                "a passenger adrift during the run out is still somewhere they did not choose to be");
+    }
+
+    /**
+     * The approach is the one stage where stepping off is the player's own business.
+     *
+     * <p>The ship is where they boarded it and the world underneath is real, so hauling them back
+     * would be a trap rather than a rescue.
+     */
+    @Test
+    void steppingOffOnTheApproachIsAllowed() {
+        assertFalse(WarpPassengers.recoverable(WarpFlight.Stage.APPROACH));
+    }
+
+    /** Every stage is either the approach or recoverable - there is no third case to forget about. */
+    @Test
+    void everyStageAfterTheApproachIsCovered() {
+        for (WarpFlight.Stage stage : WarpFlight.Stage.values()) {
+            assertEquals(stage != WarpFlight.Stage.APPROACH, WarpPassengers.recoverable(stage),
+                    stage + " is neither clearly the player's business nor clearly the ship's");
+        }
     }
 }

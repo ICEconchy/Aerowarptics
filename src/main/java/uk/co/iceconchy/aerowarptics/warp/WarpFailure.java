@@ -44,6 +44,8 @@ public enum WarpFailure implements StringRepresentable {
     NO_SAFE_ARRIVAL("no_safe_arrival"),
     /** The player is not aboard, not close enough, or lacks permission. */
     UNAUTHORISED("unauthorised"),
+    /** A Rift Probe was asked for a sounding it cannot pay for. */
+    INSUFFICIENT_ESSENCE("insufficient_essence"),
     /** A player cancelled the sequence. */
     CANCELLED("cancelled"),
     /** The sequence was interrupted, typically by a server restart. */

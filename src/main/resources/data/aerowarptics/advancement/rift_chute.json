@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_chute"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.rift_chute.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.rift_chute.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "rift_chute": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "aerowarptics:rift_chute"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "rift_chute"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:spatial_siphon"
+}

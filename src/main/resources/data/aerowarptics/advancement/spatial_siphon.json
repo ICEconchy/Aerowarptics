@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:spatial_siphon"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.spatial_siphon.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.spatial_siphon.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "spatial_siphon": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "aerowarptics:spatial_siphon"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "spatial_siphon"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:first_warp"
+}

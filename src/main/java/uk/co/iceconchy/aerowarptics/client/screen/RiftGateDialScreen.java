@@ -34,19 +34,20 @@ import java.util.UUID;
 @OnlyIn(Dist.CLIENT)
 public class RiftGateDialScreen extends AbstractSimiScreen {
 
-    private static final int WINDOW_WIDTH = 268;
-    private static final int WINDOW_HEIGHT = 226;
-    private static final int LIST_WIDTH = 150;
-    private static final int ROW_HEIGHT = 13;
-    private static final int VISIBLE_ROWS = 10;
     private static final int REFRESH_INTERVAL = 20;
-    private static final int CONTENT_TOP = 48;
+
+    private static final AWLayouts.Dial LAYOUT = AWLayouts.dial();
+    private static final int VISIBLE_ROWS = LAYOUT.visibleRows();
 
     private ClientboundGateDialPacket data;
     @Nullable
     private UUID selected;
     private int scroll;
     private int refreshTimer = REFRESH_INTERVAL;
+    private int ticksOpen;
+
+    /** The marker beside the chosen gate, which slides between rows rather than jumping. */
+    private final AWAnim.Eased marker = new AWAnim.Eased(0.4F, -1.0F);
 
     private EditBox nameBox;
     private Button dialButton;
@@ -77,11 +78,14 @@ public class RiftGateDialScreen extends AbstractSimiScreen {
 
     @Override
     protected void init() {
-        setWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        setWindowSize(AWLayouts.DIAL_WIDTH, AWLayouts.DIAL_HEIGHT);
         super.init();
+        guiLeft = AWLayout.anchor(width, AWLayouts.DIAL_WIDTH, guiLeft);
+        guiTop = AWLayout.anchor(height, AWLayouts.DIAL_HEIGHT, guiTop);
         clearWidgets();
 
-        nameBox = new EditBox(font, guiLeft + 12, guiTop + 28, LIST_WIDTH - 6, 14,
+        AWLayout.Rect name = LAYOUT.name();
+        nameBox = new EditBox(font, guiLeft + name.x(), guiTop + name.y(), name.width(), name.height(),
                 AWLang.translate("gui.rift_gate.name").component());
         nameBox.setMaxLength(48);
         nameBox.setValue(data.name());
@@ -90,14 +94,15 @@ public class RiftGateDialScreen extends AbstractSimiScreen {
         nameBox.setEditable(data.owned());
         addRenderableWidget(nameBox);
 
-        int buttonY = guiTop + WINDOW_HEIGHT - 26;
+        AWLayout.Rect dial = LAYOUT.dial();
+        AWLayout.Rect access = LAYOUT.access();
         dialButton = Button.builder(Component.empty(), b -> dialOrHangUp())
-                .bounds(guiLeft + 12, buttonY, 110, 18)
+                .bounds(guiLeft + dial.x(), guiTop + dial.y(), dial.width(), dial.height())
                 .build();
         accessButton = Button.builder(Component.empty(), b -> {
             PacketDistributor.sendToServer(ServerboundGatePacket.cycleAccess(data.gatePos()));
             playClick(0.9F);
-        }).bounds(guiLeft + WINDOW_WIDTH - 122, buttonY, 110, 18).build();
+        }).bounds(guiLeft + access.x(), guiTop + access.y(), access.width(), access.height()).build();
 
         addRenderableWidget(dialButton);
         addRenderableWidget(accessButton);
@@ -169,18 +174,33 @@ public class RiftGateDialScreen extends AbstractSimiScreen {
     }
 
     private int rowAt(double mouseX, double mouseY) {
-        int listLeft = guiLeft + 12;
-        int listTop = guiTop + CONTENT_TOP;
-        if (mouseX < listLeft || mouseX > listLeft + LIST_WIDTH) {
+        AWLayout.Rect list = LAYOUT.list();
+        double x = mouseX - guiLeft;
+        double y = mouseY - guiTop;
+        if (!list.contains(x, y)) {
             return -1;
         }
-        int relative = (int) ((mouseY - listTop) / ROW_HEIGHT);
+        int relative = (int) ((y - list.y()) / AWLayout.ROW);
         return relative < 0 || relative >= VISIBLE_ROWS ? -1 : scroll + relative;
+    }
+
+    private int selectedIndex() {
+        List<RiftGate> gates = data.reachable();
+        for (int index = 0; index < gates.size(); index++) {
+            if (gates.get(index).id().equals(selected)) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     @Override
     public void tick() {
         super.tick();
+        ticksOpen++;
+        int index = selectedIndex();
+        marker.set(index < 0 ? -1.0F : index - scroll);
+        marker.tick();
         if (--refreshTimer <= 0) {
             refreshTimer = REFRESH_INTERVAL;
             PacketDistributor.sendToServer(ServerboundGatePacket.open(data.gatePos()));
@@ -191,37 +211,52 @@ public class RiftGateDialScreen extends AbstractSimiScreen {
 
     @Override
     protected void renderWindow(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
-        AWScreenStyle.window(graphics, guiLeft, guiTop, WINDOW_WIDTH, WINDOW_HEIGHT);
-
-        graphics.drawString(font, AWLang.translate("gui.rift_gate.title").component(),
-                guiLeft + 12, guiTop + 12, AWScreenStyle.TITLE, false);
+        AWScreenStyle.window(graphics, guiLeft, guiTop, AWLayouts.DIAL_WIDTH, AWLayouts.DIAL_HEIGHT);
 
         RiftGateState state = data.state();
-        Component stateLabel = AWLang.translate(state.translationKey()).component();
-        graphics.drawString(font, stateLabel, guiLeft + WINDOW_WIDTH - 16 - font.width(stateLabel),
-                guiTop + 12, stateColour(state), false);
-
         String opening = data.formed()
                 ? AWLang.translate("gui.rift_gate.opening", data.width(), data.height()).string()
                 : AWLang.translate("gui.rift_gate.unformed_hint").string();
-        graphics.drawString(font, opening, guiLeft + WINDOW_WIDTH - 16 - font.width(opening),
-                guiTop + 30, data.formed() ? AWScreenStyle.LABEL : AWScreenStyle.BAD, false);
 
-        renderList(graphics, mouseX, mouseY);
-        renderDetails(graphics);
+        // The subtitle line is otherwise unused on this panel, which makes it the place to own up to a
+        // list that did not all fit rather than quietly showing a shorter one.
+        String capped = data.truncated()
+                ? AWLang.translate("gui.rift_gate.gates_capped",
+                        data.reachable().size(), data.totalReachable()).string()
+                : "";
+
+        AWScreenStyle.header(graphics, font, guiLeft, guiTop, LAYOUT.header(),
+                AWLang.translate("gui.rift_gate.title").component(),
+                capped,
+                opening,
+                AWLang.translate(state.translationKey()).component(),
+                stateColour(state),
+                data.truncated() ? AWScreenStyle.WARN : AWScreenStyle.LABEL);
+
+        renderList(graphics, mouseX, mouseY, partialTicks);
+        renderDetails(graphics, partialTicks);
     }
 
-    private void renderList(GuiGraphics graphics, int mouseX, int mouseY) {
-        int listLeft = guiLeft + 12;
-        int listTop = guiTop + CONTENT_TOP;
-        int listHeight = VISIBLE_ROWS * ROW_HEIGHT;
-        AWScreenStyle.inset(graphics, listLeft - 2, listTop - 2, LIST_WIDTH, listHeight);
+    private void renderList(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
+        AWLayout.Rect list = LAYOUT.list();
+        AWScreenStyle.panel(graphics, guiLeft, guiTop, list);
+
+        int left = guiLeft + list.x();
+        int top = guiTop + list.y();
 
         List<RiftGate> gates = data.reachable();
         if (gates.isEmpty()) {
             graphics.drawString(font, AWLang.translate("gui.rift_gate.no_gates").component(),
-                    listLeft + 4, listTop + 4, AWScreenStyle.LABEL, false);
+                    left + 2, top + 4, AWScreenStyle.LABEL, false);
             return;
+        }
+
+        float markerRow = marker.get(partialTicks);
+        if (markerRow >= -0.5F && markerRow <= VISIBLE_ROWS - 0.5F) {
+            int y = top + Math.round(markerRow * AWLayout.ROW);
+            graphics.fill(left - AWLayout.INSET, y, left + list.width() - AWLayout.INSET,
+                    y + AWLayout.ROW, 0x30_49_D9_C4);
+            AWScreenStyle.selectionBar(graphics, left - AWLayout.INSET, y, AWLayout.ROW, AWScreenStyle.OK);
         }
 
         int hovered = rowAt(mouseX, mouseY);
@@ -231,53 +266,61 @@ public class RiftGateDialScreen extends AbstractSimiScreen {
                 break;
             }
             RiftGate gate = gates.get(index);
-            int y = listTop + row * ROW_HEIGHT;
-            boolean isSelected = gate.id().equals(selected);
+            int y = top + row * AWLayout.ROW;
             boolean isConnected = gate.id().equals(data.connected());
 
             if (isConnected) {
-                graphics.fill(listLeft - 2, y - 1, listLeft + LIST_WIDTH - 2, y + ROW_HEIGHT - 2, 0x50_49_D9_C4);
-            } else if (isSelected) {
-                graphics.fill(listLeft - 2, y - 1, listLeft + LIST_WIDTH - 2, y + ROW_HEIGHT - 2, 0x30_49_D9_C4);
-            } else if (index == hovered) {
-                graphics.fill(listLeft - 2, y - 1, listLeft + LIST_WIDTH - 2, y + ROW_HEIGHT - 2, 0x22_FF_FF_FF);
+                // A live connection is the one fact here worth seeing without reading, so it breathes
+                // rather than sitting still.
+                float glow = 0.35F + 0.25F * AWAnim.pulse(ticksOpen + partialTicks, 40.0F);
+                graphics.fill(left - AWLayout.INSET, y, left + list.width() - AWLayout.INSET,
+                        y + AWLayout.ROW, AWAnim.fade(0xFF_49_D9_C4, glow * 0.4F));
+            } else if (index == hovered && !gate.id().equals(selected)) {
+                graphics.fill(left - AWLayout.INSET, y, left + list.width() - AWLayout.INSET,
+                        y + AWLayout.ROW, 0x22_FF_FF_FF);
             }
 
-            String marker = isConnected ? "* " : isSelected ? "> " : "  ";
-            String name = font.plainSubstrByWidth(gate.displayName(), LIST_WIDTH - 60);
-            graphics.drawString(font, marker + name, listLeft + 2, y + 2,
-                    isConnected ? AWScreenStyle.OK : AWScreenStyle.VALUE, false);
-
             String size = gate.shape().width() + "x" + gate.shape().height();
-            graphics.drawString(font, size, listLeft + LIST_WIDTH - 8 - font.width(size),
-                    y + 2, AWScreenStyle.LABEL, false);
+            int room = list.width() - font.width(size) - 18;
+            graphics.drawString(font, AWScreenStyle.trim(font, gate.displayName(), room),
+                    left + 6, y + 3, isConnected ? AWScreenStyle.OK : AWScreenStyle.VALUE, false);
+            graphics.drawString(font, size, left + list.width() - font.width(size) - 8,
+                    y + 3, AWScreenStyle.LABEL, false);
         }
 
-        if (gates.size() > VISIBLE_ROWS) {
-            int barHeight = Math.max(8, listHeight * VISIBLE_ROWS / gates.size());
-            int maximum = gates.size() - VISIBLE_ROWS;
-            int barY = listTop + (listHeight - barHeight) * scroll / Math.max(1, maximum);
-            graphics.fill(listLeft + LIST_WIDTH - 5, barY, listLeft + LIST_WIDTH - 3, barY + barHeight, 0x88_D9_C3_92);
-        }
+        AWScreenStyle.scrollbar(graphics, left + list.width() - AWLayout.INSET, top,
+                VISIBLE_ROWS * AWLayout.ROW, gates.size(), VISIBLE_ROWS, scroll);
     }
 
-    private void renderDetails(GuiGraphics graphics) {
-        int left = guiLeft + LIST_WIDTH + 20;
-        int top = guiTop + CONTENT_TOP;
-        int width = WINDOW_WIDTH - LIST_WIDTH - 34;
-        AWScreenStyle.inset(graphics, left - 2, top - 2, width, VISIBLE_ROWS * ROW_HEIGHT);
+    private void renderDetails(GuiGraphics graphics, float partialTicks) {
+        AWLayout.Rect panel = LAYOUT.detail();
+        AWScreenStyle.panel(graphics, guiLeft, guiTop, panel);
 
-        int line = top + 2;
-        line = detail(graphics, left, line, width, "gui.rift_gate.essence_short",
-                data.essence() + " / " + data.capacity(),
-                data.essence() >= data.cost() ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
-        line = detail(graphics, left, line, width, "gui.rift_gate.cost", String.valueOf(data.cost()),
-                data.essence() >= data.cost() ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
-        line = detail(graphics, left, line, width, "gui.rift_drive.speed",
+        int left = guiLeft + panel.x() + 2;
+        int top = guiTop + panel.y() + 2;
+        int width = panel.width() - 4;
+
+        boolean paid = data.essence() >= data.cost();
+        boolean turning = Math.abs(data.speed()) >= data.requiredSpeed();
+
+        int line = AWScreenStyle.readout(graphics, font, left, top, width,
+                AWLang.translate("gui.rift_gate.cost").component(),
+                data.cost() + " mB", paid ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
+        AWScreenStyle.bar(graphics, left, line + 1, width, 4,
+                data.capacity() <= 0 ? 0.0F : data.essence() / (float) data.capacity(),
+                paid ? AWScreenStyle.OK : AWScreenStyle.WARN);
+        String held = data.essence() + " / " + data.capacity() + " mB";
+        graphics.drawString(font, held, left, line + 8, AWScreenStyle.LABEL, false);
+        line += 20;
+
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_drive.speed").component(),
                 Math.round(data.speed()) + " / " + data.requiredSpeed(),
-                Math.abs(data.speed()) >= data.requiredSpeed() ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
+                turning ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
 
-        line += 4;
+        AWScreenStyle.rule(graphics, left, line + 2, width);
+        line += 7;
+
         Component status;
         int colour;
         if (data.failure().isFailure()) {
@@ -293,17 +336,12 @@ public class RiftGateDialScreen extends AbstractSimiScreen {
             status = AWLang.translate("gui.rift_gate.standing_by").component();
             colour = AWScreenStyle.LABEL;
         }
-        for (String piece : font.plainSubstrByWidth(status.getString(), width - 8).split("\n")) {
-            graphics.drawString(font, piece, left + 2, line, colour, false);
-            line += 11;
+        // Wrapped rather than cut: a refusal is the one thing on this panel a player has to read in
+        // full, and the reasons are sentences.
+        for (net.minecraft.util.FormattedCharSequence piece : font.split(status, width - 4)) {
+            graphics.drawString(font, piece, left, line, colour, false);
+            line += 10;
         }
-    }
-
-    private int detail(GuiGraphics graphics, int left, int y, int width, String key, String value, int colour) {
-        graphics.drawString(font, AWLang.translate(key).component(), left + 2, y, AWScreenStyle.LABEL, false);
-        String trimmed = font.plainSubstrByWidth(value, width - 8);
-        graphics.drawString(font, trimmed, left + width - 8 - font.width(trimmed), y, colour, false);
-        return y + 13;
     }
 
     private static int stateColour(RiftGateState state) {

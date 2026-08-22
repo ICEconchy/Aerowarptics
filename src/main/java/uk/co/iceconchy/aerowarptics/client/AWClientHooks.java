@@ -39,6 +39,59 @@ public final class AWClientHooks {
         }
     }
 
+    /**
+     * A hull has crossed the fold: tell this client to read the jump as a jump.
+     *
+     * <p>Without it Sable treats the teleport as movement, builds a collision volume the length of
+     * the whole warp, refuses it, and drops the crew through the deck.
+     */
+    public static void foldCrossed(java.util.UUID shipId) {
+        if (client()) {
+            ClientRuntime.foldCrossed(shipId);
+        }
+    }
+
+    /** A player clicked a Rift Probe. */
+    public static void requestProbePanel(net.minecraft.core.BlockPos probePos) {
+        if (client()) {
+            ClientRuntime.requestProbePanel(probePos);
+        }
+    }
+
+    public static void acceptProbePanel(uk.co.iceconchy.aerowarptics.network.ClientboundProbePacket packet) {
+        if (client()) {
+            ClientRuntime.acceptProbePanel(packet);
+        }
+    }
+
+    /** Keeps a Rift Chute's aperture alive on the client, from the chute's own client tick. */
+    public static void tickChuteAperture(uk.co.iceconchy.aerowarptics.chute.RiftChuteBlockEntity chute) {
+        if (client()) {
+            ClientRuntime.tickChuteAperture(chute);
+        }
+    }
+
+    /** A player clicked a Rift Chute. */
+    public static void requestChutePanel(net.minecraft.core.BlockPos chutePos) {
+        if (client()) {
+            ClientRuntime.requestChutePanel(chutePos);
+        }
+    }
+
+    public static void acceptChutePanel(
+            uk.co.iceconchy.aerowarptics.network.ClientboundChutePanelPacket packet) {
+        if (client()) {
+            ClientRuntime.acceptChutePanel(packet);
+        }
+    }
+
+    public static void acceptProbeReading(
+            uk.co.iceconchy.aerowarptics.network.ClientboundProbeReadingPacket packet) {
+        if (client()) {
+            ClientRuntime.acceptProbeReading(packet);
+        }
+    }
+
     /** A player clicked a Rift Gate's controller. */
     public static void requestGateDial(net.minecraft.core.BlockPos gatePos) {
         if (client()) {
@@ -106,6 +159,18 @@ public final class AWClientHooks {
     public static void showWarpFeedback(WarpFailure failure) {
         if (client()) {
             ClientRuntime.showWarpFeedback(failure);
+        }
+    }
+
+    /**
+     * A player has read the Navigator's Handbook.
+     *
+     * <p>The only entry point here with no packet behind it: the book says the same thing on every
+     * world, so there is nothing for the server to answer with.
+     */
+    public static void openHandbook() {
+        if (client()) {
+            ClientRuntime.openHandbook();
         }
     }
 }

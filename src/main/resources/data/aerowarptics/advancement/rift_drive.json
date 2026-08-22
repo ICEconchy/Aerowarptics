@@ -1,0 +1,42 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_drive_mk_i"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.rift_drive.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.rift_drive.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "rift_drive": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": [
+              "aerowarptics:rift_drive_mk_i",
+              "aerowarptics:rift_drive_mk_ii",
+              "aerowarptics:rift_drive_mk_iii",
+              "aerowarptics:rift_drive_singularity"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "rift_drive"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:root"
+}
