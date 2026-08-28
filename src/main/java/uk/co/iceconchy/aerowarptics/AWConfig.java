@@ -54,15 +54,29 @@ public final class AWConfig {
 
     public static final ModConfigSpec.IntValue GATE_DIAL_COST;
     public static final ModConfigSpec.IntValue GATE_DIAL_COST_PER_BLOCK;
+    public static final ModConfigSpec.IntValue GATE_UPKEEP_COST;
+    public static final ModConfigSpec.IntValue GATE_UPKEEP_COST_PER_BLOCK;
+    public static final ModConfigSpec.IntValue GATE_UPKEEP_INTERVAL;
     public static final ModConfigSpec.DoubleValue GATE_STRESS;
     public static final ModConfigSpec.DoubleValue GATE_STRESS_PER_BLOCK;
     public static final ModConfigSpec.IntValue GATE_MINIMUM_RPM;
+    public static final ModConfigSpec.IntValue FISSURE_RESERVOIR_LEAST;
+    public static final ModConfigSpec.IntValue FISSURE_RESERVOIR_MOST;
+    public static final ModConfigSpec.IntValue FISSURE_DRAIN_RATE;
+    public static final ModConfigSpec.IntValue FISSURE_SIPHON_RADIUS;
+
     public static final ModConfigSpec.IntValue GATE_DIAL_TICKS;
-    public static final ModConfigSpec.IntValue GATE_IDLE_TICKS;
     public static final ModConfigSpec.IntValue MAX_GATES_PER_PLAYER;
 
     public static final ModConfigSpec.IntValue CHUTE_COST_PER_ITEM;
     public static final ModConfigSpec.IntValue CHUTE_BATCH_SIZE;
+
+    public static final ModConfigSpec.IntValue MODULATOR_UPKEEP_COST;
+    public static final ModConfigSpec.IntValue MODULATOR_UPKEEP_INTERVAL;
+
+    public static final ModConfigSpec.IntValue BEACON_COOLDOWN_TICKS;
+    public static final ModConfigSpec.IntValue BEACON_BEAM_TICKS;
+    public static final ModConfigSpec.IntValue BEACON_AIM_RANGE;
     public static final ModConfigSpec.IntValue PROBE_COST;
     public static final ModConfigSpec.DoubleValue PROBE_COST_PER_BLOCK;
     public static final ModConfigSpec.IntValue PROBE_MINIMUM_RANGE;
@@ -75,6 +89,7 @@ public final class AWConfig {
     public static final ModConfigSpec.BooleanValue DANGEROUS_FAILURES;
     public static final ModConfigSpec.BooleanValue TRACE_WARPS;
     public static final ModConfigSpec.DoubleValue DANGEROUS_FAILURE_IMPULSE;
+    public static final ModConfigSpec.IntValue MANIFEST_GRACE_TICKS;
 
     /** Per-tier settings, seeded from {@link RiftDriveTier#defaults()}. */
     public static final Map<RiftDriveTier, TierConfig> TIERS = new EnumMap<>(RiftDriveTier.class);
@@ -230,9 +245,24 @@ public final class AWConfig {
                 .comment("Extra millibuckets per block of opening. A bigger doorway is a bigger tear,",
                         "which is what stops the largest gate being the obvious one to build everywhere.")
                 .defineInRange("gateDialCostPerBlock", 12, 0, 10_000);
+        GATE_UPKEEP_COST = SERVER_BUILDER
+                .comment("Rift Essence, in millibuckets, spent every upkeep interval to hold a",
+                        "connection open, before size. A doorway is a tear somebody is holding apart,",
+                        "and holding it costs for as long as it is held. Set to 0, along with the",
+                        "per-block figure, to go back to essence being a one-off price for dialling.")
+                .defineInRange("gateUpkeepCost", 10, 0, 1_000_000);
+        GATE_UPKEEP_COST_PER_BLOCK = SERVER_BUILDER
+                .comment("Extra millibuckets per block of opening, every upkeep interval.",
+                        "A wider doorway is heavier to hold as well as dearer to strike.")
+                .defineInRange("gateUpkeepCostPerBlock", 1, 0, 10_000);
+        GATE_UPKEEP_INTERVAL = SERVER_BUILDER
+                .comment("Ticks between upkeep charges. Twenty is once a second, which is what the",
+                        "goggle and Display Link readings are worded for.")
+                .defineInRange("gateUpkeepInterval", 20, 1, 1_200);
         GATE_STRESS = SERVER_BUILDER
                 .comment("Stress the gate draws while it is holding an aperture open, before size.",
-                        "A gate standing dark costs nothing: essence opens a connection, rotation holds it.")
+                        "A gate standing dark costs nothing: essence strikes a connection and keeps it",
+                        "standing, and rotation holds the machinery that does the keeping.")
                 .defineInRange("gateStress", 4.0D, 0.0D, 1_024.0D);
         GATE_STRESS_PER_BLOCK = SERVER_BUILDER
                 .comment("Extra stress per block of opening while held open.")
@@ -244,10 +274,6 @@ public final class AWConfig {
         GATE_DIAL_TICKS = SERVER_BUILDER
                 .comment("Ticks between striking a connection and the aperture being safe to cross.")
                 .defineInRange("gateDialTicks", 40, 5, 600);
-        GATE_IDLE_TICKS = SERVER_BUILDER
-                .comment("Ticks a connection is held with nothing crossing before it lets go.",
-                        "0 holds it open indefinitely, which costs stress for as long as it stands.")
-                .defineInRange("gateIdleTicks", 1_200, 0, 72_000);
         MAX_GATES_PER_PLAYER = SERVER_BUILDER
                 .comment("Maximum number of Rift Gates a single player may own. 0 disables the limit.")
                 .defineInRange("maxGatesPerPlayer", 0, 0, 10_000);
@@ -295,6 +321,40 @@ public final class AWConfig {
                 .defineInRange("chuteBatchSize", 16, 1, 64);
         SERVER_BUILDER.pop();
 
+        SERVER_BUILDER.comment("Rift Modulators: cosmetic modules that let a Rift Drive's pilot",
+                        "choose the rift's colour and look. Essence is spent only while the linked",
+                        "drive is actually running a warp - an idle drive costs a Modulator nothing.")
+                .push("modulator");
+        MODULATOR_UPKEEP_COST = SERVER_BUILDER
+                .comment("Rift Essence, in millibuckets, spent every upkeep interval while the",
+                        "Modulator is dressing a warp in progress. Set to 0 to make it run on nothing.")
+                .defineInRange("modulatorUpkeepCost", 5, 0, 10_000);
+        MODULATOR_UPKEEP_INTERVAL = SERVER_BUILDER
+                .comment("Ticks between upkeep charges. Twenty is once a second.")
+                .defineInRange("modulatorUpkeepInterval", 20, 1, 1_200);
+        SERVER_BUILDER.pop();
+
+        SERVER_BUILDER.comment("Rift Beacons: hand-held summons for a ship you are not standing on.")
+                .push("beacon");
+        BEACON_COOLDOWN_TICKS = SERVER_BUILDER
+                .comment("Ticks before a beacon may be used again, successful or not.",
+                        "Applied to refusals too. A drive that has just said no will keep saying no,",
+                        "and without this a held right-click asks it sixty times a second.")
+                .defineInRange("beaconCooldownTicks", 100, 0, 72_000);
+        BEACON_BEAM_TICKS = SERVER_BUILDER
+                .comment("Ticks the marker beam stands at a summon site.",
+                        "Purely cosmetic, and deliberately independent of the warp it marks: the beam",
+                        "is lit by the client that saw the summon, so it cannot be told to stop by a",
+                        "warp that failed on a server the viewer is no longer near.")
+                .defineInRange("beaconBeamTicks", 200, 20, 12_000);
+        BEACON_AIM_RANGE = SERVER_BUILDER
+                .comment("How far a beacon's aim reaches, in blocks.",
+                        "This is the ray from the holder's eye, not the drive's range - the ship still",
+                        "has to be able to reach wherever the ray lands. Deliberately well past normal",
+                        "interaction range: pointing at a clearing across a valley is the whole gesture.")
+                .defineInRange("beaconAimRange", 128, 8, 512);
+        SERVER_BUILDER.pop();
+
         SERVER_BUILDER.comment("What happens when a warp cannot complete.").push("failure");
         FAILURE_CHARGE_PENALTY = SERVER_BUILDER
                 .comment("Fraction of the drive's charge lost when a warp aborts.")
@@ -309,6 +369,36 @@ public final class AWConfig {
         DANGEROUS_FAILURE_IMPULSE = SERVER_BUILDER
                 .comment("Impulse magnitude applied by a dangerous failure, relative to airship mass.")
                 .defineInRange("dangerousFailureImpulse", 1.5D, 0.0D, 100.0D);
+        MANIFEST_GRACE_TICKS = SERVER_BUILDER
+                .comment("How long a crew manifest outlives the last refresh, in ticks.",
+                        "A warp that dies at the crossing leaves the manifest running so that",
+                        "passengers who came off the hull are still recovered while the ship",
+                        "coasts to a stop. Larger values cover larger hulls that take longer",
+                        "to settle; shorter values mean a failed warp stops tracking people",
+                        "sooner. The default of 600 (30 seconds) covers any hull the game can",
+                        "generate.")
+                .defineInRange("manifestGraceTicks", 600, 100, 12_000);
+        SERVER_BUILDER.pop();
+
+        SERVER_BUILDER.comment("Rift Fissures: the tears that generate in the world rather than being",
+                        "opened by a machine. Only a player wearing Rift Infused Goggles can see one,",
+                        "and only a Spatial Siphon standing near it can empty it.")
+                .push("fissure");
+        FISSURE_RESERVOIR_LEAST = SERVER_BUILDER
+                .comment("Fewest millibuckets of Rift Essence a fissure holds. A siphon holds 4,000.")
+                .defineInRange("reservoirLeast", 6_000, 0, 1_000_000);
+        FISSURE_RESERVOIR_MOST = SERVER_BUILDER
+                .comment("Most it may hold. How much any one fissure has is rolled from where it is,",
+                        "so the answer is the same for everybody and survives the chunk unloading.")
+                .defineInRange("reservoirMost", 18_000, 0, 1_000_000);
+        FISSURE_DRAIN_RATE = SERVER_BUILDER
+                .comment("Millibuckets a tick a fissure gives up, shared between every vessel in range.",
+                        "The tear is the limit rather than the plumbing: a ring of siphons fills no",
+                        "faster than one, it just holds more of what comes out.")
+                .defineInRange("drainRate", 12, 1, 10_000);
+        FISSURE_SIPHON_RADIUS = SERVER_BUILDER
+                .comment("Blocks from the fissure a Spatial Siphon may stand and still draw from it.")
+                .defineInRange("siphonRadius", 6, 1, 32);
         SERVER_BUILDER.pop();
 
         SERVER_BUILDER.comment("Diagnostics. Off by default and of no interest during normal play.")
@@ -369,6 +459,7 @@ public final class AWConfig {
 
     public static final ModConfigSpec.DoubleValue PARTICLE_DENSITY;
     public static final ModConfigSpec.BooleanValue RIFT_DISTORTION;
+    public static final ModConfigSpec.BooleanValue RIFT_LIGHTNING;
     public static final ModConfigSpec.BooleanValue WARP_CORRIDOR;
     public static final ModConfigSpec.BooleanValue SCREEN_SHAKE;
     public static final ModConfigSpec.DoubleValue EFFECT_VOLUME;
@@ -383,6 +474,9 @@ public final class AWConfig {
         RIFT_DISTORTION = CLIENT_BUILDER
                 .comment("Draw the spatial distortion disc when a rift forms.")
                 .define("riftDistortion", true);
+        RIFT_LIGHTNING = CLIENT_BUILDER
+                .comment("Draw lightning sparking off a rift's aperture and down its corridor.")
+                .define("riftLightning", true);
         WARP_CORRIDOR = CLIENT_BUILDER
                 .comment("Draw the corridor streaks and wake while the airship is in warp.")
                 .define("warpCorridor", true);

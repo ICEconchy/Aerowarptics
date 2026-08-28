@@ -41,9 +41,24 @@ def blank():
 
 
 def write_png(path, pixels):
+    """
+    Writes an RGBA PNG, sized from the pixels it was handed.
+
+    The size used to come from SIZE, which was fine while every caller drew sixteen square and
+    silently wrong the moment one did not: the header claimed sixteen rows, the data held eight, and
+    the result was a file Minecraft could not decode. A corrupt texture does not fail loudly - it
+    falls back to the missing-texture chequer, which for anything tinted magenta looks disconcertingly
+    like it is working.
+    """
+    height = len(pixels)
+    width = len(pixels[0]) if height else 0
+    for index, row in enumerate(pixels):
+        if len(row) != width:
+            raise ValueError("row %d is %d wide, expected %d" % (index, len(row), width))
+
     raw = bytearray()
     for row in pixels:
-        raw.append(0)  # filter: none. Sixteen square is not worth a filter.
+        raw.append(0)  # filter: none. Nothing here is big enough to be worth one.
         for r, g, b, a in row:
             raw += bytes((r, g, b, a))
 
@@ -51,7 +66,7 @@ def write_png(path, pixels):
         return (struct.pack(">I", len(payload)) + kind + payload
                 + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF))
 
-    header = struct.pack(">IIBBBBB", SIZE, SIZE, 8, 6, 0, 0, 0)
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
     data = (b"\x89PNG\r\n\x1a\n"
             + chunk(b"IHDR", header)
             + chunk(b"IDAT", zlib.compress(bytes(raw), 9))

@@ -13,8 +13,10 @@ import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 /**
  * GeckoLib model binding for the Rift Drive.
  *
- * <p>All four tiers share one geometry and one animation file and differ only by texture, so a new
- * tier is a texture plus a config block.
+ * <p>Every tier shares one geometry and one animation file and differs only by texture, so a new tier
+ * is a texture plus a config block. All of them are generated together by
+ * {@code tools/rift_drive_model.py}; the tiers differ in the colour of the rift and the sheen on the
+ * inner cage, and in nothing else.
  */
 @OnlyIn(Dist.CLIENT)
 public class RiftDriveModel extends GeoModel<RiftDriveBlockEntity> {
@@ -40,7 +42,8 @@ public class RiftDriveModel extends GeoModel<RiftDriveBlockEntity> {
 
     @Override
     public RenderType getRenderType(RiftDriveBlockEntity animatable, ResourceLocation texture) {
-        // The core glows and the housing has cut-out grilles, so both need alpha.
+        // The rift glows, and the drive is a cage rather than a box - you see straight through it,
+        // past the gears, to whatever is on the other side. Both want alpha.
         return RenderType.entityTranslucent(texture);
     }
 

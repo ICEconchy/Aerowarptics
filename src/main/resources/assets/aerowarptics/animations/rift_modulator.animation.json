@@ -1,0 +1,30 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.rift_modulator.idle": {
+      "loop": true,
+      "animation_length": 4.0,
+      "bones": {
+        "lens": {
+          "scale": {
+            "0.0": [
+              1,
+              1,
+              1
+            ],
+            "2.0": [
+              1.05,
+              1.05,
+              1.05
+            ],
+            "4.0": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      }
+    }
+  }
+}

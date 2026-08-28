@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:jigsaw",
+  "biomes": "#aerowarptics:has_structure/rift_scar",
+  "step": "surface_structures",
+  "terrain_adaptation": "beard_thin",
+  "spawn_overrides": {},
+  "start_pool": "aerowarptics:rift_scar/start",
+  "size": 1,
+  "max_distance_from_center": 80,
+  "start_height": {
+    "absolute": -2
+  },
+  "project_start_to_heightmap": "WORLD_SURFACE_WG",
+  "use_expansion_hack": false
+}

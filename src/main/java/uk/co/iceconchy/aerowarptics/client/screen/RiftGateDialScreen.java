@@ -305,11 +305,11 @@ public class RiftGateDialScreen extends AbstractSimiScreen {
 
         int line = AWScreenStyle.readout(graphics, font, left, top, width,
                 AWLang.translate("gui.rift_gate.cost").component(),
-                data.cost() + " mB", paid ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
+                AWLang.essence(data.cost()), paid ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
         AWScreenStyle.bar(graphics, left, line + 1, width, 4,
                 data.capacity() <= 0 ? 0.0F : data.essence() / (float) data.capacity(),
                 paid ? AWScreenStyle.OK : AWScreenStyle.WARN);
-        String held = data.essence() + " / " + data.capacity() + " mB";
+        String held = AWLang.essence(data.essence(), data.capacity());
         graphics.drawString(font, held, left, line + 8, AWScreenStyle.LABEL, false);
         line += 20;
 

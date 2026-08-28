@@ -373,7 +373,7 @@ public class RiftProbeScreen extends AbstractSimiScreen {
         graphics.drawString(font, AWLang.translate("gui.rift_probe.range").component(),
                 left, top, AWScreenStyle.LABEL, false);
 
-        String value = AWLang.distance(shownRange()) + " m";
+        String value = AWLang.distance(shownRange());
         graphics.drawString(font, value, guiLeft + panel.right() - font.width(value) - 2, top,
                 AWScreenStyle.VALUE, false);
 
@@ -398,12 +398,12 @@ public class RiftProbeScreen extends AbstractSimiScreen {
         boolean enough = data.affordable();
         AWScreenStyle.readout(graphics, font, left, top, panel.width() - 4,
                 AWLang.translate("gui.rift_probe.cost").component(),
-                data.cost() + " mB", enough ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
+                AWLang.essence(data.cost()), enough ? AWScreenStyle.VALUE : AWScreenStyle.BAD);
 
         AWScreenStyle.bar(graphics, left, top + AWLayout.LINE + 3, panel.width() - 4, 5,
                 fill.get(partialTicks), enough ? AWScreenStyle.OK : AWScreenStyle.WARN);
 
-        String held = data.essence() + " / " + data.capacity() + " mB";
+        String held = AWLang.essence(data.essence(), data.capacity());
         graphics.drawString(font, held, left, top + AWLayout.LINE + 11, AWScreenStyle.LABEL, false);
     }
 

@@ -173,7 +173,9 @@ ASTROLABE = "aerowarptics:astrolabe"
 DRIVE = "aerowarptics:rift_drive_mk_ii"
 PROBE = "aerowarptics:rift_probe"
 CHUTE = "aerowarptics:rift_chute"
+MODULATOR = "aerowarptics:rift_modulator"
 GATE = "aerowarptics:rift_gate"
+FISSURE = "aerowarptics:rift_fissure"
 FRAME = "aerowarptics:rift_gate_frame"
 
 
@@ -256,6 +258,23 @@ def rift_drive():
     return scene
 
 
+def rift_modulator():
+    """A drive under power, a Modulator bolted to its side, and a trickle of essence reaching it."""
+    scene = Scene((6, 5, 6))
+    scene.base_plate()
+    scene.put(2, 1, 2, DRIVE, facing="south")
+    scene.motor_line(2, 1, 3, 2, "z", "north")
+    # Bolted against the drive's own west face, facing the same way the drive does - the facing it
+    # took from the drive the moment it was placed.
+    scene.put(1, 1, 2, MODULATOR, facing="south")
+    scene.put(1, 1, 1, "create:fluid_pipe",
+              north="true", south="true", east="false", west="false", up="false", down="false",
+              waterlogged="false")
+    scene.put(1, 1, 0, "create:fluid_tank", bottom="true", top="false", shape="window")
+    scene.put(1, 2, 0, "create:fluid_tank", bottom="false", top="true", shape="window")
+    return scene
+
+
 def rift_gate():
     """
     A five by five ring standing across X, with a three by three opening.
@@ -278,14 +297,54 @@ def rift_gate():
     return scene
 
 
+def rift_fissure():
+    """A scar with a tear standing in it, and a vessel to close it with.
+
+    The tear is a real Rift Fissure block, which renders nothing at all - that being the entire point
+    of one. The scene does not draw a stand-in for it, for the same reason the warp scenes do not draw
+    an airship: a lie about what a player will see is worse than an honest gap, and what this lesson
+    is actually about is the goggles and the siphon, both of which are here.
+    """
+    scene = Scene((6, 5, 6))
+    scene.base_plate()
+
+    # What is left of somebody else's gate, broken at two corners so it reads as a ruin rather than
+    # as a gate somebody is still building.
+    for x, y in ((1, 1), (2, 1), (1, 2), (3, 2), (1, 3), (3, 3)):
+        scene.put(x, y, 2, FRAME)
+    scene.put(0, 1, 2, "minecraft:cracked_stone_bricks")
+    scene.put(4, 1, 1, "minecraft:mossy_stone_bricks")
+
+    scene.put(2, 2, 2, FISSURE)
+    # Near enough to draw from once the scene reveals it: a siphon reaches a few blocks.
+    scene.put(1, 1, 4, SIPHON)
+    return scene
+
+
+def rift_beacon():
+    """A drive under power, and open ground to call it to.
+
+    No airship, because a Ponder level has none - so the scene teaches the two gestures, which are
+    the part a player can act on and the part nothing else explains.
+    """
+    scene = Scene((6, 5, 6))
+    scene.base_plate()
+    scene.put(1, 1, 1, DRIVE, facing="south")
+    scene.motor_line(1, 1, 2, 3, "z", "north")
+    return scene
+
+
 SCENES = {
     "spatial_siphon": spatial_siphon,
     "warp_anchor": warp_anchor,
     "astrolabe": astrolabe,
     "rift_probe": rift_probe,
     "rift_chute": rift_chute,
+    "rift_modulator": rift_modulator,
     "rift_drive": rift_drive,
     "rift_gate": rift_gate,
+    "rift_fissure": rift_fissure,
+    "rift_beacon": rift_beacon,
 }
 
 

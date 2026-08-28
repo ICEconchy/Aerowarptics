@@ -249,7 +249,7 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
         RiftDriveTier tier = RiftDriveTier.byIndex(data.tierIndex());
         String subtitle = data.hasDrive()
                 ? AWLang.translate(tier.translationKey()).string() + "  -  "
-                        + AWLang.distance(data.maximumRange()) + " m"
+                        + AWLang.distance(data.maximumRange())
                 : AWLang.translate("gui.astrolabe.no_drive").string();
         String ship = data.airshipName().isBlank()
                 ? AWLang.translate("gui.rift_navigation.unnamed_ship").string()
@@ -434,7 +434,7 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
         int line = top + 15;
         line = AWScreenStyle.readout(graphics, font, left, line, width,
                 AWLang.translate("gui.rift_navigation.distance").component(),
-                quote == null ? "-" : quote.sameDimension() ? AWLang.distance(quote.distance()) + " m" : "--",
+                quote == null ? "-" : quote.sameDimension() ? AWLang.distance(quote.distance()) : "--",
                 AWScreenStyle.VALUE);
         line = AWScreenStyle.readout(graphics, font, left, line, width,
                 AWLang.translate("gui.rift_navigation.cost").component(),

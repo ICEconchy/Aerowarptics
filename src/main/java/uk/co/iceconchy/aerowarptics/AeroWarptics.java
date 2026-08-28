@@ -8,12 +8,15 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import org.slf4j.Logger;
 import uk.co.iceconchy.aerowarptics.advancement.AWCriteria;
+import uk.co.iceconchy.aerowarptics.compat.display.AWDisplaySources;
+import uk.co.iceconchy.aerowarptics.fissure.RiftGogglesItem;
 import uk.co.iceconchy.aerowarptics.network.AWNetwork;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
 import uk.co.iceconchy.aerowarptics.registry.AWCapabilities;
 import uk.co.iceconchy.aerowarptics.registry.AWCreativeTab;
 import uk.co.iceconchy.aerowarptics.registry.AWFluids;
+import uk.co.iceconchy.aerowarptics.registry.AWDataComponents;
 import uk.co.iceconchy.aerowarptics.registry.AWItems;
 import uk.co.iceconchy.aerowarptics.registry.AWParticles;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
@@ -41,11 +44,15 @@ public class AeroWarptics {
         AWFluids.register(modEventBus);
         AWSounds.register(modEventBus);
         AWParticles.register(modEventBus);
+        AWDataComponents.register(modEventBus);
         AWCreativeTab.register(modEventBus);
         AWCriteria.register(modEventBus);
 
         modEventBus.addListener(AWNetwork::register);
+        modEventBus.addListener(AWDisplaySources::onRegister);
+        modEventBus.addListener(AWDisplaySources::onCommonSetup);
         modEventBus.addListener(AWStress::onCommonSetup);
+        modEventBus.addListener(RiftGogglesItem::onCommonSetup);
         modEventBus.addListener(AWCapabilities::register);
 
         modContainer.registerConfig(ModConfig.Type.SERVER, AWConfig.SERVER_SPEC);

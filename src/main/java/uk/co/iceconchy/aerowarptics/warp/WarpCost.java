@@ -81,7 +81,22 @@ public final class WarpCost {
                 AWConfig.SIZE_MULTIPLIER.get(),
                 AWConfig.MASS_REFERENCE.get(),
                 tier.costEfficiency(),
-                AWConfig.MINIMUM_WARP_DISTANCE.get(),
+                minimumDistance(tier, AWConfig.MINIMUM_WARP_DISTANCE.get()),
                 tier.maximumRange());
+    }
+
+    /**
+     * The shortest jump a tier will accept.
+     *
+     * <p>Zero for a creative drive. The floor exists so a pilot cannot spend a whole charge and a
+     * cooldown on a hop they could have walked, and a creative drive has neither to spend - so all
+     * the floor does there is refuse the commonest thing anybody wants a creative drive for, which
+     * is moving a hull a few blocks to see what happens. The maximum is waived for the same tier for
+     * the same sort of reason, over in {@code RiftDriveTier.maximumRange}.
+     *
+     * @param configured the server's {@code minimumWarpDistance}
+     */
+    public static double minimumDistance(RiftDriveTier tier, double configured) {
+        return tier.creative() ? 0.0D : configured;
     }
 }

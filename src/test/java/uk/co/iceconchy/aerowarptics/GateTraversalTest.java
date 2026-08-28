@@ -89,6 +89,43 @@ class GateTraversalTest {
         assertEquals(7.0D, turned.y, EPSILON, "a gate turned somebody upside down");
     }
 
+    /**
+     * A yaw and a direction are the same fact, either way round.
+     *
+     * <p>This is what a gate on a hull turns a traveller's facing with, since {@code yawDelta} only
+     * means anything inside a gate's own local frame - see {@code worldYaw} on
+     * {@code RiftGateBlockEntity}. If the round trip did not land exactly back where it started, a
+     * gate on a level hull facing an arbitrary heading would turn a traveller's facing by a few
+     * degrees every time they crossed, which is exactly the kind of drift nothing would notice until
+     * a save file was months old.
+     */
+    @Test
+    void aYawAndADirectionRoundTrip() {
+        // Mth's sin and cos are a fast lookup table, not the exact function, so the round trip is
+        // close rather than exact - loose enough to allow for that and still catch a real mistake,
+        // such as the sign of yawOfDirection's x term being flipped.
+        for (float yaw : new float[] {0.0F, 33.0F, 90.0F, 145.5F, -12.0F, -179.0F}) {
+            Vec3 direction = GateTraversal.directionOfYaw(yaw);
+            assertEquals(1.0D, direction.length(), 1.0e-2D, "not a unit vector");
+            assertEquals(yaw, GateTraversal.yawOfDirection(direction), 1.0e-1F);
+        }
+    }
+
+    /** Zero is south, and it grows the same way {@link #aHeadingTurnsTheWayMinecraftMeasuresIt} pins. */
+    @Test
+    void directionOfYawAgreesWithRotateYaw() {
+        Vec3 south = new Vec3(0.0D, 0.0D, 1.0D);
+        assertEquals(south.x, GateTraversal.directionOfYaw(0.0F).x, 1.0e-6D);
+        assertEquals(south.z, GateTraversal.directionOfYaw(0.0F).z, 1.0e-6D);
+
+        for (float degrees : new float[] {33.0F, -90.0F, 180.0F}) {
+            Vec3 expected = GateTraversal.rotateYaw(south, degrees);
+            Vec3 actual = GateTraversal.directionOfYaw(degrees);
+            assertEquals(expected.x, actual.x, 1.0e-6D);
+            assertEquals(expected.z, actual.z, 1.0e-6D);
+        }
+    }
+
     // ------------------------------------------------------------------ side
 
     @Test

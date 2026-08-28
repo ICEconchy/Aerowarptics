@@ -57,7 +57,18 @@ public final class FoldCrossings {
      * the player their footing, and the whole point of the window is that the arrival time is not
      * something this side can predict.
      */
-    private static final int WATCH_TICKS = 100;
+    /**
+     * How long to watch for a jump after being told one is coming.
+     *
+     * <p>Generous on purpose. Waiting too long costs one map lookup a tick; giving up too early costs
+     * the player their footing, and the whole point of the window is that the arrival time is not
+     * something this side can predict.
+     *
+     * <p>Increased from the original 100 to match the crew manifest's grace period: a slow connection
+     * or a loaded server can delay the pose snapshot well past the old window, and giving up before
+     * the jump shows up is the same as never having watched at all.
+     */
+    private static final int WATCH_TICKS = 200;
 
     /**
      * A one-tick move beyond this cannot be flight.

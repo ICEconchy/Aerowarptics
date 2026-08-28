@@ -9,7 +9,9 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -125,12 +127,42 @@ public record RiftGateShape(Direction.Axis span,
     }
 
     /**
+     * Every block the opening covers, in world coordinates.
+     *
+     * <p>This is where the pane goes. A gate fills exactly these positions with Rift Portal blocks
+     * while it is holding a connection and empties them again afterwards, so the hole a player sees
+     * is the hole the mask describes - including the notches, on a ring that is not a rectangle.
+     *
+     * <p>An opening is one block deep by construction: the flood fill runs in a plane, so one of the
+     * two horizontal bounds is a single coordinate and the cells all share it.
+     */
+    public List<BlockPos> cells() {
+        List<BlockPos> cells = new ArrayList<>(openCells());
+        for (int up = 0; up < height(); up++) {
+            for (int across = 0; across < width(); across++) {
+                if (!openAt(across, up)) {
+                    continue;
+                }
+                cells.add(span == Direction.Axis.X
+                        ? new BlockPos(minX + across, minY + up, minZ)
+                        : new BlockPos(minX, minY + up, minZ + across));
+            }
+        }
+        return cells;
+    }
+
+    /**
      * How far the opening reaches from its middle at a given angle, as a fraction of the ellipse the
      * aperture would otherwise be.
      *
-     * <p>This is what lets the animation bend to the ring. Everything the renderer draws - the face,
-     * the torn rim, the fire, the cracks, the glass - is radial, so scaling the reach per angle bends
-     * all of it at once rather than needing each to learn about the shape separately.
+     * <p>This is what let the drawn aperture bend to the ring. Everything the rift renderer draws -
+     * the face, the torn rim, the fire, the cracks, the glass - is radial, so scaling the reach per
+     * angle bent all of it at once rather than needing each to learn about the shape separately.
+     *
+     * <p><strong>Nothing calls this at the moment.</strong> A gate's opening is a pane of Rift Portal
+     * blocks now, and {@link #cells()} is the shape of the ring exactly rather than as a profile
+     * fitted to it. Kept because it is a true statement about an opening that cost some working out,
+     * and because {@code RiftEffectManager.shapeTo} is still there to be handed one.
      *
      * <p>Marched rather than solved. The opening is a polyomino of at most 225 cells and this is
      * computed once when an aperture opens, so stepping outwards until it leaves the mask is both
@@ -239,9 +271,11 @@ public record RiftGateShape(Direction.Axis span,
     /**
      * Whether something of a given size could pass through this opening.
      *
-     * <p>The aperture only hides what falls inside its own silhouette, so anything wider or taller
-     * than the ring is visible sticking out of the portal at both ends at once. Refusing it is not a
-     * balance decision - it is the one thing the illusion cannot survive.
+     * <p>Not a balance decision: a doorway is a doorway. Something wider or taller than the ring
+     * cannot be somewhere the ring is not, so it would have to arrive at the far end standing inside
+     * the frame it came out of. The rule predates the pane being made of blocks - it was originally
+     * about a drawn aperture only hiding what fell inside its own silhouette - and it survives the
+     * change because the geometry it is really about never depended on how the hole was drawn.
      */
     public boolean admits(double acrossExtent, double verticalExtent) {
         return acrossExtent <= width() && verticalExtent <= height();

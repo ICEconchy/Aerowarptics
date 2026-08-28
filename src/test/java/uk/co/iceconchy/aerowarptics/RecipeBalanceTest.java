@@ -56,6 +56,7 @@ class RecipeBalanceTest {
             Map.entry("create:brass_sheet", 1.0D),
             Map.entry("create:brass_ingot", 1.0D),
             Map.entry("create:cogwheel", 1.0D),
+            Map.entry("create:goggles", 6.0D),
             Map.entry("create:shaft", 1.0D),
             Map.entry("create:andesite_alloy", 1.0D),
             Map.entry("create:copper_casing", 3.0D),
@@ -79,6 +80,7 @@ class RecipeBalanceTest {
     /** Everything this mod expects to be craftable one way or another. */
     private static final List<String> CRAFTABLE = List.of(
             "aerowarptics:handbook",
+            "aerowarptics:rift_goggles",
             "aerowarptics:rift_lens",
             "aerowarptics:rift_core",
             "aerowarptics:stabiliser_ring",

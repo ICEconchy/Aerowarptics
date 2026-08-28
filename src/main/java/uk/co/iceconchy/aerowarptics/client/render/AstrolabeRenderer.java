@@ -10,6 +10,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 import software.bernie.geckolib.cache.object.GeoBone;
 import software.bernie.geckolib.renderer.GeoBlockRenderer;
 import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlockEntity;
+import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeStructure;
 import uk.co.iceconchy.aerowarptics.client.fx.AstrolabeProjections;
 import uk.co.iceconchy.aerowarptics.client.model.AstrolabeModel;
 
@@ -33,15 +34,31 @@ public class AstrolabeRenderer extends GeoBlockRenderer<AstrolabeBlockEntity> {
     @Override
     public void render(AstrolabeBlockEntity table, float partialTick, PoseStack poseStack,
                        MultiBufferSource bufferSource, int packedLight, int packedOverlay) {
-        // Eight of the nine cells draw nothing at all: the model they are part of belongs to the
-        // middle one and covers them.
+        // Every cell but one draws nothing at all: the model they are part of belongs to the
+        // table's origin and covers them.
         if (!table.isMaster()) {
             return;
         }
         if (table.getLevel() != null) {
             AstrolabeProjections.seen(table, table.getLevel().getGameTime());
         }
+
+        // One model, sized to the footprint it was built on. The geometry is authored for a full
+        // three-by-three, so a smaller table is the same table drawn narrower - width and depth
+        // only, never height, because the block's own collision box is waist high whatever size the
+        // table is and a model that shrank away from it would be a hitbox you could not see.
+        int size = Math.max(1, table.size());
+        float scale = size / (float) AstrolabeStructure.MAX_SIZE;
+        float offset = (size - 1) * 0.5F;
+
+        poseStack.pushPose();
+        // Before the renderer's own translate to the block's middle, so the model ends up centred on
+        // the table rather than on the corner cell that happens to hold its state.
+        poseStack.translate(offset, 0.0D, offset);
+        scaleWidth = scale;
+        scaleHeight = 1.0F;
         super.render(table, partialTick, poseStack, bufferSource, packedLight, packedOverlay);
+        poseStack.popPose();
     }
 
     @Override

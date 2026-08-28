@@ -50,6 +50,8 @@ public final class GuideDiagrams {
             case SIPHON -> siphon(draw, centreX, centreY, ticks);
             case CHUTE -> chute(draw, centreX, centreY, ticks);
             case CHECKLIST -> checklist(draw, centreX, centreY, ticks);
+            case GOGGLES -> goggles(draw, centreX, centreY, ticks);
+            case FISSURE -> fissure(draw, centreX, centreY, ticks);
         }
     }
 
@@ -512,6 +514,96 @@ public final class GuideDiagrams {
         int y = sending ? centreY - 2 : centreY + 4;
         draw.fill(x, y, x + 4, y + 4, AWBookStyle.BRASS);
         draw.hLine(x, y, 4, AWBookStyle.BRASS_DARK);
+    }
+
+    /**
+     * The goggles, and what is on the other side of them.
+     *
+     * <p>The tear is drawn inside the lenses and nowhere else, which is the whole idea stated as a
+     * picture: it is not that the goggles light a fissure up, it is that without them there is
+     * nothing there to see.
+     */
+    private static void goggles(AWDraw draw, int centreX, int centreY, float ticks) {
+        int lens = 11;
+        int span = 15;
+
+        // The strap, running off both sides the way a worn pair does.
+        draw.fill(centreX - 56, centreY - 2, centreX - span - lens + 2, centreY + 3,
+                AWBookStyle.INK);
+        draw.fill(centreX + span + lens - 2, centreY - 2, centreX + 56, centreY + 3,
+                AWBookStyle.INK);
+        draw.fill(centreX - span + 4, centreY - 2, centreX + span - 4, centreY + 2,
+                AWBookStyle.BRASS_DARK);
+
+        for (int side = -1; side <= 1; side += 2) {
+            int eye = centreX + side * span;
+            // What the lens shows: a tear, breathing, and a couple of sparks off it. Kept well inside
+            // the glass so it reads as something seen through it rather than painted on it.
+            tear(draw, eye, centreY, 6, 0.35F + 0.1F * AWAnim.pulse(ticks + side * 20.0F, 70.0F),
+                    AWBookStyle.RIFT_INK, AWBookStyle.RIFT_GLOW);
+            float spark = AWAnim.sweep(ticks + side * 40.0F, 120.0F);
+            int sparkX = eye + Math.round((spark - 0.5F) * 12.0F);
+            draw.fill(sparkX, centreY - 5, sparkX + 1, centreY - 4,
+                    AWAnim.fade(AWBookStyle.RIFT_GLOW, 1.0F - spark));
+
+            // The housing, drawn over the top so the glass sits inside it.
+            draw.circle(eye, centreY, lens, AWBookStyle.BRASS_DARK);
+            draw.circle(eye, centreY, lens - 1, AWBookStyle.BRASS);
+        }
+    }
+
+    /**
+     * A fissure emptying into a siphon.
+     *
+     * <p>Runs the whole business end to end on a loop: a tear standing in what is left of somebody's
+     * gate ring, a vessel beside it, and the tear closing as the vessel fills.
+     */
+    private static void fissure(AWDraw draw, int centreX, int centreY, float ticks) {
+        float cycle = AWAnim.sweep(ticks, 220.0F);
+        // Full for the first stretch, then draining, then gone and back again - so the page shows the
+        // before and the after rather than only the middle.
+        float left = cycle < 0.2F ? 1.0F : cycle > 0.9F ? 0.0F : 1.0F - (cycle - 0.2F) / 0.7F;
+
+        int tearX = centreX - 22;
+        ground(draw, centreX - 46, centreY + 18, 92);
+
+        // What is left of the ring the tear was made in: three quarters of a circle, in blocks.
+        for (int step = 0; step < 20; step++) {
+            float turn = step / 20.0F;
+            if (turn > 0.30F && turn < 0.48F) {
+                continue;
+            }
+            double angle = turn * Math.PI * 2.0D;
+            int x = tearX + (int) Math.round(Math.sin(angle) * 15);
+            int y = centreY + (int) Math.round(Math.cos(angle) * 15);
+            frameBlock(draw, x - 1, y - 1, 3);
+        }
+
+        if (left > 0.0F) {
+            tear(draw, tearX, centreY, Math.max(2, Math.round(11 * left)),
+                    0.5F + 0.5F * left, AWBookStyle.RIFT_INK, AWBookStyle.RIFT_GLOW);
+        }
+
+        // The vessel, filling as the tear empties.
+        int vesselX = centreX + 26;
+        int top = centreY - 4;
+        int height = 20;
+        int fill = Math.round((height - 3) * (1.0F - left));
+        draw.fill(vesselX - 6, top + height - 2 - fill, vesselX + 6, top + height - 2,
+                AWAnim.fade(AWBookStyle.RIFT_GLOW, 0.8F));
+        draw.outline(vesselX - 7, top, 15, height, AWBookStyle.INK_SOFT);
+        draw.fill(vesselX - 9, top + height - 2, vesselX + 9, top + height + 1,
+                AWBookStyle.BRASS_DARK);
+
+        // The draught between them, dashed and travelling, only while there is something to draw.
+        if (left > 0.0F && left < 1.0F) {
+            for (int dash = 0; dash < 4; dash++) {
+                float along = AWAnim.sweep(ticks + dash * 15.0F, 60.0F);
+                int x = Math.round(AWAnim.lerp(tearX + 12, vesselX - 8, along));
+                draw.fill(x, centreY - 1, x + 3, centreY + 1,
+                        AWAnim.fade(AWBookStyle.RIFT_GLOW, 1.0F - Math.abs(along - 0.5F)));
+            }
+        }
     }
 
     /** The console's checklist, ticking itself off and stopping at the line that fails. */

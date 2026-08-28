@@ -41,5 +41,9 @@ public final class AWCapabilities {
         // stores nothing - an insert either completes the whole journey or is refused.
         event.registerBlockEntity(Capabilities.ItemHandler.BLOCK, AWBlockEntities.RIFT_CHUTE.get(),
                 (chute, side) -> chute.mouth());
+        // The Modulator's own small tank. Without this a pipe fitted to it looks connected and moves
+        // nothing, exactly the bug this whole registry exists to prevent - see the class doc.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_MODULATOR.get(),
+                (modulator, side) -> modulator.tank());
     }
 }

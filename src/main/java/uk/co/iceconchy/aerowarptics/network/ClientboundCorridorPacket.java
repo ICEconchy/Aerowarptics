@@ -18,11 +18,14 @@ import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
  * a player merely standing on a deck is not always tracked client-side, so the corridor never showed
  * up for them.
  *
- * @param active   whether the corridor is being entered or left
- * @param duration ticks the corridor is expected to last, as a safety net if the exit cue is missed
- * @param colour   packed RGB of the rift, so the tunnel matches the drive that opened it
+ * @param active    whether the corridor is being entered or left
+ * @param duration  ticks the corridor is expected to last, as a safety net if the exit cue is missed
+ * @param colour    packed RGB of the rift, so the tunnel matches the drive that opened it
+ * @param intensity how strongly the wash should read - a linked, fuelled Modulator's choice, or
+ *                  {@code 1.0} when nothing is dressing this warp
  */
-public record ClientboundCorridorPacket(boolean active, int duration, int colour) implements CustomPacketPayload {
+public record ClientboundCorridorPacket(boolean active, int duration, int colour, float intensity)
+        implements CustomPacketPayload {
 
     public static final Type<ClientboundCorridorPacket> TYPE = new Type<>(AeroWarptics.id("warp_corridor"));
 
@@ -32,15 +35,17 @@ public record ClientboundCorridorPacket(boolean active, int duration, int colour
                         buf.writeBoolean(packet.active);
                         buf.writeVarInt(packet.duration);
                         buf.writeInt(packet.colour);
+                        buf.writeFloat(packet.intensity);
                     },
-                    buf -> new ClientboundCorridorPacket(buf.readBoolean(), buf.readVarInt(), buf.readInt()));
+                    buf -> new ClientboundCorridorPacket(buf.readBoolean(), buf.readVarInt(), buf.readInt(),
+                            buf.readFloat()));
 
-    public static ClientboundCorridorPacket enter(int duration, int colour) {
-        return new ClientboundCorridorPacket(true, duration, colour);
+    public static ClientboundCorridorPacket enter(int duration, int colour, float intensity) {
+        return new ClientboundCorridorPacket(true, duration, colour, intensity);
     }
 
     public static ClientboundCorridorPacket leave() {
-        return new ClientboundCorridorPacket(false, 0, 0);
+        return new ClientboundCorridorPacket(false, 0, 0, 1.0F);
     }
 
     @Override

@@ -56,6 +56,60 @@ needs a minimum RPM before it will charge at all.
 
 Every number above is a config default, not a constant.
 
+**What it looks like is what it does.** The drive is a **tesseract**: an outer cage the size of the
+block, a smaller cage hung in the middle of it, and eight diagonals joining the two corner for corner
+— the shadow a four-dimensional cube casts into three, which is as close as a block-shaped object can
+come to saying *this folds space*. The rift hangs inside the inner cage, and two toothed rings turn
+around it on crossed axes, the way the rings of an armillary sphere do. Both readings come from the
+machine rather than from a clip playing regardless: the animation controller multiplies its playback
+speed by a figure that rises with the charge, so the gears wind up from a crawl to a blur as the drive
+fills, and the rift is scaled by the renderer straight from the charge, so a drive a third full and a
+drive ready to go can be told apart from across a hangar. The geometry, its nine clips and all five
+tier sheets come out of `tools/rift_drive_model.py` in one run; the tiers differ in the colour of the
+rift and the sheen on the inner cage, and in nothing else.
+
+**Dressing the rift.** A **Rift Modulator** bolted against any face of a drive lets its pilot override
+that tier palette: a core colour and a rim colour, each chosen from a swatch of sixteen - left click
+sets the core, right click sets the rim - one of five themes (standard, ember, starlight, arcane,
+clockwork), and how strongly the whole thing reads, from a quarter to double strength. Applied wherever
+the drive's colour would otherwise show, from the aperture through the corridor wash to the exit
+shockwave; the face itself blends core to rim rather than drawing one flat tint, so an unconfigured
+Modulator - core and rim left equal - looks exactly like an undecorated drive. It costs a
+trickle of Rift Essence, charged only while the linked drive is actually running a warp, and it takes
+its own facing from the drive the moment it is placed rather than needing to be aimed. Run the tank dry,
+or take the module away, and the rift falls straight back to the drive's own tier colours - a Modulator
+is a filter over a warp, never a second thing the warp depends on to happen at all. A Display Link
+mounted beside the module reads the drive it is dressing, the same eight readouts the drive itself
+offers.
+
+**Themes are geometry, not palettes.** Each one changes three things: what stands around the aperture
+for as long as it exists, how it winds up before the hole is there, and how the pane comes apart. That
+last one matters more than it sounds. Cells this small, seen for a second, all look alike in a still -
+so **motion is the tell**, and a first pass at this which cut a gear-shaped fracture and then threw the
+pieces away like glass just looked like glass cut into ten pieces.
+
+| Theme | Standing around the rift | How it opens | How the pane goes |
+| --- | --- | --- | --- |
+| Standard | nothing | struck: cracks race out from an impact | thrown clear, tumbling face-over-edge |
+| Clockwork | a toothed ring gear, three counter-rotating satellites meshing outside it, and a clock face with hands across the aperture | a mechanism winding up under load | ten iris blades sweep aside around the centre, never leaving the plane |
+| Arcane | twenty-four written glyphs circling the rim, each flickering on its own clock, and a seven-pointed figure inscribed on the face | a circle drawn, charged, and discharged inward | ignites where it stands, rim to centre, and burns out |
+| Ember | eighteen fangs biting inward over the rim and breathing, and seven eyes blinking on their own timers whose slit pupils follow you | a burn front spreading outward, fangs sharpening into place | chars, curls, lifts and darkens like burning paper |
+| Starlight | three orbits tilted out of the aperture's plane, carrying ring bands and four planets | stars arriving one at a time out of nothing | disperses on a slow spiral, twinkling |
+
+Two details are worth calling out. Starlight's orbits are **genuine circles in three dimensions**, not
+ellipses drawn flat, so a planet passes in front of the hole on one side and behind it on the other -
+and the far half is hidden by the aperture's own opaque face for free, because the glow pass is
+depth-tested. Nothing arranges that; it falls out of drawing the orbit honestly. And every stroke of all
+of it is drawn in **the colours the pilot picked, untinted**: themes separate themselves by shape and
+motion and never by overriding a chosen hue, which is the point of having a sixteen-swatch picker at
+all. A hell portal in pale blue is entirely possible.
+
+None of this can weaken the thing an aperture is for. It is all additive glow that writes no depth, so
+it can only ever add light to what is already on screen - it cannot punch a hole in the opaque membrane
+and cannot reveal a hull inside the aperture, whether it is drawn outside the rim or straight across the
+face. That is why Ember's fangs are allowed to reach *inside* the rim, which is most of what separates a
+mouth from a doorway.
+
 Right-clicking a drive opens its **console**, which is a diagnostic panel and nothing else: speed
 against requirement, stress, charge, hull mass, the bow setting, and a checklist of everything a jump
 needs with each item either met or not. There is no destination list and no launch button, because a
@@ -135,19 +189,28 @@ land vehicle**. A vehicle is a Sable sub-level exactly as an airship is - a whee
 carries a hull across a warp, passengers and cargo included. An airship will go through too if the ring
 is big enough, which is a consequence rather than a feature, but a welcome one.
 
-**The opening is the size limit.** This is not a balance decision. The aperture hides what falls inside
-its own silhouette and nothing else, so a vehicle wider or taller than the ring would be visible
-sticking out of the portal at both ends of the journey at once - the one thing the illusion cannot
-survive. Something too big is stopped dead on the near side and told why. Building a bigger ring is how
-you pass a bigger machine, and that is what makes free-form sizing the point of the block rather than a
-convenience.
+**The opening is the size limit.** This is not a balance decision: a doorway is a doorway. A vehicle
+wider or taller than the ring has nowhere to be at the far end that is not inside the frame it would be
+arriving through. Something too big is stopped dead on the near side and told why. Building a bigger
+ring is how you pass a bigger machine, and that is what makes free-form sizing the point of the block
+rather than a convenience.
 
 #### What it costs
 
-**Essence to open, rotation to hold** - and **only at the end that dialled**. A dial spends Rift
-Essence from the gate you are standing at, a base charge plus a per-block charge so that a bigger
-doorway is a bigger tear, and that same gate then draws stress for as long as the connection stands.
-Let its shaft stall and the connection drops.
+**Essence to open, essence and rotation to hold** - and **only at the end that dialled**. A dial
+spends Rift Essence from the gate you are standing at, a base charge plus a per-block charge so that a
+bigger doorway is a bigger tear. That same gate then pays twice over for as long as the connection
+stands: stress, and a second helping of essence every second. Let its shaft stall or its tank run dry
+and the connection drops.
+
+The upkeep is the newer of the two and the one that changes how a gate is played. Essence used to be a
+price you paid once, which meant a doorway was a thing you built and then simply had - the only ongoing
+cost was stress, and stress is a number you solve once by building a bigger engine. A tear is not like
+that. Something is holding it apart, and this is what that costs: a base rate plus a per-block rate, on
+the same reasoning as the dial, taken from the tank once a second. A gate left standing open across a
+base is now a bill, which is what makes a **Spatial Siphon**'s output something to plan around rather
+than something that accumulates. Both figures are config, and setting them to zero puts the old
+behaviour back exactly.
 
 The gate at the *other* end pays nothing and needs nothing but to exist, be enabled, and not already be
 busy. That is the point: a destination gate is a doorway you build at a mine and walk away from, and
@@ -155,10 +218,15 @@ requiring a working drive at both ends means every remote gate is a second base.
 checked at only one end in the code, which the first version got wrong - a passive far gate hung up on
 its very first tick and dragged the dialling one down with it, so gates simply did not work.
 
-A gate that is not holding an aperture draws **nothing at all**, which is what stops a player being
-punished for building a doorway they use twice a day. Create caches a block's impact, so the gate
-detaches and re-attaches itself from the kinetic network whenever that changes - both when an aperture
-appears or goes, and when this end stops being the one paying for it.
+A gate that is not holding an aperture costs **nothing at all** - no stress, no essence - which is what
+stops a player being punished for building a doorway they use twice a day. Create caches a block's
+impact, so the gate detaches and re-attaches itself from the kinetic network whenever that changes -
+both when an aperture appears or goes, and when this end stops being the one paying for it.
+
+The upkeep is simulated before it is spent, so a gate that is a millibucket short shuts with that
+millibucket still in it. It reads differently at the tank window: not enough is a supply problem, and
+an empty tank is a leak, and a gate that drained itself on the way down would report the first as the
+second.
 
 This is also the first thing that consumes what a **Spatial Siphon** collects. You warp to gather
 essence; you spend essence to run doorways.
@@ -201,26 +269,82 @@ as well would send them back the way they came.
 - **A gate that unloads drops its connection but keeps its registration.** Chunk unload and block break
   are different events, and treating them alike would delete a gate from the world every time nobody
   was standing near it.
+- **A gate works the same whether it stands on the ground or rides a hull.** Build one on an airship or
+  a land vehicle and it opens, dials, and notices crossings exactly as a grounded one does - every
+  position it works with is carried across the boundary between the hull's own plot and the world it
+  is really moving through, so the check is always made against where things actually are rather than
+  where the blocks happen to sit in storage. A traveller's facing turns correctly whatever heading the
+  hull is sitting at, not just the four a grounded gate is limited to; a *vehicle* crossing a gate that
+  is itself aboard another hull is turned the same simplified way a grounded gate has always turned one
+  - honest for a level deck, an approximation for one actively banking as something drives through it.
 
-The aperture is the same one a Rift Drive tears, down to the shattering - the pane cracks, breaks and
-falls away in glass exactly as described under [Breaking space open](#breaking-space-open). It grows no
-throat, because a doorway is not a tunnel, and it is **held** rather than timed: the gate renews it from
-its own client tick, so somebody who walks up to a gate that opened before they arrived still sees it
-standing.
+#### The pane
 
-Closing is the same fracture run the other way. Every piece comes back out of the dark, turning as it
-falls, and lands where it was cut from - **from the rim inwards**, so the hole shuts down to a point
-rather than fading out evenly, and there is a flash as it seals. Deliberately not the opening played
-backwards, which reads as a rewind: the shards arrive from outside rather than retracing the paths they
-left by.
+The hole in a gate is a **block**. When a gate takes a connection it fills every cell of its opening
+with **Rift Portal** blocks and empties them again when it lets go, the same way a Nether portal
+stands in its own frame - lit by the game's light engine, drawn from an animated shimmer that tiles
+and loops, non-solid so you walk straight through, and as unbreakable as bedrock because there is no
+sensible thing for a pickaxe to do to a hole in space. The cells come from the opening's own mask, so
+an L-shaped ring gets an L-shaped pane rather than a rectangle bulging through the frame.
 
-That close used to be invisible, and for a reason worth writing down. A held aperture's hold is
+It is **semi-transparent**, and deliberately not evenly so: the alpha climbs with the brightness of the
+shimmer, so the dark of the field is nearly half see-through and the filaments running across it are
+almost solid. A pane at one alpha is a sheet of tinted glass however good the colours on it are, and a
+portal is not a window.
+
+**Opening and closing are their own animations, not just the idle shimmer switched on and off.** A
+pane carries a `stage` blockstate - `opening`, `open`, `closing` - which the gate writes as it moves
+through its own states: `DIALLING` shows `opening`, the held `OPEN` state shows the calm shimmer,
+`CLOSING` shows `closing`. Each stage is its own texture, generated from the same shimmer field as the
+idle one but multiplied by a seamless breathing pulse - dimmed and thinned rather than merely faded,
+so a half-formed pane reads as thin and dark instead of a see-through version of the finished thing.
+`opening` breathes up from nothing to full and back down, over and over, for as long as the gate is
+dialling; `closing` is the same pulse the other way round, full at the seam and hollowed out in the
+middle, for as long as it takes the connection to fall away.
+
+That is a motif rather than a literal progress bar, and deliberately so. The honest version - a pane
+that grows from nothing to full height over the exact ticks a dial takes - needs something that knows
+when each individual pane started, and a block with no block entity has nowhere to keep that. What
+Minecraft's animated textures actually run on is the world's own tick counter, the same clock for
+every copy of the texture everywhere, not a stopwatch that starts when a particular block is placed -
+so a strip built to play once from a placement would instead show whatever frame the global clock
+happened to be on, and every gate in the world would be out of step with its own doorway. A looping
+pulse sidesteps that: it always reads as "forming" or "unravelling," for as long as the state holds,
+regardless of when it started. This is the same trade this mod made once already for the frame's own
+ring animation, in the version before this one, and it is made again here now that the animation has
+moved from the ring onto the pane itself.
+
+**The pane moves nobody.** A Nether portal teleports from `entityInside`, and that is exactly the
+thing a gate must not do: a crossing here is a change of side between two sightings the gate took
+itself, for the reasons under [the rest of the rules](#the-rest-of-the-rules), and it stays in the
+controller where both sides can be seen at once. The block is scenery over the top of it - which also
+means a pane that somehow outlives its gate is inert rather than a trap.
+
+The gate owns the cells and re-asserts them every validation sweep, so a pane interfered with heals
+itself; and the block keeps a backstop for the one case a gate cannot cover, a ring broken while its
+chunks were not loaded. On a random tick it walks out in the four directions of its own plane, and if
+every walk does not end on frame it removes itself. That is the same question the Nether portal asks
+for the same reason: an unbreakable block with nothing holding it up is a permanent scar.
+
+##### What it used to be, and why it changed
+
+Until this version the opening was **drawn** rather than built: a client-side aperture, the same one a
+Rift Drive tears, held up by the gate's own client tick and bent to the ring by sampling the opening's
+reach at a hundred and ninety-two angles. It looked good and it cost a great deal to keep honest.
+It had to be renewed at every viewer or it faded; it had to be fitted to an ellipse and then pulled
+back in wherever the mask said the hole was not; it was invisible to Ponder, which has no live gate
+state to read; and it lit nothing, because a drawn thing is not in the world.
+
+A block is all of that for free. `RiftEffectManager` keeps the apertures that genuinely are effects -
+the ones an airship flies through, and the small one inside a Rift Chute - and the doorway you can
+walk up to and touch is now a thing that is actually there.
+
+One lesson from the drawn version is worth keeping, because it cost a day. A held aperture's hold is
 effectively forever, and ages are interpolated as **floats** - past sixteen million, a float cannot
-tell one tick from the next, so the entire twenty-tick close landed inside a single representable step
-and the hole simply snapped out of existence. Letting go now ends the hold *at the moment it happens*
-rather than winding the clock forward to the end of it, which keeps the whole animation in numbers
-small enough to count in. The renderer learned two things for this - an aperture can be an ellipse now, fitted to a
-rectangular ring, and it can be kept up indefinitely instead of running on an open-hold-close clock.
+tell one tick from the next, so an entire twenty-tick close landed inside a single representable step
+and the hole simply snapped out of existence. Letting go ends the hold *at the moment it happens*
+rather than winding the clock forward to the end of it, which keeps the animation in numbers small
+enough to count in. That is still how the chute and the warp rifts close.
 
 ### Rift Probe
 
@@ -276,6 +400,48 @@ Nothing consumes the essence yet. It is a real fluid with a bucket and a fluid-h
 Create's pipes can drain it into a tank, and it is there to be the raw material dimensional travel gets
 built on later. The yield is deliberately a lottery rather than a rate: it should be a by-product of
 travelling, not a reason to bounce a ship between two anchors.
+
+### Rift Fissure
+
+Every other rift in this mod is one a machine tore and closed again. A fissure is one that was torn
+and never closed, and it is the only thing here a player finds rather than builds.
+
+**Ruins generate in the overworld** where somebody's gate went wrong — a broken ring standing in a
+paved yard, a sunken vault with its roof fallen in, a survey mast on a hill. Three variants, one per
+site, written by `tools/rift_scar_structure.py` for the same reason the Ponder scenes are: a structure
+laid out by hand is a binary blob nobody can review afterwards.
+
+Inside one, invisible, is the fissure. It has **no model, no hit box, no light and no drops**, which
+is a stronger claim than it sounds:
+
+- The block's render shape is `INVISIBLE`, and what a player with goggles sees is the client's own rift
+  effects — the same tear an airship flies through, held by a holder id from the fissure's client tick.
+  So it looks like every other torn rift in the mod rather than like a special case, and taking the
+  goggles off lets the aperture collapse the way an unrenewed one always does.
+- **The hit box depends on who is looking.** Minecraft asks for a block's shape with the looking entity
+  in the collision context, which is exactly the question "who wants to know" — so `getShape` returns
+  nothing at all unless that entity is wearing Rift Infused Goggles. Without this the block draws a
+  selection outline around thin air, which gives the whole thing away. The *collision* shape is empty
+  for everybody, deliberately: a wall that exists for some players and not others desynchronises.
+- No light level, for the same reason. A glow in an empty room is a sign saying where the invisible
+  thing is.
+
+**Rift Infused Goggles** are Create's own `GogglesItem` with a rift-ground lens. Create keeps a list of
+predicates rather than one item id, precisely so an addon can add a pair, so these read every machine
+in every mod that answers to goggles — and this mod asks a second, narrower question of the head slot
+for the thing only they can do.
+
+**Emptying one is the Spatial Siphon's other job.** Stand a vessel within a few blocks and the fissure
+hands essence over a tick at a time, the tear shrinking visibly as it goes, until it seals over for
+good. The *fissure* does the handing out rather than the siphon doing the taking, and that is the only
+arrangement that survives two vessels round one tear: the reservoir is the finite thing, so whatever
+owns it has to be what shares it, or two siphons each politely taking "what is left" take it twice.
+
+How much any one holds is rolled from **its own position** rather than from the level's random, which
+means the answer exists before the first tick, is the same for the server and every client without a
+packet, and does not change if the chunk unloads before anything has drawn from it. `RiftFissureTest`
+pins that, along with conservation — what the vessel gains is what the tear loses, to the millibucket,
+at every rate that divides into a reservoir and every rate that does not.
 
 ### Warp Anchor
 
@@ -570,6 +736,61 @@ For the crew, the wash into the corridor starts when the **bow** goes in, not wh
 Their own camera crosses the aperture partway through the passage, and without that they would watch
 the world go dark and then carry on flying through it for another second.
 
+### Lightning
+
+The aperture sparks, the corridor sparks, and every so often one reaches all the way down and hits
+the ground. A handful of points around the torn rim discharge outward into open air; a handful more,
+further down the bore, arc across it from one point of the wall to another; and a couple more, rarer
+than either, reach straight down from the rift for whatever ground is under it. `RiftLightning`
+generates the whole field the same way `RiftShatter` and `RiftDebris` do — deterministically, from the
+rift's own seed, so two players watching one aperture see the same bolts without a byte being sent
+about them.
+
+Each rift carries a small **fixed number of emitters**, not a dice roll every tick. Every emitter has
+its own period and its own phase, so "random sparking" is really a handful of independent clocks
+landing on different beats: read the field at any moment and some are dark while one or two are
+mid-flash. A dice roll every tick would drift out of sync between two clients the moment either of
+them dropped a frame; a clock cannot.
+
+A bolt off the rim is **free at one end**: it jags outward from its point on the rim and narrows to
+nothing at its tip, the same shape a crack running out from an impact takes. A bolt across the corridor
+is **anchored at both ends**: it jumps from one point of the bore's wall to another, dipping towards
+the axis at the middle of its arc so it reads as crossing the open bore rather than merely running
+along the wall it starts and ends on — pinched to nothing at both ends rather than at one. A ground
+strike is anchored at both ends too, the same way, except its two ends are a point near the rift and
+wherever the ground actually is — the one bolt drawn in raw world space rather than against the rift's
+own local frame, because there is no "local frame" that reaches from an aperture down to a block that
+might be forty blocks below it at any angle.
+
+Neither is a particle. All three are geometry — a jagged strip of quads, drawn additively through the
+same `AWRenderTypes.RIFT_FIRE` pass the fire and the cracks already use — for the same reason a spark
+at corridor speed would cross the view in a single frame if it were a particle, which is the same
+reasoning `WarpCorridorOverlay` gives for keeping the corridor's own screen effect off streaks with a
+direction.
+
+A bolt draws a fresh path every time it fires rather than replaying the last one: which flash an
+emitter is currently on feeds the same hash `RiftShatter` uses, so a new cycle number is a new set of
+kicks along the path without anything needing to be remembered between flashes. `RiftLightningTest`
+holds the parts that would fail silently: a field where nothing ever flashes, one where every emitter
+agrees, or one that draws the same bolt twice in a row.
+
+**A ground strike is rarer than the other two on purpose** — real lightning striking the ground is the
+exception, not the rule, and a field as dense as the rim's own sparks would read as artillery rather
+than as weather. It is also allowed to simply not happen: the client raycasts straight down from a
+point near the rift, and a flash that finds nothing solid within forty-eight blocks — open sky under a
+high-flying drive, most often — draws nothing that cycle rather than a bolt trailing off into empty
+air.
+
+**Whatever a strike actually hits gets marked.** `RiftShimmer` stands a soft, breathing glow just proud
+of the struck block's own faces for a few seconds, tinted the rift's own colour, fading in fast and out
+slowly. It is deliberately its own class, independent of the rift that threw the strike: the mark
+belongs to the block for exactly as long as it stands there, the way `SummonBeacons`' pillar belongs to
+the ground it was called down onto rather than to whatever is doing the calling. A second strike on a
+block already shimmering refreshes the mark rather than stacking a second one on top of it.
+
+Toggled independently as `riftLightning` in `config/aerowarptics-client.toml`, the same as the rift's
+own distortion disc — this covers all three kinds, the shimmer included.
+
 ### Which way is forward
 
 Nothing in Sable or Aeronautics marks a bow, so the pilot marks it, on the drive, in the airship's own
@@ -582,8 +803,7 @@ beam. Because the setting lives in ship space, it is only turned into a world be
 flight is planned, using the hull's current pose. Aim it at the nose once and it stays aimed at the
 nose, whatever heading the ship is on and however far it has been sailed since.
 
-The drive wears a **needle** on its crown, balanced across the upright gimbal, which points at the
-current setting. It swings a quarter turn each time the setting is cycled, so the bearing can be read
+The drive wears a **needle** across the top of its outer cage, which points at the current setting. It swings a quarter turn each time the setting is cycled, so the bearing can be read
 off the machine from the deck without opening anything. The needle and the flight planner are driven
 from the same value, and a test holds them to it: if the needle points somewhere the ship would not
 actually go, the build fails.
@@ -714,6 +934,32 @@ horizontal bands.
 Wearing Create's goggles (or Aeronautics' Aviator's Goggles) shows the drive's tier, state, charge and
 RPM requirement, plus its stress impact in Create's usual format.
 
+### Reading a machine from somewhere else
+
+Every machine in this mod answers a **Display Link**. Point one at a Rift Drive, Rift Gate, Rift Probe,
+Spatial Siphon, Rift Chute or Rift Modulator, open the link, and pick what to report:
+
+| Machine | Reports |
+| --- | --- |
+| Rift Drive | tier, state, charge, sequence progress, cooldown, course, bow setting, last fault |
+| Rift Gate | state, essence, fill level, the opening's size, what a connection would cost, last fault |
+| Rift Probe | state, bearing, range, scan progress, essence, fill level, what a scan would cost |
+| Spatial Siphon | whether it is drawing, essence, fill level, room left |
+| Rift Chute | why nothing is moving, whether the link is open, essence, fill level, what is in the tray |
+| Rift Modulator | the same eight readouts as the Rift Drive, read through whichever drive it is dressing |
+
+**One link reports one value**, which is Create's own arrangement rather than a limitation: a console
+that reports four things is four links stacked up the side of one Display Board, each writing its own
+row. An earlier version of this offered a single "Overview" line with everything on it, and it read
+badly everywhere — truncated on a nixie tube, clipped on a sign, and stripped of its separators on a
+Display Board, whose flap alphabet has no em dash in it.
+
+The numeric readings — charges, progress, essence, costs — are bare numbers, so a nixie tube can carry
+them and a Display Board renders them through its numeric flaps rather than spinning the alphabet round
+to reach a digit. Readings with nothing to say clear the target instead of writing "None": no fault, no
+course set, an empty chute tray. So does a machine that has been broken, so a sign never keeps a stale
+reading of something that is no longer there.
+
 ---
 
 ## Crafting
@@ -755,8 +1001,9 @@ holds it — so there is a book.
 
 Craft it from a book, a brass sheet and an amethyst shard, right-click, and it opens as a book: two
 pages at a time, a ribbon per chapter along the top board, arrows at the corners, a contents page that
-jumps. Eight chapters — the drive, anchors and charts, launching, the probe, gates, essence and cargo,
-and what to do when nothing happens — sixteen pages, each with an animated diagram at the top of it.
+jumps. Nine chapters — the drive, anchors and charts, launching, the probe, gates, essence and cargo,
+fissures, and what to do when nothing happens — twenty pages, most with an animated diagram at the top
+of it.
 
 The animation is not decoration and neither are the diagrams. A book that jumped between spreads would
 give a reader no sense of where they were in it, which is the one sense a book has and a wiki does not:
@@ -790,14 +1037,21 @@ that as a bug. Everybody notices the page looking wrong.
 ### Ponder scenes
 
 Holding **[W]** over any of this mod's items plays a scene explaining it, in the same window Create
-uses for its own. Seven of them: the Spatial Siphon, the Warp Anchor, the Astrolabe, the Rift Probe, the Rift Drive,
-and two for the Rift Gate — building the ring, and getting something through it. They are grouped into two
-chapters of the Ponder index, `Warp Travel` and `Rift Gates`, so a player who only wanted a doorway
-between two bases does not have to read about airships to find it.
+uses for its own. Twelve of them: the Spatial Siphon, the Warp Anchor, the Astrolabe, the Rift Probe,
+the Rift Drive, the Rift Chute, the Rift Modulator, the Rift Beacon, two for the Rift Gate — building
+the ring, and getting something through it — and two for the Rift Fissure, which is finding one and
+closing it. They are grouped into two chapters of the Ponder index, `Warp Travel` and `Rift Gates`, so
+a player who only wanted a doorway between two bases does not have to read about airships to find it.
 
-Two scenes do not show the thing they are about, deliberately. A warp moves a Sable sub-level and a
+The Navigator's Handbook is listed in both chapters and has no scene of its own, deliberately. A scene
+shows a mechanism working and a book has no mechanism; a Ponder scene explaining the book that explains
+the mod would be a lesson about a table of contents. What it wants is to be somewhere the index will
+show it, which is what a tag does.
+
+Five scenes do not show the thing they are about, deliberately. A warp moves a Sable sub-level and a
 Ponder scene has no airship in it; a gate's aperture is drawn by the client from live gate state and a
-Ponder level has none. Rather than animate a lie, those scenes teach what a player can act on before
+Ponder level has none; a rift's colour only means anything once one is actually torn, and a Ponder
+level tears none either. Rather than animate a lie, those scenes teach what a player can act on before
 they reach the console — where the machine goes, what it consumes, what decides whether it will run —
 and leave the spectacle to be seen from the deck. That is the more useful half anyway: what people get
 wrong about a gate is the ring, the power and the pairing, none of which an animation would have told
@@ -831,11 +1085,12 @@ scene has no schematic, or when a translation belongs to a scene that no longer 
 
 ### Advancements
 
-Thirteen advancements on one tree, rooted at the Rift Core, branching into the anchor-and-chart line, the
-drive-and-warp line, and the gates. They double as the progression the mod otherwise only implies.
+Twenty advancements on one tree, rooted at the Rift Core, branching into the anchor-and-chart line,
+the drive-and-warp line, the gates, and the goggles-and-fissure line. They double as the progression
+the mod otherwise only implies.
 
 Most hang off vanilla's `inventory_changed`, because "you are holding one" is what most of them mean.
-Two things have no vanilla equivalent and get a trigger of their own:
+Four things have no vanilla equivalent and get a trigger of their own:
 
 - `aerowarptics:warp_completed` fires for **everyone aboard** when a hull finishes a jump — not just
   whoever pressed the button, because a warp is something a crew goes through together. It reports the
@@ -846,6 +1101,16 @@ Two things have no vanilla equivalent and get a trigger of their own:
   whether they crossed on foot or as cargo. The two are separate achievements: walking in needs a
   dialled gate and nothing else, while taking a vehicle through needs one wide enough at *both* ends,
   which is the part people get wrong. Left together, the hard one would be handed out for the easy one.
+- `aerowarptics:fissure_closed` fires for everyone standing near a Rift Fissure as it empties and seals.
+  Near, rather than whoever placed the siphon: nothing in the mod records who placed one, and inventing
+  an owner for a vessel to hand out an advancement would be a new concept introduced for the sake of a
+  toast. Being there is the better story anyway — the tear visibly shrinks as it drains. It reports
+  what the fissure held when it was found, so a later advancement can ask for a big one.
+- `aerowarptics:ship_summoned` fires when a Rift Beacon calls its bound airship down. It exists because
+  the summoner is, by definition, *not aboard*, and so would never appear in `warp_completed`'s crew.
+  It is raised when the drive accepts the summon rather than when the hull lands: by then the drive has
+  already agreed to everything it agrees to for any warp, and the flight itself is the crew's
+  advancement rather than the caller's.
 
 The tree is declared once and generated, because every entry needs the same five things said the same
 way and the titles live in a different file from the advancements that use them:
@@ -877,9 +1142,10 @@ dependency is declared optional and client-side.
 
 ## The screens
 
-Seven of them: the drive's console, the Astrolabe's chart, a gate's dial panel, an anchor's settings,
-the probe and a chute's panel — which share a palette, a set of drawn shapes and, the part that was
-missing, a layout — plus the Navigator's Handbook, which deliberately shares only the last of those. A
+Eight of them: the drive's console, the Astrolabe's chart, a gate's dial panel, an anchor's settings,
+the probe, a chute's panel and a modulator's panel — which share a palette, a set of drawn shapes and,
+the part that was missing, a layout — plus the Navigator's Handbook, which deliberately shares only the
+last of those. A
 handbook is not a machine, and dressing it in the machines' brass-on-near-black would have made it read
 as one more readout screen rather than as something you sat down with, so it has leather boards,
 parchment and its own palette in `AWBookStyle`.
@@ -927,6 +1193,32 @@ Deliberately restrained, and all of it attached to something that is actually ha
 The failure mode of an easing function is not a crash — it is a bar that never quite arrives, or one
 that overshoots into a shape the eye reads as a glitch — so both are asserted.
 
+### Items in the inventory
+
+Four of these machines have no baked model at all — what stands in the world is GeckoLib and nothing
+else — so the item form of each had a flat sixteen-pixel sprite standing in for it. A sprite of a
+machine stops agreeing with the machine the moment either one changes, and these had already drifted.
+
+They are now drawn from the block. `GeoBlockItem` carries the geometry, the skin and the idle
+animation; the item model is vanilla's `builtin/entity` marker plus the standard block display
+transforms, and one `GeoBlockItemRenderer` draws the lot — so a new drive tier needs a texture and a
+registry line and nothing else. A Rift Drive turns in your hand, in a hotbar and in an item frame, and
+it turns because it is the same model, not because somebody drew a second one.
+
+Two details are decided rather than defaulted. A siphon's fill bone is hidden on the item, because an
+unplaced vessel that looks full of essence you have not collected yet is a small lie told in every
+slot it sits in. And the animation is keyed per item type rather than per stack, so a double chest of
+drives is one animation state rather than fifty-four identical ones.
+
+The Astrolabe is deliberately not one of them. Its GeckoLib model is the whole assembled three-by-three
+table and the item is one ninth of that, so the item is the panel's own baked model — which is exactly
+what an unformed cell looks like in the world.
+
+`ResourceIntegrityTest` holds all three halves together: the model declares `builtin/entity`, the flat
+sprite is gone and stays gone, and something is registered to do the drawing. That last one matters
+because `builtin/entity` with no renderer behind it is not a missing texture and not an error — it is
+an item that is simply not there.
+
 ## Configuration
 
 `config/aerowarptics-server.toml` — range, cost formula, arrival search and clearance buffer, the
@@ -935,8 +1227,8 @@ length), permissions, failure behaviour, and a block of settings per drive tier.
 run-out time come from the tier, so a Singularity drive crosses faster than a Mk I. The corridor needs
 no settings of its own: it is flown inside the entry aperture, at the speed the hull is already doing.
 
-`config/aerowarptics-client.toml` — particle density, rift distortion, corridor effects, screen shake,
-effect volume.
+`config/aerowarptics-client.toml` — particle density, rift distortion, rift lightning, corridor
+effects, screen shake, effect volume.
 
 ---
 
@@ -1067,8 +1359,17 @@ onto the next one.
 **Animations are generated from the same place.** A clip is a table of numbers, and a table of numbers
 maintained by hand drifts; generating them means a change to how the drive idles is one edit rather
 than nine, and every state is guaranteed to touch the same bones so nothing is left frozen in a pose
-the previous state put it in. The gear train is the machine's pulse — how fast the wheels turn is how
-hard it is working — and the strain states displace the housing and shafts as well, so a drive at the
-edge of what it can hold looks like one.
+the previous state put it in. The gear train is the machine's pulse — how fast the rings turn is how
+hard it is working — and while the rift is open, the drive's inner cage collapses through a point and
+comes back the other way round, which is what a tesseract does when it turns edge on.
+
+**Moving parts are checked against each other.** The drive has two rings turning about perpendicular
+axes, a shaft, a needle and two nested cages sharing sixteen pixels, and every radius in its generator
+is an answer to "what will this pass through". A model that clips still loads and still renders; the
+only symptom is a gear tooth flickering through a strut once a second, on a machine nobody is looking
+at straight on — silent, which is what most of this suite is for. So the generator refuses to write
+one, and `DriveClearanceTest` re-derives the same thing from the shipped file: each turning part swept
+into the annulus it occupies over a revolution, and every pair of parts required to be disjoint but
+the two that are meant to meet.
 
 An artist would still want to replace the sheets by hand, but the shapes are now worth painting.

@@ -58,7 +58,13 @@ public enum GuideDiagram {
     CHUTE(44),
 
     /** A checklist ticking itself off, one line at a time, and stopping at the one that fails. */
-    CHECKLIST(52);
+    CHECKLIST(52),
+
+    /** The goggles, and the tear that is only there while you are looking through them. */
+    GOGGLES(48),
+
+    /** A fissure in a broken ring, emptying into a siphon standing beside it. */
+    FISSURE(52);
 
     private final int height;
 

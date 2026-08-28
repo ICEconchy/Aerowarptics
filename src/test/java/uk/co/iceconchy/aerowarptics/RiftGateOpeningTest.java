@@ -1,11 +1,14 @@
 package uk.co.iceconchy.aerowarptics;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateShape;
 
 import java.util.BitSet;
+import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -146,6 +149,37 @@ class RiftGateOpeningTest {
             double reach = shape.reachAt(step * (Math.PI * 2.0D) / 128.0D);
             assertTrue(reach >= 0.0D && reach <= 1.0D, "reach of " + reach + " is not a fraction");
         }
+    }
+
+    /**
+     * The cells the pane goes in are exactly the cells the mask says are open.
+     *
+     * <p>These are block positions the gate actually writes Rift Portal blocks into, so this is the
+     * one place where being generous with the mask stops being a drawing mistake and starts being a
+     * gate that walls up its own frame. A cell too many is a pane inside solid stone; a cell too few
+     * is a gap you can see daylight through.
+     */
+    @Test
+    void thePaneCoversTheOpeningAndNothingElse() {
+        RiftGateShape shape = lShaped();
+        List<BlockPos> cells = shape.cells();
+
+        assertEquals(shape.openCells(), cells.size(), "the pane is not the size of the opening");
+        assertEquals(cells.size(), Set.copyOf(cells).size(), "a cell was listed twice");
+        for (BlockPos cell : cells) {
+            assertEquals(20, cell.getZ(), "an opening is one block deep");
+            assertTrue(shape.contains(Vec3.atCenterOf(cell)),
+                    cell + " is not inside the opening the mask describes");
+        }
+    }
+
+    /** And the notch really is left out, rather than being filled by a rectangle's worth of cells. */
+    @Test
+    void thePaneLeavesTheNotchEmpty()  {
+        Set<BlockPos> cells = Set.copyOf(lShaped().cells());
+        assertFalse(cells.contains(new BlockPos(4, 68, 20)), "the pane filled the missing corner");
+        assertTrue(cells.contains(new BlockPos(0, 64, 20)), "the pane missed the opposite corner");
+        assertEquals(25 - 4, cells.size());
     }
 
     /** A mask survives being written and read back, or a gate changes shape on every reload. */

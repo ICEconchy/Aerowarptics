@@ -8,6 +8,9 @@ import net.createmod.ponder.api.scene.Selection;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
+import uk.co.iceconchy.aerowarptics.gate.RiftPortalBlock;
+import uk.co.iceconchy.aerowarptics.gate.RiftPortalStage;
+import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
 
 /**
  * The two halves of a Rift Gate: building the ring, and getting something through it.
@@ -15,10 +18,11 @@ import net.minecraft.world.phys.Vec3;
  * <p>Both play on the same schematic - a five by five ring standing across X with a three by three
  * opening, and the controller sitting in the bottom row where a shaft can reach it.
  *
- * <p>Neither scene shows an aperture. The hole in space is drawn by the client from live gate state,
- * and a Ponder level has none, so these scenes explain the doorway rather than pretending to open
- * one. That is the honest version anyway: what a player gets wrong about a gate is the ring, the
- * power and the pairing, none of which the animation would have told them.
+ * <p>The dialling scene puts the pane in by hand, at the beat where a real gate would. It can, now
+ * that the hole in space is a block: a Ponder level draws blocks like any other, and for as long as
+ * the opening was a client-side effect read off live gate state there was nothing here for it to read
+ * and the scene had to explain the doorway without ever showing one open. The assembly scene still
+ * shows none, because a gate that has not been dialled has none.
  */
 public final class GateScenes {
 
@@ -35,6 +39,21 @@ public final class GateScenes {
 
     private static Selection opening(SceneBuildingUtil util) {
         return util.select().fromTo(1, 2, PLANE, 3, 4, PLANE);
+    }
+
+    /**
+     * Settles every pane in the opening from {@code OPENING} to {@code OPEN}, leaving anything that
+     * is not a Rift Portal block alone.
+     *
+     * <p>{@code modifyBlocks} rather than {@code setBlocks}: the pane is already standing by the time
+     * this runs, and re-placing it would restart its animation rather than settle it, which is the
+     * opposite of the beat being played here.
+     */
+    private static void settlePane(SceneBuilder scene, SceneBuildingUtil util) {
+        scene.world().modifyBlocks(opening(util), state ->
+                state.hasProperty(RiftPortalBlock.STAGE)
+                        ? state.setValue(RiftPortalBlock.STAGE, RiftPortalStage.OPEN)
+                        : state, false);
     }
 
     // -------------------------------------------------------------- assembly
@@ -127,7 +146,7 @@ public final class GateScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("Dialling is paid for in Rift Essence, piped or poured into the controller")
+                .text("Rift Essence pays to dial, and keeps paying every second the doorway stands")
                 .pointAt(face)
                 .colored(PonderPalette.BLUE)
                 .placeNearTarget()
@@ -143,6 +162,18 @@ public final class GateScenes {
                 .placeNearTarget()
                 .attachKeyFrame();
         scene.idle(90);
+
+        // The pane, at the beat a real gate would fill its own opening. The ring here stands across
+        // X, so the portal blocks do too. Shown as well as set: the opening is the one part of the
+        // schematic `ring` deliberately leaves out, so these cells have never been revealed. It comes
+        // in on its own OPENING stage - the block's own default - and settles to OPEN a moment later,
+        // the same two beats a real gate plays out over its dial.
+        scene.world().setBlocks(opening(util), AWBlocks.RIFT_PORTAL.get().defaultBlockState()
+                .setValue(RiftPortalBlock.AXIS, Direction.Axis.X), true);
+        scene.world().showSection(opening(util), Direction.DOWN);
+        scene.idle(25);
+        settlePane(scene, util);
+        scene.idle(20);
 
         scene.overlay().showText(90)
                 .text("Only the dialling gate pays. The far end needs no rotation and no essence of its own")

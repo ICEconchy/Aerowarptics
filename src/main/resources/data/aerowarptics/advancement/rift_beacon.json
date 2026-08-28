@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_beacon"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.rift_beacon.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.rift_beacon.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "rift_beacon": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "aerowarptics:rift_beacon"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "rift_beacon"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:first_warp"
+}

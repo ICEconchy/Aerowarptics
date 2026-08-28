@@ -13,9 +13,11 @@ import uk.co.iceconchy.aerowarptics.chute.RiftChuteBlockEntity;
 import uk.co.iceconchy.aerowarptics.probe.RiftProbeBlockEntity;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlock;
+import uk.co.iceconchy.aerowarptics.fissure.RiftFissureBlockEntity;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
+import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity;
 
 /** Block entity type registration. */
 public final class AWBlockEntities {
@@ -59,6 +61,16 @@ public final class AWBlockEntities {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RiftChuteBlockEntity>> RIFT_CHUTE =
             BLOCK_ENTITIES.register("rift_chute", () -> BlockEntityType.Builder.of(
                             RiftChuteBlockEntity::new, AWBlocks.RIFT_CHUTE.get())
+                    .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RiftFissureBlockEntity>> RIFT_FISSURE =
+            BLOCK_ENTITIES.register("rift_fissure", () -> BlockEntityType.Builder.of(
+                            RiftFissureBlockEntity::new, AWBlocks.RIFT_FISSURE.get())
+                    .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RiftModulatorBlockEntity>> RIFT_MODULATOR =
+            BLOCK_ENTITIES.register("rift_modulator", () -> BlockEntityType.Builder.of(
+                            RiftModulatorBlockEntity::new, AWBlocks.RIFT_MODULATOR.get())
                     .build(null));
 
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<WarpAnchorBlockEntity>> WARP_ANCHOR =

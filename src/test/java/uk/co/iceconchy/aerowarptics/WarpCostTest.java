@@ -1,6 +1,7 @@
 package uk.co.iceconchy.aerowarptics;
 
 import org.junit.jupiter.api.Test;
+import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 import uk.co.iceconchy.aerowarptics.warp.WarpCost;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 
@@ -72,5 +73,29 @@ class WarpCostTest {
         assertEquals(WarpFailure.NONE, f.checkRange(128.0D));
         assertEquals(WarpFailure.NONE, f.checkRange(24_000.0D));
         assertEquals(WarpFailure.DESTINATION_TOO_FAR, f.checkRange(24_000.01D));
+    }
+
+    @Test
+    void onlyTheCreativeDriveIsExcusedTheMinimumDistance() {
+        assertEquals(0.0D, WarpCost.minimumDistance(RiftDriveTier.CREATIVE, 128.0D),
+                "a creative drive must be able to hop a hull across the room");
+        for (RiftDriveTier tier : RiftDriveTier.values()) {
+            if (tier != RiftDriveTier.CREATIVE) {
+                assertEquals(128.0D, WarpCost.minimumDistance(tier, 128.0D),
+                        tier + " must still honour the server's minimum");
+            }
+        }
+    }
+
+    @Test
+    void aDriveWithNoMinimumWillJumpAcrossTheRoom() {
+        // What a creative drive is handed. The floor exists so a pilot cannot spend a whole charge
+        // and a cooldown on a hop they could have walked; a drive with neither to spend has nothing
+        // for it to protect, and refusing a short hop is exactly the wrong answer for a testing tool.
+        WarpCost.Formula creative = new WarpCost.Formula(0.20D, 0.00004D, 0.15D, 40_000.0D, 1.0D,
+                0.0D, 100_000_000.0D);
+        assertEquals(WarpFailure.NONE, creative.checkRange(0.0D));
+        assertEquals(WarpFailure.NONE, creative.checkRange(1.0D));
+        assertEquals(WarpFailure.NONE, creative.checkRange(100_000_000.0D));
     }
 }

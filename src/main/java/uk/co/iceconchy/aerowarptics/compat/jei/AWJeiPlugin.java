@@ -52,7 +52,10 @@ public class AWJeiPlugin implements IModPlugin {
         info(registration, AWItems.ASTROLABE.get(), "astrolabe");
         info(registration, AWItems.SPATIAL_SIPHON.get(), "spatial_siphon");
         info(registration, AWItems.RIFT_PROBE.get(), "rift_probe");
+        info(registration, AWItems.RIFT_GOGGLES.get(), "rift_goggles");
+        info(registration, AWItems.RIFT_BEACON.get(), "rift_beacon");
         info(registration, AWItems.RIFT_CHUTE.get(), "rift_chute");
+        info(registration, AWItems.RIFT_MODULATOR.get(), "rift_modulator");
         info(registration, AWItems.RIFT_GATE.get(), "rift_gate");
         info(registration, AWItems.RIFT_GATE_FRAME.get(), "rift_gate_frame");
         info(registration, AWItems.RIFT_CORE.get(), "rift_core");

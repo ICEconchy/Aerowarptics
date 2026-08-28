@@ -32,9 +32,22 @@ import java.util.UUID;
  * @param radius    aperture radius in blocks
  * @param duration  ticks the cue runs for, where that is the server's to decide - how long an
  *                  aperture holds open, or how long a hull takes to pass through one
- * @param throat    how deep the aperture's throat runs, in blocks, signed along {@code normal}:
- *                  positive for an aperture a hull goes <em>into</em>, negative for one it comes out
- *                  of. Zero for a cue with no aperture behind it.
+ * @param throat        how deep the aperture's throat runs, in blocks, signed along {@code normal}:
+ *                      positive for an aperture a hull goes <em>into</em>, negative for one it comes
+ *                      out of. Zero for a cue with no aperture behind it.
+ * @param colourOverride the rift's colour, packed RGB, already resolved server-side to a linked
+ *                       Modulator's choice or the drive's own tier colour - see
+ *                       {@code RiftDriveBlockEntity.effectiveColour}. Always a real colour; there is
+ *                       no "none" case for the client to fall back from.
+ * @param accentColourOverride the rift's <em>rim</em> colour, packed RGB, resolved the same way as
+ *                       {@code colourOverride} - equal to it whenever nothing is dressing this warp,
+ *                       so the face and fire draw as one flat colour exactly as they always have. Only
+ *                       a Modulator with a second swatch chosen makes this differ from the core colour.
+ * @param themeOverride  the rift's look and opening animation, as {@code RiftModulatorTheme}'s
+ *                       ordinal, resolved the same way - {@code STANDARD} when nothing is dressing
+ *                       this warp.
+ * @param intensityOverride how strongly the one-shot bursts and screen shake for this cue should read,
+ *                       already resolved server-side - {@code 1.0} when nothing is dressing this warp.
  */
 public record ClientboundWarpEffectPacket(BlockPos drivePos,
                                           Stage stage,
@@ -44,7 +57,11 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
                                           Vec3 normal,
                                           double radius,
                                           int duration,
-                                          float throat) implements CustomPacketPayload {
+                                          float throat,
+                                          int colourOverride,
+                                          int accentColourOverride,
+                                          int themeOverride,
+                                          float intensityOverride) implements CustomPacketPayload {
 
     /** Points in the sequence that have a distinct visual and audible signature. */
     public enum Stage {
@@ -63,7 +80,14 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
         /** The far aperture opens and the hull comes out of it. */
         WARP_EXIT,
         /** The sequence was abandoned. */
-        FAILED
+        FAILED,
+        /**
+         * The exit is scattered: the hull arrives displaced from its target.
+         *
+         * <p>Appended rather than inserted, matching the convention in {@code WarpFailure}:
+         * ordinal-based wire formats break when a constant is added mid-enum.
+         */
+        SCATTER
     }
 
     private static final UUID NO_AIRSHIP = new UUID(0L, 0L);
@@ -74,19 +98,24 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
     public static final StreamCodec<RegistryFriendlyByteBuf, ClientboundWarpEffectPacket> STREAM_CODEC =
             StreamCodec.of(ClientboundWarpEffectPacket::encode, ClientboundWarpEffectPacket::decode);
 
-    /** A cue with a real aperture behind it. */
+    /** A cue with a real aperture behind it, decorated with a Modulator's colour and theme if any. */
     public static ClientboundWarpEffectPacket rift(BlockPos drivePos, Stage stage, int tierIndex,
                                                    UUID airship, WarpFlight.Rift rift, int duration,
-                                                   double throat) {
+                                                   double throat, int colourOverride, int accentColourOverride,
+                                                   int themeOverride, float intensityOverride) {
         return new ClientboundWarpEffectPacket(drivePos, stage, tierIndex, airship,
-                toVec3(rift.centre()), toVec3(rift.normal()), rift.radius(), duration, (float) throat);
+                toVec3(rift.centre()), toVec3(rift.normal()), rift.radius(), duration, (float) throat,
+                colourOverride, accentColourOverride, themeOverride, intensityOverride);
     }
 
     /** A cue with no aperture - sparks, a failure, a lock-on - anchored at a point. */
     public static ClientboundWarpEffectPacket at(BlockPos drivePos, Stage stage, int tierIndex,
-                                                 UUID airship, Vec3 centre) {
+                                                 UUID airship, Vec3 centre, int colourOverride,
+                                                 int accentColourOverride, int themeOverride,
+                                                 float intensityOverride) {
         return new ClientboundWarpEffectPacket(drivePos, stage, tierIndex, airship,
-                centre, new Vec3(0.0D, 1.0D, 0.0D), 0.0D, 0, 0.0F);
+                centre, new Vec3(0.0D, 1.0D, 0.0D), 0.0D, 0, 0.0F, colourOverride, accentColourOverride,
+                themeOverride, intensityOverride);
     }
 
     /** Whether this cue carries an aperture that should be drawn. */
@@ -117,6 +146,10 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
         buf.writeFloat((float) packet.radius);
         buf.writeVarInt(packet.duration);
         buf.writeFloat(packet.throat);
+        buf.writeVarInt(packet.colourOverride);
+        buf.writeVarInt(packet.accentColourOverride);
+        buf.writeVarInt(packet.themeOverride);
+        buf.writeFloat(packet.intensityOverride);
     }
 
     private static ClientboundWarpEffectPacket decode(RegistryFriendlyByteBuf buf) {
@@ -128,6 +161,10 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
                 new Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble()),
                 new Vec3(buf.readFloat(), buf.readFloat(), buf.readFloat()),
                 buf.readFloat(),
+                buf.readVarInt(),
+                buf.readFloat(),
+                buf.readVarInt(),
+                buf.readVarInt(),
                 buf.readVarInt(),
                 buf.readFloat());
     }

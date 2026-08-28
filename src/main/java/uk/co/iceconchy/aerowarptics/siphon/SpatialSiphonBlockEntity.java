@@ -136,6 +136,39 @@ public class SpatialSiphonBlockEntity extends SmartBlockEntity
         return accepted;
     }
 
+    /** Millibuckets the vessel could still take. */
+    public int room() {
+        return Math.max(0, CAPACITY - tank.getFluidAmount());
+    }
+
+    /**
+     * Takes what a Rift Fissure is handing over.
+     *
+     * <p>Separate from {@link #capture} because the two are different events wearing the same
+     * plumbing. A capture is a lottery paid out at the end of a journey; this is a steady draw off a
+     * tear that was already open, metered by the fissure rather than rolled for here - so this method
+     * decides nothing and only reports what it managed to hold.
+     *
+     * @return millibuckets actually taken, which is less than offered once the vessel is full
+     */
+    public int acceptFromFissure(int millibuckets) {
+        if (millibuckets <= 0) {
+            return 0;
+        }
+        int accepted = tank.fill(new FluidStack(AWFluids.RIFT_ESSENCE.get(), millibuckets),
+                IFluidHandler.FluidAction.EXECUTE);
+        if (accepted <= 0) {
+            return 0;
+        }
+        // Only at the moment it starts, not every tick of a draw that runs for half a minute.
+        if (drawTicks <= 0 && level != null && !level.isClientSide) {
+            level.playSound(null, worldPosition, AWSounds.RIFT_OPEN.get(), SoundSource.BLOCKS,
+                    0.3F, 1.4F);
+        }
+        drawTicks = 10;
+        return accepted;
+    }
+
     /**
      * Runs every siphon aboard an airship after a completed jump.
      *
@@ -173,7 +206,7 @@ public class SpatialSiphonBlockEntity extends SmartBlockEntity
     @Override
     public boolean addToGoggleTooltip(List<Component> tooltip, boolean isPlayerSneaking) {
         AWLang.translate("gui.goggles.spatial_siphon").forGoggles(tooltip);
-        AWLang.translate("gui.spatial_siphon.contents", tank.getFluidAmount(), CAPACITY)
+        AWLang.translate("gui.spatial_siphon.contents", AWLang.count(tank.getFluidAmount()), AWLang.count(CAPACITY))
                 .style(tank.getFluidAmount() > 0 ? ChatFormatting.AQUA : ChatFormatting.GRAY)
                 .forGoggles(tooltip, 1);
         return true;

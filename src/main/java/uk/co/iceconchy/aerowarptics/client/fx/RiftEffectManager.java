@@ -6,9 +6,14 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -19,6 +24,7 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
+import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorTheme;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpEffectPacket;
 
 import java.util.ArrayList;
@@ -55,6 +61,12 @@ import java.util.List;
  */
 @EventBusSubscriber(modid = AeroWarptics.MODID, value = Dist.CLIENT)
 public final class RiftEffectManager {
+
+    /** Sky and block light written on every glow vertex. A rift lights itself. */
+    private static final int GLOW_LIGHT = 240;
+
+    /** Render-thread scratch for {@link #place}, so a few thousand vertices are not a few thousand objects. */
+    private static final Vector3f POINT = new Vector3f();
 
     /** Concentric bands making up the churn on the face. More reads finer and costs more quads. */
     private static final int BANDS = 5;
@@ -130,24 +142,77 @@ public final class RiftEffectManager {
     /** How far down the bore the light at the end of it sits. */
     private static final float FAR_LIGHT = 0.985F;
 
+    /** How far a charring piece rises as it burns, as a fraction of the aperture's cover. */
+    private static final float CHAR_LIFT = 0.55F;
+
     /** Half-width of a crack where it leaves the impact, as a fraction of the aperture. */
     private static final float CRACK_ROOT = 0.030F;
     /** Half-width of a crack at its running tip. A fracture narrows as it travels. */
     private static final float CRACK_TIP = 0.006F;
+
+
+    /** How much further out than the rim a bolt off the aperture reaches, as a fraction of it. */
+    private static final float LIGHTNING_REACH = 0.55F;
+    /** Half-width of a bolt at its root, as a fraction of the aperture's cover. */
+    private static final float LIGHTNING_ROOT = 0.026F;
+    /** Half-width of a bolt at its tip. A discharge narrows as it runs, the same as a crack does. */
+    private static final float LIGHTNING_TIP = 0.005F;
+    /** Maximum sideways kick a segment of a bolt off the rim takes, in radians. */
+    private static final float LIGHTNING_APERTURE_JITTER = 0.11F;
+    /**
+     * How far a corridor bolt dips towards the axis at the middle of its arc, as a fraction of the
+     * bore radius it starts and ends at. Never so far that it reaches the axis - see
+     * {@link RiftDebris#INNER} for the same floor kept for the same reason: a bolt through the middle
+     * of the bore would be a bolt through the hull passing along it.
+     */
+    private static final float LIGHTNING_CORRIDOR_DIP = 0.55F;
+    /** Maximum sideways kick a segment of a corridor bolt takes off its own arc, in radians. */
+    private static final float LIGHTNING_CORRIDOR_JITTER = 0.16F;
+    /** How wide an arc a corridor bolt jumps, in radians - narrowest and widest it may be. */
+    private static final float LIGHTNING_SPREAD_MIN = 0.7F;
+    private static final float LIGHTNING_SPREAD_MAX = 1.7F;
+    /**
+     * Where down the corridor a bolt may sit, as a fraction of its depth. Kept short of where the
+     * bore has visibly started to close, the same reasoning {@link #FAR_LIGHT} follows: a bolt drawn
+     * at the true far end would be a bright arc hanging past the point the tube has already narrowed
+     * to nothing around it.
+     */
+    private static final float LIGHTNING_DEPTH_MAX = 0.78F;
+
+    /** How far a ground strike reaches down looking for something to hit, in blocks. */
+    private static final int GROUND_STRIKE_RANGE = 48;
+    /** How far out from the rift's own centre a strike starts, as a fraction of its radius. */
+    private static final float GROUND_STRIKE_SPREAD = 0.4F;
+    /** Sideways jitter along a ground strike, as a fraction of the strike's own length. */
+    private static final float GROUND_JITTER_FRACTION = 0.05F;
+    /** Half-width of a ground strike at its widest, as a fraction of its own length. */
+    private static final float GROUND_WIDTH_FRACTION = 0.014F;
 
     private static final List<ActiveRift> ACTIVE = new ArrayList<>();
 
     private RiftEffectManager() {
     }
 
-    /** One rift, from the moment it tears open to the moment it collapses. */
-    private static final class ActiveRift {
+    /**
+     * One rift, from the moment it tears open to the moment it collapses.
+     *
+     * <p>Package-private rather than private because {@link RiftFurniture} draws the themed geometry
+     * standing around and across this aperture, and needs its basis, its rim and its colours to do it.
+     * The two classes are one subsystem split for size, not two things with an API between them.
+     */
+    static final class ActiveRift {
         final Vec3 centre;
         final Vector3f normal;
         final Vector3f right;
         final Vector3f up;
         double radius;
         final int colour;
+        /**
+         * The rim's colour. Equal to {@link #colour} for every aperture except a Rift Drive's own,
+         * where a Modulator with a second swatch chosen makes the two differ - see {@link #drawFace}
+         * and {@link #drawFire}, the only two places this is read.
+         */
+        final int accentColour;
         final int openTicks;
         /** Not final: a collapse cuts the hold short at the moment it happens. See {@link #collapse}. */
         int holdTicks;
@@ -163,6 +228,10 @@ public final class RiftEffectManager {
         float throatOpenLast;
         /** The fracture this aperture breaks along, worked out from where it is. */
         final int seed;
+        /** How this aperture is dressed: what stands around it, and how it comes apart. */
+        final RiftModulatorTheme theme;
+        /** Which fracture shape that theme cuts along - see {@link RiftShatter#patternFor}. */
+        final RiftShatter.Pattern pattern;
         final RiftShatter.Shard[] shards;
         /**
          * The rim's wander frozen at the moment the pane breaks.
@@ -176,6 +245,13 @@ public final class RiftEffectManager {
         boolean broken;
         /** What is loose inside the bore, if this aperture ever grows one. */
         final RiftDebris.Mote[] motes;
+
+        /** Lightning discharging off the torn rim. See {@link RiftLightning}. */
+        final RiftLightning.Emitter[] apertureBolts;
+        /** Lightning arcing across the corridor. See {@link RiftLightning}. */
+        final RiftLightning.Emitter[] corridorBolts;
+        /** Lightning reaching for the ground below, if there is any within range. */
+        final RiftLightning.Emitter[] groundBolts;
 
         /**
          * How far the opening reaches at each angle, or {@code null} for a plain ellipse.
@@ -253,18 +329,24 @@ public final class RiftEffectManager {
         /** Identity of the block holding this aperture open, or {@code 0} for a warp's own rift. */
         long holder;
 
-        ActiveRift(Vec3 centre, Vec3 normal, double radius, int colour, float throat,
-                   int openTicks, int holdTicks, int closeTicks) {
+        ActiveRift(Vec3 centre, Vec3 normal, double radius, int colour, int accentColour, float throat,
+                   RiftModulatorTheme theme, int openTicks, int holdTicks, int closeTicks) {
             this.centre = centre;
             this.radius = radius;
             this.colour = colour;
+            this.accentColour = accentColour;
             this.throat = throat;
             this.openTicks = openTicks;
             this.holdTicks = holdTicks;
             this.closeTicks = closeTicks;
             this.seed = RiftShatter.seedFor(centre.x, centre.y, centre.z);
-            this.shards = RiftShatter.fracture(seed);
+            this.theme = theme;
+            this.pattern = RiftShatter.patternFor(theme);
+            this.shards = RiftShatter.fracture(seed, pattern);
             this.motes = RiftDebris.field(seed);
+            this.apertureBolts = RiftLightning.apertureField(seed);
+            this.corridorBolts = RiftLightning.corridorField(seed);
+            this.groundBolts = RiftLightning.groundField(seed);
             this.rimTime = openTicks * RiftShatter.CRACK_PHASE * 0.12F;
 
             Vector3f forward = new Vector3f((float) normal.x, (float) normal.y, (float) normal.z);
@@ -354,14 +436,26 @@ public final class RiftEffectManager {
 
     // ------------------------------------------------------------------ feed
 
+    /** What the moment of release sounds like, for whichever way this aperture comes apart. */
+    private static SoundEvent breakSound(RiftModulatorTheme theme) {
+        return switch (theme) {
+            // Pitched right down by the caller, which turns a door into heavy machinery under load.
+            case CLOCKWORK -> SoundEvents.IRON_DOOR_OPEN;
+            case ARCANE -> SoundEvents.AMETHYST_BLOCK_CHIME; // a circle ringing, not a pane shattering
+            case EMBER -> SoundEvents.FIRE_EXTINGUISH; // a deep whoomph at this pitch, not a hiss
+            case STARLIGHT -> SoundEvents.AMETHYST_BLOCK_RESONATE;
+            case STANDARD -> SoundEvents.GLASS_BREAK;
+        };
+    }
+
     /** Opens a rift from a server cue. */
-    public static void open(ClientboundWarpEffectPacket packet, int colour,
-                            int openTicks, int holdTicks, int closeTicks) {
+    public static void open(ClientboundWarpEffectPacket packet, int colour, int accentColour,
+                            RiftModulatorTheme theme, int openTicks, int holdTicks, int closeTicks) {
         if (!packet.hasRift() || !AWConfig.RIFT_DISTORTION.get()) {
             return;
         }
-        ACTIVE.add(new ActiveRift(packet.centre(), packet.normal(), packet.radius(), colour,
-                packet.throat(), openTicks, holdTicks, closeTicks));
+        ACTIVE.add(new ActiveRift(packet.centre(), packet.normal(), packet.radius(), colour, accentColour,
+                packet.throat(), theme, openTicks, holdTicks, closeTicks));
     }
 
     /**
@@ -385,8 +479,9 @@ public final class RiftEffectManager {
                 return;
             }
         }
-        ActiveRift rift = new ActiveRift(centre, normal, halfWidth, colour, 0.0F,
-                Math.max(1, openTicks), HELD_FOREVER, GATE_CLOSE_TICKS);
+        // Flat colour and the standard break: gates and chutes have no Modulator to dress them.
+        ActiveRift rift = new ActiveRift(centre, normal, halfWidth, colour, colour, 0.0F,
+                RiftModulatorTheme.STANDARD, Math.max(1, openTicks), HELD_FOREVER, GATE_CLOSE_TICKS);
         rift.aspect = (float) (halfHeight / Math.max(1.0e-3D, halfWidth));
         rift.holder = holder;
         rift.keepAlive = HOLD_TICKS;
@@ -436,8 +531,14 @@ public final class RiftEffectManager {
      * Gives a held aperture the shape of the opening it stands in.
      *
      * <p>Separate from {@link #hold} for the same reason {@link #aim} is: the profile is worked out
-     * from the gate's mask and only the gate knows it, while everything else about an aperture is the
-     * same whoever tore it. Passing {@code null} restores the plain ellipse.
+     * from the opening's own mask and only its owner knows it, while everything else about an
+     * aperture is the same whoever tore it. Passing {@code null} restores the plain ellipse.
+     *
+     * <p><strong>Nothing calls this at the moment.</strong> Rift Gates did, and they are the reason
+     * every part of the drawing is radial; their opening is a pane of Rift Portal blocks now, which
+     * is the shape of the ring by construction and needs no profile. Kept because it is the only
+     * thing here that can make an aperture anything other than an ellipse, and because deleting it
+     * would take the reasoning above with it.
      */
     public static void shapeTo(long holder, float[] profile) {
         for (ActiveRift rift : ACTIVE) {
@@ -558,7 +659,7 @@ public final class RiftEffectManager {
                 // Volume over one is range rather than loudness in Minecraft, so a big aperture is
                 // heard breaking from further off rather than more sharply from close up.
                 level.playLocalSound(rift.centre.x, rift.centre.y, rift.centre.z,
-                        SoundEvents.GLASS_BREAK, SoundSource.BLOCKS,
+                        breakSound(rift.theme), SoundSource.BLOCKS,
                         (float) Math.min(4.0D, 1.6D + rift.radius * 0.10D), 0.45F, true);
             }
             if (rift.transitTicks > 0) {
@@ -627,8 +728,17 @@ public final class RiftEffectManager {
                 drawHaze(fire, matrix, rift, partialTick);
                 drawFarLight(fire, matrix, rift, partialTick);
                 drawFire(fire, matrix, rift, partialTick, eye);
-                drawCracks(fire, matrix, rift, partialTick, eye);
+                drawOpening(fire, matrix, rift, partialTick, eye);
+                // What a theme stands around its aperture, for as long as the aperture stands. Scaled
+                // by the hole's own size inside, so it grows in behind the wind-up and leaves with the
+                // seal rather than needing a clock of its own.
+                RiftFurniture.standing(fire, matrix, rift, partialTick, eye);
                 drawSpark(fire, matrix, rift, partialTick, eye);
+                if (AWConfig.RIFT_LIGHTNING.get()) {
+                    drawApertureLightning(fire, matrix, rift, partialTick, eye);
+                    drawCorridorLightning(fire, matrix, rift, partialTick);
+                    drawGroundLightning(fire, matrix, rift, partialTick);
+                }
             }
             buffers.endBatch(AWRenderTypes.RIFT_FIRE);
 
@@ -652,6 +762,12 @@ public final class RiftEffectManager {
      *
      * <p>Rings of quads sharing their vertices exactly, so the surface is watertight. A seam here
      * would be a pinhole straight through to the hull behind it.
+     *
+     * <p>Coloured core to rim rather than one flat tint: each ring's colour is the core colour blended
+     * towards the accent colour by how far out it sits, {@link #faceGlow}'s own {@code t}. A Rift
+     * Drive with no Modulator, or one with no second swatch chosen, has an accent colour identical to
+     * its core one - see {@code RiftDriveBlockEntity.effectiveAccentColour} - so the lerp is between a
+     * colour and itself and the face draws exactly as it always has.
      */
     private static void drawFace(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float partialTick) {
         float aperture = rift.aperture(partialTick);
@@ -661,9 +777,12 @@ public final class RiftEffectManager {
         float time = (rift.lastAge + partialTick) * 0.12F;
         double cover = rift.radius * aperture;
 
-        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
-        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
-        float blue = (rift.colour & 0xFF) / 255.0F;
+        float coreRed = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float coreGreen = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float coreBlue = (rift.colour & 0xFF) / 255.0F;
+        float rimRed = ((rift.accentColour >> 16) & 0xFF) / 255.0F;
+        float rimGreen = ((rift.accentColour >> 8) & 0xFF) / 255.0F;
+        float rimBlue = (rift.accentColour & 0xFF) / 255.0F;
 
         for (int ring = 0; ring < FACE_RINGS.length - 1; ring++) {
             float innerT = FACE_RINGS[ring];
@@ -671,6 +790,12 @@ public final class RiftEffectManager {
             // Nothing in the middle, a glow towards the edge, and the rim itself burning.
             float innerGlow = faceGlow(innerT);
             float outerGlow = faceGlow(outerT);
+            float innerRed = Mth.lerp(innerT, coreRed, rimRed);
+            float innerGreen = Mth.lerp(innerT, coreGreen, rimGreen);
+            float innerBlue = Mth.lerp(innerT, coreBlue, rimBlue);
+            float outerRed = Mth.lerp(outerT, coreRed, rimRed);
+            float outerGreen = Mth.lerp(outerT, coreGreen, rimGreen);
+            float outerBlue = Mth.lerp(outerT, coreBlue, rimBlue);
 
             for (int segment = 0; segment < SEGMENTS; segment++) {
                 double a0 = (segment / (double) SEGMENTS) * Math.PI * 2.0D;
@@ -678,10 +803,10 @@ public final class RiftEffectManager {
                 double rim0 = cover * rift.reach(a0, time);
                 double rim1 = cover * rift.reach(a1, time);
 
-                face(consumer, matrix, rift, a0, rim0 * innerT, red, green, blue, innerGlow);
-                face(consumer, matrix, rift, a1, rim1 * innerT, red, green, blue, innerGlow);
-                face(consumer, matrix, rift, a1, rim1 * outerT, red, green, blue, outerGlow);
-                face(consumer, matrix, rift, a0, rim0 * outerT, red, green, blue, outerGlow);
+                face(consumer, matrix, rift, a0, rim0 * innerT, innerRed, innerGreen, innerBlue, innerGlow);
+                face(consumer, matrix, rift, a1, rim1 * innerT, innerRed, innerGreen, innerBlue, innerGlow);
+                face(consumer, matrix, rift, a1, rim1 * outerT, outerRed, outerGreen, outerBlue, outerGlow);
+                face(consumer, matrix, rift, a0, rim0 * outerT, outerRed, outerGreen, outerBlue, outerGlow);
             }
         }
     }
@@ -788,10 +913,10 @@ public final class RiftEffectManager {
                 double nearFlare = 1.04D + 0.30D * nearT;
                 double farFlare = 1.04D + 0.30D * farT;
 
-                throatVertex(consumer, matrix, rift, a0, rim0 * nearFlare, depth * nearT, red, green, blue, nearAlpha);
-                throatVertex(consumer, matrix, rift, a1, rim1 * nearFlare, depth * nearT, red, green, blue, nearAlpha);
-                throatVertex(consumer, matrix, rift, a1, rim1 * farFlare, depth * farT, red, green, blue, farAlpha);
-                throatVertex(consumer, matrix, rift, a0, rim0 * farFlare, depth * farT, red, green, blue, farAlpha);
+                hazeVertex(consumer, matrix, rift, a0, rim0 * nearFlare, depth * nearT, red, green, blue, nearAlpha);
+                hazeVertex(consumer, matrix, rift, a1, rim1 * nearFlare, depth * nearT, red, green, blue, nearAlpha);
+                hazeVertex(consumer, matrix, rift, a1, rim1 * farFlare, depth * farT, red, green, blue, farAlpha);
+                hazeVertex(consumer, matrix, rift, a0, rim0 * farFlare, depth * farT, red, green, blue, farAlpha);
             }
         }
     }
@@ -856,6 +981,11 @@ public final class RiftEffectManager {
         float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
         float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
         float blue = (rift.colour & 0xFF) / 255.0F;
+        // The fire cools into the accent colour rather than the core one, so it agrees with the face
+        // it is burning around - see drawFace. Equal to the core channels whenever nothing has chosen
+        // a second swatch, so this changes nothing for an undecorated drive.
+        float accentGreen = ((rift.accentColour >> 8) & 0xFF) / 255.0F;
+        float accentBlue = (rift.accentColour & 0xFF) / 255.0F;
 
         for (int band = 0; band < BANDS; band++) {
             float innerT = band / (float) BANDS;
@@ -866,8 +996,8 @@ public final class RiftEffectManager {
             float spin = time * (band % 2 == 0 ? 1.0F : -1.4F) + band * 0.7F;
 
             float bandRed = Mth.lerp(edge, red * 0.15F, 1.0F);
-            float bandGreen = Mth.lerp(edge, green * 0.15F, green);
-            float bandBlue = Mth.lerp(edge, blue * 0.3F, blue);
+            float bandGreen = Mth.lerp(edge, green * 0.15F, accentGreen);
+            float bandBlue = Mth.lerp(edge, blue * 0.3F, accentBlue);
 
             for (int segment = 0; segment < SEGMENTS; segment++) {
                 double a0 = (segment / (double) SEGMENTS) * Math.PI * 2.0D + spin;
@@ -903,10 +1033,28 @@ public final class RiftEffectManager {
             float reach1 = 0.35F + 0.65F * RiftTear.lick(a1, time);
             float alpha = aperture * 0.55F * agitation;
 
-            vertex(consumer, matrix, rift, bias, a0, rim0, 1.0F, green, blue, alpha);
-            vertex(consumer, matrix, rift, bias, a1, rim1, 1.0F, green, blue, alpha);
+            vertex(consumer, matrix, rift, bias, a0, rim0, 1.0F, accentGreen, accentBlue, alpha);
+            vertex(consumer, matrix, rift, bias, a1, rim1, 1.0F, accentGreen, accentBlue, alpha);
             vertex(consumer, matrix, rift, bias, a1, rim1 * (1.0D + RiftTear.FLAME * reach1), red, green, blue, 0.0F);
             vertex(consumer, matrix, rift, bias, a0, rim0 * (1.0D + RiftTear.FLAME * reach0), red, green, blue, 0.0F);
+        }
+    }
+
+    /**
+     * What is drawn over the intact view while the aperture is winding up to open.
+     *
+     * <p>The hole does not exist yet - the world behind is still there to see - so this is the whole
+     * of what an opening rift looks like for its first half second, and it is where a theme has to do
+     * most of its talking. Struck glass cracks; a mechanism turns; a circle is written and charges.
+     * Sending all three through the same radial-fracture drawing is what made them look like one
+     * animation wearing three colours.
+     */
+    private static void drawOpening(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                    float partialTick, Vec3 eye) {
+        if (rift.theme == RiftModulatorTheme.STANDARD) {
+            drawCracks(consumer, matrix, rift, partialTick, eye);
+        } else {
+            RiftFurniture.opening(consumer, matrix, rift, partialTick, eye);
         }
     }
 
@@ -915,8 +1063,8 @@ public final class RiftEffectManager {
      *
      * <p>A hard point of impact and cracks racing out from it over an intact view - the hole does not
      * exist yet, and the world behind the aperture is still there to see. This is the whole of what an
-     * opening rift looks like for its first half second, and it is the reason the hole arriving lands
-     * as an event rather than as a shape growing.
+     * opening rift looks like for its first half second under the standard theme, and it is the reason
+     * the hole arriving lands as an event rather than as a shape growing.
      */
     private static void drawCracks(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                    float partialTick, Vec3 eye) {
@@ -946,7 +1094,7 @@ public final class RiftEffectManager {
         // it is about to become. The hole then opens outwards to meet the pieces leaving it.
         double cover = rift.radius;
 
-        for (float angle : RiftShatter.crackAngles(rift.seed)) {
+        for (float angle : RiftShatter.crackAngles(rift.seed, rift.pattern)) {
             double along = Math.cos(angle);
             double across = Math.sin(angle);
             double sideU = -across;
@@ -980,12 +1128,15 @@ public final class RiftEffectManager {
     }
 
     /**
-     * The pane falling away.
+     * The pane coming apart, however this aperture's theme comes apart.
      *
-     * <p>Every piece is the cell it was cut from, thrown outwards and tumbling. The tumble is what
-     * does the work here: a shard catches the light when it turns face-on and all but disappears
-     * edge-on, so a field of them glitters as it drifts instead of hanging there as a cloud of
-     * coloured quads.
+     * <p>Each of the three motions is a different <em>answer to where a piece goes</em>, and that is
+     * what the eye actually reads - far more than which cells the pane was cut into. Glass is thrown
+     * out and tumbles face-over-edge, catching the light as it turns, so a field of it glitters. An
+     * iris blade never leaves the plane and never tumbles: it sweeps round the aperture's own centre
+     * and slides clear, because a mechanism's parts stay in the mechanism. A rune does not go anywhere
+     * at all - it ignites where it stands and burns out, and the wave of that running rim-to-centre is
+     * the whole animation.
      */
     private static void drawShards(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                    float partialTick, Vec3 eye) {
@@ -998,71 +1149,195 @@ public final class RiftEffectManager {
         float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
         float blue = (rift.colour & 0xFF) / 255.0F;
         double cover = rift.radius;
+        float span = RiftShatter.SHARD_LIFE * rift.pattern.lifeScale();
 
         for (RiftShatter.Shard shard : rift.shards) {
             float elapsed = since - shard.delay();
-            float fade = RiftShatter.fade(elapsed / RiftShatter.SHARD_LIFE);
+            float life = elapsed / span;
+            float fade = RiftShatter.fade(life);
             if (fade <= 0.0F) {
                 continue;
             }
-            float travel = RiftShatter.travel(elapsed / RiftShatter.SHARD_LIFE);
+            float travel = RiftShatter.travel(life);
 
-            double rim0 = rift.reach(shard.angle0(), rift.rimTime);
-            double rim1 = rift.reach(shard.angle1(), rift.rimTime);
-            double cos0 = Math.cos(shard.angle0());
-            double sin0 = Math.sin(shard.angle0());
-            double cos1 = Math.cos(shard.angle1());
-            double sin1 = Math.sin(shard.angle1());
-
-            double near0 = cover * rim0 * shard.innerT();
-            double far0 = cover * rim0 * shard.outerT();
-            double near1 = cover * rim1 * shard.innerT();
-            double far1 = cover * rim1 * shard.outerT();
-
-            double u0 = cos0 * near0;
-            double v0 = sin0 * near0;
-            double u1 = cos1 * near1;
-            double v1 = sin1 * near1;
-            double u2 = cos1 * far1;
-            double v2 = sin1 * far1;
-            double u3 = cos0 * far0;
-            double v3 = sin0 * far0;
-
-            double centreU = (u0 + u1 + u2 + u3) * 0.25D;
-            double centreV = (v0 + v1 + v2 + v3) * 0.25D;
-
-            // The piece keeps its own frame and turns in it, so the corners stay a rigid shape rather
-            // than shearing the way rotating each corner about the centre would.
-            float turn = shard.spin() * Math.max(0.0F, elapsed);
-            float axisU = Mth.cos(shard.axis());
-            float axisV = Mth.sin(shard.axis());
-            Vector3f alongU = new Vector3f(1.0F, 0.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
-            Vector3f alongV = new Vector3f(0.0F, 1.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
-            Vector3f facing = new Vector3f(0.0F, 0.0F, 1.0F).rotateAxis(turn, axisU, axisV, 0.0F);
-
-            double outward = shard.outward() * cover * travel;
-            double baseU = centreU + Math.cos(shard.midAngle()) * outward;
-            double baseV = centreV + Math.sin(shard.midAngle()) * outward;
-            // Signed, so a pane bursts both ways rather than all of it coming at the viewer.
-            double baseW = shard.push() * cover * 0.45D * travel;
-
-            float sheen = glint(rift, eye, facing, baseU, baseV, baseW);
-            float lit = 0.45F + 0.55F * sheen;
-            float white = sheen * sheen;
-            float alpha = fade * (0.22F + 0.78F * sheen) * 0.85F;
-            float shardRed = Mth.lerp(white, red, 1.0F) * lit;
-            float shardGreen = Mth.lerp(white, green, 1.0F) * lit;
-            float shardBlue = Mth.lerp(white, blue, 1.0F) * lit;
-
-            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                    u0 - centreU, v0 - centreV, shardRed, shardGreen, shardBlue, alpha);
-            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                    u1 - centreU, v1 - centreV, shardRed, shardGreen, shardBlue, alpha);
-            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                    u2 - centreU, v2 - centreV, shardRed, shardGreen, shardBlue, alpha);
-            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                    u3 - centreU, v3 - centreV, shardRed, shardGreen, shardBlue, alpha);
+            switch (rift.pattern.motion()) {
+                case TUMBLE -> tumblingShard(consumer, matrix, rift, shard, eye, cover, elapsed,
+                        travel, fade, red, green, blue);
+                case SWING -> {
+                    // Picked up from where the wind-up left the assembly, not from zero - see
+                    // RiftFurniture.GEAR_REST.
+                    float swing = RiftFurniture.GEAR_REST + shard.spin() * travel;
+                    // A blade catches the light as it comes round, so the ring reads as turning metal
+                    // rather than as a wheel of flat colour sliding sideways.
+                    float sheen = Math.abs(Mth.cos(shard.midAngle() + swing));
+                    float lit = 0.55F + 0.45F * sheen;
+                    float white = sheen * sheen * 0.6F;
+                    planarShard(consumer, matrix, rift, shard, cover, swing,
+                            shard.outward() * cover * travel, 0.0D, 1.0D,
+                            Mth.lerp(white, red, 1.0F) * lit, Mth.lerp(white, green, 1.0F) * lit,
+                            Mth.lerp(white, blue, 1.0F) * lit, fade * 0.8F);
+                }
+                case DISSOLVE -> {
+                    // White-hot as it catches, cooling to the rift's own colour as it burns out. Held
+                    // at the angle the charging circle turned to, so the bands line up with the figure
+                    // that was just drawn rather than with where it started.
+                    float white = Math.max(0.0F, 1.0F - life * 2.5F);
+                    planarShard(consumer, matrix, rift, shard, cover, RiftFurniture.RUNE_REST, 0.0D,
+                            0.0D, 1.0D,
+                            Mth.lerp(white, red, 1.0F), Mth.lerp(white, green, 1.0F),
+                            Mth.lerp(white, blue, 1.0F), fade * 0.75F);
+                }
+                case CHAR -> {
+                    // Catches white, chars through the rift's own colour, and is a dark curl by the
+                    // end. Lifts as it goes and shrinks as it curls, which is what burning paper does
+                    // and what being thrown is not.
+                    float white = Math.max(0.0F, 1.0F - life * 4.0F);
+                    float darken = 1.0F - 0.75F * Mth.clamp(life * 1.4F, 0.0F, 1.0F);
+                    planarShard(consumer, matrix, rift, shard, cover,
+                            shard.spin() * travel, shard.outward() * cover * travel,
+                            CHAR_LIFT * cover * travel, 1.0D - 0.45D * travel,
+                            Mth.lerp(white, red, 1.0F) * darken, Mth.lerp(white, green, 1.0F) * darken,
+                            Mth.lerp(white, blue, 1.0F) * darken, fade * 0.85F);
+                }
+                case DRIFT -> {
+                    // A slow spiral outward, shrinking to a point. The twinkle is the tell: each mote
+                    // is on its own clock, so the field sparkles as it disperses instead of dimming
+                    // together the way a single fading sheet would.
+                    float twinkle = 0.55F + 0.45F * Mth.sin(
+                            (since + shard.axis() * 12.0F) * 0.55F + shard.midAngle() * 3.0F);
+                    planarShard(consumer, matrix, rift, shard, cover,
+                            shard.spin() * travel, shard.outward() * cover * travel,
+                            0.0D, 1.0D - 0.55D * travel,
+                            red, green, blue, fade * twinkle * 0.9F);
+                }
+            }
         }
+    }
+
+    /**
+     * One piece of glass, thrown clear and tumbling.
+     *
+     * <p>The piece keeps its own frame and turns in it, so the corners stay a rigid shape rather than
+     * shearing the way rotating each corner about the centre would.
+     */
+    private static void tumblingShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                      RiftShatter.Shard shard, Vec3 eye, double cover, float elapsed,
+                                      float travel, float fade, float red, float green, float blue) {
+        double rim0 = rift.reach(shard.angle0(), rift.rimTime);
+        double rim1 = rift.reach(shard.angle1(), rift.rimTime);
+        double cos0 = Math.cos(shard.angle0());
+        double sin0 = Math.sin(shard.angle0());
+        double cos1 = Math.cos(shard.angle1());
+        double sin1 = Math.sin(shard.angle1());
+
+        double near0 = cover * rim0 * shard.innerT();
+        double far0 = cover * rim0 * shard.outerT();
+        double near1 = cover * rim1 * shard.innerT();
+        double far1 = cover * rim1 * shard.outerT();
+
+        double u0 = cos0 * near0;
+        double v0 = sin0 * near0;
+        double u1 = cos1 * near1;
+        double v1 = sin1 * near1;
+        double u2 = cos1 * far1;
+        double v2 = sin1 * far1;
+        double u3 = cos0 * far0;
+        double v3 = sin0 * far0;
+
+        double centreU = (u0 + u1 + u2 + u3) * 0.25D;
+        double centreV = (v0 + v1 + v2 + v3) * 0.25D;
+
+        float turn = shard.spin() * Math.max(0.0F, elapsed);
+        float axisU = Mth.cos(shard.axis());
+        float axisV = Mth.sin(shard.axis());
+        Vector3f alongU = new Vector3f(1.0F, 0.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+        Vector3f alongV = new Vector3f(0.0F, 1.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+        Vector3f facing = new Vector3f(0.0F, 0.0F, 1.0F).rotateAxis(turn, axisU, axisV, 0.0F);
+
+        double outward = shard.outward() * cover * travel;
+        double baseU = centreU + Math.cos(shard.midAngle()) * outward;
+        double baseV = centreV + Math.sin(shard.midAngle()) * outward;
+        // Signed, so a pane bursts both ways rather than all of it coming at the viewer.
+        double baseW = shard.push() * cover * 0.45D * travel;
+
+        float sheen = glint(rift, eye, facing, baseU, baseV, baseW);
+        float lit = 0.45F + 0.55F * sheen;
+        float white = sheen * sheen;
+        float alpha = fade * (0.22F + 0.78F * sheen) * 0.85F;
+        float shardRed = Mth.lerp(white, red, 1.0F) * lit;
+        float shardGreen = Mth.lerp(white, green, 1.0F) * lit;
+        float shardBlue = Mth.lerp(white, blue, 1.0F) * lit;
+
+        corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                u0 - centreU, v0 - centreV, shardRed, shardGreen, shardBlue, alpha);
+        corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                u1 - centreU, v1 - centreV, shardRed, shardGreen, shardBlue, alpha);
+        corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                u2 - centreU, v2 - centreV, shardRed, shardGreen, shardBlue, alpha);
+        corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                u3 - centreU, v3 - centreV, shardRed, shardGreen, shardBlue, alpha);
+    }
+
+    /**
+     * One piece that never leaves the aperture's plane: swept round its centre and slid outwards.
+     *
+     * <p>Moved in <em>polar</em> terms rather than as a rigid body - the corners are taken round by an
+     * angle and out by a distance. That is not a cheat around the rigid-body transform {@link
+     * #tumblingShard} needs; it is the correct motion for this shape. An iris blade is a polar object,
+     * and sweeping it round its own arc is exactly what a shutter does. Doing it rigidly would lift the
+     * wedge off the circle it belongs to and leave a gap at the hub.
+     *
+     * @param swing radians round the aperture's centre
+     * @param slide how far out along its own radius, in blocks
+     * @param lift  how far along the aperture's own up axis, in blocks - what lets a charring piece
+     *              rise rather than merely spread
+     * @param shrink what is left of the piece's own size, 1 for none. A piece that curls or dwindles
+     *              scales about its own middle, so it stays where it was rather than crawling inwards
+     */
+    private static void planarShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                    RiftShatter.Shard shard, double cover, float swing, double slide,
+                                    double lift, double shrink,
+                                    float red, float green, float blue, float alpha) {
+        double a0 = shard.angle0() + swing;
+        double a1 = shard.angle1() + swing;
+        double rim0 = rift.reach(a0, rift.rimTime);
+        double rim1 = rift.reach(a1, rift.rimTime);
+        double cos0 = Math.cos(a0);
+        double sin0 = Math.sin(a0);
+        double cos1 = Math.cos(a1);
+        double sin1 = Math.sin(a1);
+
+        double near0 = cover * rim0 * shard.innerT() + slide;
+        double far0 = cover * rim0 * shard.outerT() + slide;
+        double near1 = cover * rim1 * shard.innerT() + slide;
+        double far1 = cover * rim1 * shard.outerT() + slide;
+
+        double u0 = cos0 * near0;
+        double v0 = sin0 * near0;
+        double u1 = cos1 * near1;
+        double v1 = sin1 * near1;
+        double u2 = cos1 * far1;
+        double v2 = sin1 * far1;
+        double u3 = cos0 * far0;
+        double v3 = sin0 * far0;
+
+        if (shrink < 1.0D) {
+            double midU = (u0 + u1 + u2 + u3) * 0.25D;
+            double midV = (v0 + v1 + v2 + v3) * 0.25D;
+            u0 = midU + (u0 - midU) * shrink;
+            v0 = midV + (v0 - midV) * shrink;
+            u1 = midU + (u1 - midU) * shrink;
+            v1 = midV + (v1 - midV) * shrink;
+            u2 = midU + (u2 - midU) * shrink;
+            v2 = midV + (v2 - midV) * shrink;
+            u3 = midU + (u3 - midU) * shrink;
+            v3 = midV + (v3 - midV) * shrink;
+        }
+
+        localVertex(consumer, matrix, rift, u0, v0 + lift, 0.0D, red, green, blue, alpha);
+        localVertex(consumer, matrix, rift, u1, v1 + lift, 0.0D, red, green, blue, alpha);
+        localVertex(consumer, matrix, rift, u2, v2 + lift, 0.0D, red, green, blue, alpha);
+        localVertex(consumer, matrix, rift, u3, v3 + lift, 0.0D, red, green, blue, alpha);
     }
 
     /**
@@ -1095,6 +1370,28 @@ public final class RiftEffectManager {
             }
             // One at the rim, nothing at home: the piece falls inwards as its life runs out.
             float out = 1.0F - RiftShatter.travel(life);
+
+            // Whatever a theme's pieces did on the way out, they undo on the way back - a shutter that
+            // swung open has to swing closed, and a circle that burned away has to be written again
+            // where it stood. Only glass has anywhere to tumble back from.
+            if (rift.pattern.motion() != RiftShatter.Motion.TUMBLE) {
+                // Whatever a theme's pieces did on the way out they undo coming back, from the same
+                // rest angles the opening uses - so a shutter closes onto where it opened from, and a
+                // circle is rewritten over its own figure rather than over a fresh one.
+                float swing = switch (rift.pattern.motion()) {
+                    case SWING -> RiftFurniture.GEAR_REST + shard.spin() * out;
+                    case DISSOLVE -> RiftFurniture.RUNE_REST;
+                    default -> shard.spin() * out;
+                };
+                double lift = rift.pattern.motion() == RiftShatter.Motion.CHAR
+                        ? CHAR_LIFT * cover * out : 0.0D;
+                float white = Math.max(0.0F, 1.0F - (1.0F - out) * 2.5F);
+                planarShard(consumer, matrix, rift, shard, cover, swing,
+                        shard.outward() * cover * out, lift, 1.0D - 0.45D * out,
+                        Mth.lerp(white, red, 1.0F), Mth.lerp(white, green, 1.0F),
+                        Mth.lerp(white, blue, 1.0F), fade * 0.8F);
+                continue;
+            }
 
             double rim0 = rift.reach(shard.angle0(), rift.rimTime);
             double rim1 = rift.reach(shard.angle1(), rift.rimTime);
@@ -1191,6 +1488,297 @@ public final class RiftEffectManager {
     }
 
     /**
+     * Lightning discharging off the torn rim, jumping outward from it into open air.
+     *
+     * <p>One flash at a time per emitter - see {@link RiftLightning} for why a small fixed field of
+     * them, each on its own clock, is what "random sparking" actually is here. A bolt jags outward
+     * from a point on the rim the same way {@link #drawFire}'s flames lick past it, and narrows to a
+     * point the same way a crack does, for the same reason: a real discharge runs and thins as it
+     * goes. Free at one end and anchored to the rim at the other, unlike a corridor bolt - see
+     * {@link #drawCorridorLightning}.
+     */
+    private static void drawApertureLightning(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                               float partialTick, Vec3 eye) {
+        float aperture = rift.aperture(partialTick);
+        if (aperture <= 0.001F) {
+            return;
+        }
+        float clock = Mth.lerp(partialTick, rift.lastAge, rift.age);
+        float shimmerTime = (rift.lastAge + partialTick) * 0.12F;
+        double cover = rift.radius * aperture;
+
+        double towardsEye = (eye.x - rift.centre.x) * rift.normal.x
+                + (eye.y - rift.centre.y) * rift.normal.y
+                + (eye.z - rift.centre.z) * rift.normal.z;
+        float bias = towardsEye >= 0.0D ? FIRE_BIAS : -FIRE_BIAS;
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+
+        for (int index = 0; index < rift.apertureBolts.length; index++) {
+            RiftLightning.Emitter emitter = rift.apertureBolts[index];
+            float progress = RiftLightning.flash(emitter, clock);
+            if (progress < 0.0F) {
+                continue;
+            }
+            float glow = RiftLightning.brightness(progress);
+            int cycleNumber = RiftLightning.cycle(emitter, clock);
+            double rimRadius = cover * rift.reach(emitter.anchor(), shimmerTime);
+
+            double lastAngle = emitter.anchor();
+            double lastRadius = rimRadius;
+            for (int point = 1; point <= RiftLightning.SEGMENTS; point++) {
+                float along = point / (float) RiftLightning.SEGMENTS;
+                float previousAlong = (point - 1) / (float) RiftLightning.SEGMENTS;
+                // Free at the tip, so the jag is wildest leaving the rim and settles as it runs out.
+                float kick = RiftLightning.jitter(rift.seed, index, cycleNumber, point)
+                        * LIGHTNING_APERTURE_JITTER * (1.0F - along);
+                double angle = emitter.anchor() + kick;
+                double radius = rimRadius * (1.0D + LIGHTNING_REACH * along);
+
+                double halfWidthNear = cover * Mth.lerp(previousAlong, LIGHTNING_ROOT, LIGHTNING_TIP);
+                double halfWidthFar = cover * Mth.lerp(along, LIGHTNING_ROOT, LIGHTNING_TIP);
+                double dThetaNear = halfWidthNear / Math.max(0.01D, lastRadius);
+                double dThetaFar = halfWidthFar / Math.max(0.01D, radius);
+
+                float segmentAlpha = glow * (1.0F - along * 0.4F);
+                // White where the discharge is freshest, cooling to the rift's own colour as it runs -
+                // the same read {@link #drawCracks} gives its own fractures for the same reason.
+                float white = 1.0F - previousAlong * 0.6F;
+                float nearRed = Mth.lerp(white, red, 1.0F);
+                float nearGreen = Mth.lerp(white, green, 1.0F);
+                float nearBlue = Mth.lerp(white, blue, 1.0F);
+
+                vertex(consumer, matrix, rift, bias, lastAngle - dThetaNear, lastRadius,
+                        nearRed, nearGreen, nearBlue, segmentAlpha);
+                vertex(consumer, matrix, rift, bias, angle - dThetaFar, radius,
+                        red, green, blue, segmentAlpha * 0.6F);
+                vertex(consumer, matrix, rift, bias, angle + dThetaFar, radius,
+                        red, green, blue, segmentAlpha * 0.6F);
+                vertex(consumer, matrix, rift, bias, lastAngle + dThetaNear, lastRadius,
+                        nearRed, nearGreen, nearBlue, segmentAlpha);
+
+                lastAngle = angle;
+                lastRadius = radius;
+            }
+        }
+    }
+
+    /**
+     * Lightning arcing across the corridor, jumping between two points of the bore's own wall.
+     *
+     * <p>Anchored at both ends rather than free at one, unlike a bolt off the rim - see
+     * {@link #drawApertureLightning} - so it is widest at the middle of its own arc and pinches to
+     * nothing at either wall, the shape an arc actually jumping a gap traces rather than one merely
+     * discharging into open air. Dips towards the axis at its middle so it reads as crossing the open
+     * bore instead of merely running along the wall it starts and ends on.
+     */
+    private static void drawCorridorLightning(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                              float partialTick) {
+        float open = Mth.lerp(partialTick, rift.throatOpenLast, rift.throatOpen);
+        if (open <= 0.001F || rift.throat == 0.0F) {
+            return;
+        }
+        float aperture = rift.aperture(partialTick);
+        if (aperture <= 0.001F) {
+            return;
+        }
+
+        float clock = Mth.lerp(partialTick, rift.lastAge, rift.age);
+        float shimmerTime = (rift.lastAge + partialTick) * 0.12F;
+        double cover = rift.radius * aperture;
+        double depth = rift.throat * open;
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+
+        for (int index = 0; index < rift.corridorBolts.length; index++) {
+            RiftLightning.Emitter emitter = rift.corridorBolts[index];
+            float progress = RiftLightning.flash(emitter, clock);
+            if (progress < 0.0F) {
+                continue;
+            }
+            float glow = RiftLightning.brightness(progress);
+            int cycleNumber = RiftLightning.cycle(emitter, clock);
+            // Bright and mostly white throughout, with only a wash of the rift's own colour - an arc
+            // has no root to be freshest at the way a bolt off the rim does, so there is nothing here
+            // to gradient between.
+            float boltRed = Mth.lerp(0.75F, red, 1.0F);
+            float boltGreen = Mth.lerp(0.75F, green, 1.0F);
+            float boltBlue = Mth.lerp(0.75F, blue, 1.0F);
+
+            // Fixed for the whole bolt, and drawn from the seed rather than carried on the emitter:
+            // where down the corridor it sits and how wide an arc it jumps are a fact about this
+            // emitter, not about which flash it is currently on.
+            float depthFraction = LIGHTNING_DEPTH_MAX * RiftShatter.noise(rift.seed, 70_000 + index * 5);
+            float spread = LIGHTNING_SPREAD_MIN + (LIGHTNING_SPREAD_MAX - LIGHTNING_SPREAD_MIN)
+                    * RiftShatter.noise(rift.seed, 70_000 + index * 5 + 1);
+            float direction = RiftShatter.noise(rift.seed, 70_000 + index * 5 + 2) < 0.5F ? -1.0F : 1.0F;
+
+            double along = depth * depthFraction;
+            double wallRadius = cover * rift.reach(emitter.anchor(), shimmerTime)
+                    * throatWidth(depthFraction);
+            if (wallRadius <= 0.01D) {
+                continue; // inside the cone where the bore has already closed
+            }
+            double startAngle = emitter.anchor();
+            double endAngle = startAngle + spread * direction;
+
+            double lastAngle = startAngle;
+            double lastRadius = 0.0D;
+            for (int point = 0; point <= RiftLightning.SEGMENTS; point++) {
+                float t = point / (float) RiftLightning.SEGMENTS;
+                // Pinched to nothing at both ends, widest at the middle - an arc anchored on both
+                // sides rather than a discharge free at one, unlike the aperture's own bolts.
+                float span = Mth.sin(t * (float) Math.PI);
+                float kick = RiftLightning.jitter(rift.seed, index, cycleNumber, point)
+                        * LIGHTNING_CORRIDOR_JITTER * span;
+                double angle = Mth.lerp(t, startAngle, endAngle) + kick;
+                double radiusFraction = 1.0D - LIGHTNING_CORRIDOR_DIP * Math.sin(t * Math.PI);
+                double radius = wallRadius * radiusFraction;
+                double halfWidth = cover * LIGHTNING_ROOT * span;
+                double dTheta = halfWidth / Math.max(0.01D, radius);
+
+                float segmentAlpha = glow * 0.9F;
+
+                if (point > 0) {
+                    hazeVertex(consumer, matrix, rift, lastAngle - dTheta, lastRadius, along,
+                            boltRed, boltGreen, boltBlue, segmentAlpha);
+                    hazeVertex(consumer, matrix, rift, angle - dTheta, radius, along,
+                            boltRed, boltGreen, boltBlue, segmentAlpha);
+                    hazeVertex(consumer, matrix, rift, angle + dTheta, radius, along,
+                            boltRed, boltGreen, boltBlue, segmentAlpha);
+                    hazeVertex(consumer, matrix, rift, lastAngle + dTheta, lastRadius, along,
+                            boltRed, boltGreen, boltBlue, segmentAlpha);
+                }
+                lastAngle = angle;
+                lastRadius = radius;
+            }
+        }
+    }
+
+    /**
+     * Lightning reaching down from the rift for the ground, and marking whatever it hits.
+     *
+     * <p>Not against the rift's own plane at all, unlike {@link #drawApertureLightning} and
+     * {@link #drawCorridorLightning} - a strike starts near the rift and runs straight down through
+     * open world space to wherever the ground actually is, so this is the one bolt drawn as raw world
+     * points rather than against the rift's local angle-and-radius frame. Pinned at both ends the same
+     * way a corridor bolt is, because a strike is anchored at the ground exactly as much as it is at
+     * the rift - a jag that wandered off its own impact point would light the world beside the block
+     * it is supposed to be marking.
+     *
+     * <p>A flash that finds nothing within reach - open sky under a drive riding high, or a rift with
+     * solid rock a block below it either way - simply does not happen that cycle. There is nothing
+     * dishonest about a bolt not being drawn when there is nothing for it to strike.
+     */
+    private static void drawGroundLightning(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                            float partialTick) {
+        float aperture = rift.aperture(partialTick);
+        if (aperture <= 0.001F) {
+            return;
+        }
+        if (!(Minecraft.getInstance().level instanceof ClientLevel level)) {
+            return;
+        }
+        float clock = Mth.lerp(partialTick, rift.lastAge, rift.age);
+
+        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
+        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
+        float blue = (rift.colour & 0xFF) / 255.0F;
+
+        for (int index = 0; index < rift.groundBolts.length; index++) {
+            RiftLightning.Emitter emitter = rift.groundBolts[index];
+            float progress = RiftLightning.flash(emitter, clock);
+            if (progress < 0.0F) {
+                continue;
+            }
+            float glow = RiftLightning.brightness(progress);
+            int cycleNumber = RiftLightning.cycle(emitter, clock);
+
+            Vec3 start = new Vec3(
+                    rift.centre.x + Math.cos(emitter.anchor()) * rift.radius * GROUND_STRIKE_SPREAD,
+                    rift.centre.y,
+                    rift.centre.z + Math.sin(emitter.anchor()) * rift.radius * GROUND_STRIKE_SPREAD);
+            Vec3 probe = start.subtract(0.0D, GROUND_STRIKE_RANGE, 0.0D);
+            BlockHitResult hit = level.clip(new ClipContext(start, probe,
+                    ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, (Entity) null));
+            if (hit.getType() != HitResult.Type.BLOCK) {
+                continue; // nothing within reach this flash
+            }
+            RiftShimmer.strike(hit.getBlockPos(), rift.colour);
+
+            Vec3 end = hit.getLocation();
+            double length = start.distanceTo(end);
+            if (length < 0.05D) {
+                continue; // struck right at the rift's own feet - nothing to draw a bolt along
+            }
+            Vector3f direction = new Vector3f(
+                    (float) ((end.x - start.x) / length),
+                    (float) ((end.y - start.y) / length),
+                    (float) ((end.z - start.z) / length));
+            // Any vector not parallel to the strike gives a stable perpendicular pair to jitter and
+            // widen it in, the same construction the rift's own basis uses in the constructor.
+            Vector3f seedVector = Math.abs(direction.y) > 0.9F
+                    ? new Vector3f(1.0F, 0.0F, 0.0F) : new Vector3f(0.0F, 1.0F, 0.0F);
+            Vector3f perpA = new Vector3f(direction).cross(seedVector).normalize();
+            Vector3f perpB = new Vector3f(direction).cross(perpA).normalize();
+
+            double jitterMagnitude = length * GROUND_JITTER_FRACTION;
+            double halfWidth = length * GROUND_WIDTH_FRACTION;
+
+            double lastX = start.x;
+            double lastY = start.y;
+            double lastZ = start.z;
+            double lastWidth = 0.0D;
+            for (int point = 1; point <= RiftLightning.SEGMENTS; point++) {
+                float t = point / (float) RiftLightning.SEGMENTS;
+                // Pinched to nothing at both ends: this bolt is anchored at the rift and anchored at
+                // its own impact, not free at either.
+                float span = Mth.sin(t * (float) Math.PI);
+                float kickA = RiftLightning.jitter(rift.seed, index, cycleNumber, point * 2) * span;
+                float kickB = RiftLightning.jitter(rift.seed, index, cycleNumber, point * 2 + 1) * span;
+
+                double baseX = Mth.lerp(t, start.x, end.x);
+                double baseY = Mth.lerp(t, start.y, end.y);
+                double baseZ = Mth.lerp(t, start.z, end.z);
+                double x = baseX + (perpA.x * kickA + perpB.x * kickB) * jitterMagnitude;
+                double y = baseY + (perpA.y * kickA + perpB.y * kickB) * jitterMagnitude;
+                double z = baseZ + (perpA.z * kickA + perpB.z * kickB) * jitterMagnitude;
+                double width = halfWidth * span;
+
+                float segmentAlpha = glow * 0.85F;
+                // White nearer the rift, cooling towards the rift's own colour as it runs - the same
+                // read every other bolt in this class gives a fresh discharge.
+                float white = 1.0F - t * 0.5F;
+                float boltRed = Mth.lerp(white, red, 1.0F);
+                float boltGreen = Mth.lerp(white, green, 1.0F);
+                float boltBlue = Mth.lerp(white, blue, 1.0F);
+
+                glowVertex(consumer, matrix,
+                        (float) (lastX + perpA.x * lastWidth), (float) (lastY + perpA.y * lastWidth),
+                        (float) (lastZ + perpA.z * lastWidth), boltRed, boltGreen, boltBlue, segmentAlpha);
+                glowVertex(consumer, matrix,
+                        (float) (x + perpA.x * width), (float) (y + perpA.y * width),
+                        (float) (z + perpA.z * width), boltRed, boltGreen, boltBlue, segmentAlpha);
+                glowVertex(consumer, matrix,
+                        (float) (x - perpA.x * width), (float) (y - perpA.y * width),
+                        (float) (z - perpA.z * width), boltRed, boltGreen, boltBlue, segmentAlpha);
+                glowVertex(consumer, matrix,
+                        (float) (lastX - perpA.x * lastWidth), (float) (lastY - perpA.y * lastWidth),
+                        (float) (lastZ - perpA.z * lastWidth), boltRed, boltGreen, boltBlue, segmentAlpha);
+
+                lastX = x;
+                lastY = y;
+                lastZ = z;
+                lastWidth = width;
+            }
+        }
+    }
+
+    /**
      * How square-on a tumbling shard is to the viewer, 0..1.
      *
      * <p>This is the whole of what makes the pieces read as glass. Brightness keyed to the angle a
@@ -1229,18 +1817,28 @@ public final class RiftEffectManager {
                 red, green, blue, alpha);
     }
 
-    /** A vertex at {@code (u, v)} in the aperture's plane, {@code w} along its normal. */
-    private static void localVertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
-                                    double u, double v, double w,
-                                    float red, float green, float blue, float alpha) {
+    /**
+     * A vertex at {@code (u, v)} in the aperture's plane, {@code w} along its normal.
+     *
+     * <p>Every caller draws glow - cracks, sparks, the far light, the corners of every shard, and all
+     * of {@link RiftFurniture} - so this goes down the glow path. See {@link #glowVertex}.
+     *
+     * <p>Package-private because it is the single primitive {@link RiftFurniture} is built out of:
+     * every gear tooth, orbit, glyph and fang in that file is quads of these, which is what keeps the
+     * themed geometry honest about living in the aperture's own frame.
+     */
+    static void localVertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                            double u, double v, double w,
+                            float red, float green, float blue, float alpha) {
         // The up axis carries the aperture's aspect, so the glass, the debris and the cracks are all
         // squashed to the same shape as the hole they belong to rather than sitting circular inside a
         // rectangular one.
         v *= rift.aspect;
-        float x = (float) (rift.centre.x + rift.right.x * u + rift.up.x * v + rift.normal.x * w);
-        float y = (float) (rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * w);
-        float z = (float) (rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * w);
-        consumer.addVertex(matrix, x, y, z).setColor(red, green, blue, Math.min(1.0F, alpha));
+        POINT.set((float) (rift.centre.x + rift.right.x * u + rift.up.x * v + rift.normal.x * w),
+                (float) (rift.centre.y + rift.right.y * u + rift.up.y * v + rift.normal.y * w),
+                (float) (rift.centre.z + rift.right.z * u + rift.up.z * v + rift.normal.z * w));
+        glowVertex(consumer, matrix, POINT.x, POINT.y, POINT.z,
+                red, green, blue, Math.min(1.0F, alpha));
     }
 
     /**
@@ -1460,19 +2058,68 @@ public final class RiftEffectManager {
     private static void worldVertex(VertexConsumer consumer, Matrix4f matrix,
                                     double x, double y, double z,
                                     float red, float green, float blue, float alpha) {
-        consumer.addVertex(matrix, (float) x, (float) y, (float) z)
-                .setColor(red, green, blue, Math.min(1.0F, alpha));
+        glowVertex(consumer, matrix, (float) x, (float) y, (float) z,
+                red, green, blue, Math.min(1.0F, alpha));
     }
 
+    /**
+     * One vertex of a glow pass.
+     *
+     * <p>The glow render types carry the beacon beam's vertex format, so every vertex owes a texture
+     * coordinate, a light level and a normal on top of its colour. All three are constants: the middle
+     * of a white sprite, full brightness, and straight up. None of them says anything - they are there
+     * because the format demands them, and the format is what routes a rift to a shader pack's
+     * emissive program instead of its lit one. See {@code AWRenderTypes.RIFT_FIRE}.
+     *
+     * <p>This and {@link #solidVertex} are the only two methods in this class that touch a buffer, and
+     * that is deliberate rather than tidy. The two passes now take different vertex formats, and a
+     * helper that writes the wrong set of attributes does not draw badly - it throws
+     * {@code Missing elements in vertex} and takes the game down mid-frame. Funnelling every write
+     * through one method per format is what makes that mistake impossible to make quietly, and
+     * {@code RiftVertexFormatTest} is what stops a third writer appearing later.
+     */
+    private static void glowVertex(VertexConsumer consumer, Matrix4f matrix,
+                                   float x, float y, float z,
+                                   float red, float green, float blue, float alpha) {
+        consumer.addVertex(matrix, x, y, z)
+                .setColor(red, green, blue, alpha)
+                .setUv(0.5F, 0.5F)
+                .setUv2(GLOW_LIGHT, GLOW_LIGHT)
+                .setNormal(0.0F, 1.0F, 0.0F);
+    }
+
+    /**
+     * A point on the bore behind the mouth.
+     *
+     * <p>Only the position. The bore is drawn twice from two different passes - once as the solid
+     * tube that hides the hull, and once as the haze burning around it - and those go into buffers
+     * with different vertex formats, so the shared part stops here.
+     */
+    private static Vector3f bore(ActiveRift rift, double angle, double radius, double along) {
+        double cos = Math.cos(angle) * radius;
+        double sin = Math.sin(angle) * radius * rift.aspect;
+        return POINT.set(
+                (float) (rift.centre.x + rift.right.x * cos + rift.up.x * sin + rift.normal.x * along),
+                (float) (rift.centre.y + rift.right.y * cos + rift.up.y * sin + rift.normal.y * along),
+                (float) (rift.centre.z + rift.right.z * cos + rift.up.z * sin + rift.normal.z * along));
+    }
+
+    /** The solid tube, on the same path as the face it belongs to. */
     private static void throatVertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                      double angle, double radius, double along,
                                      float red, float green, float blue, float glow) {
-        double cos = Math.cos(angle) * radius;
-        double sin = Math.sin(angle) * radius * rift.aspect;
-        float x = (float) (rift.centre.x + rift.right.x * cos + rift.up.x * sin + rift.normal.x * along);
-        float y = (float) (rift.centre.y + rift.right.y * cos + rift.up.y * sin + rift.normal.y * along);
-        float z = (float) (rift.centre.z + rift.right.z * cos + rift.up.z * sin + rift.normal.z * along);
-        consumer.addVertex(matrix, x, y, z).setColor(red * glow, green * glow, blue * glow, 1.0F);
+        Vector3f point = bore(rift, angle, radius, along);
+        solidVertex(consumer, matrix, point.x, point.y, point.z,
+                red * glow, green * glow, blue * glow, 1.0F);
+    }
+
+    /** The haze burning around that tube, which is glow and goes the other way. */
+    private static void hazeVertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                   double angle, double radius, double along,
+                                   float red, float green, float blue, float alpha) {
+        Vector3f point = bore(rift, angle, radius, along);
+        glowVertex(consumer, matrix, point.x, point.y, point.z,
+                red, green, blue, Math.min(1.0F, alpha));
     }
 
     private static void face(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
@@ -1483,16 +2130,54 @@ public final class RiftEffectManager {
 
     private static void vertex(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float bias,
                                double angle, double radius, float red, float green, float blue, float alpha) {
-        emit(consumer, matrix, rift, bias, angle, radius, red, green, blue, Math.min(1.0F, alpha));
+        Vector3f point = place(rift, bias, angle, radius);
+        glowVertex(consumer, matrix, point.x, point.y, point.z,
+                red, green, blue, Math.min(1.0F, alpha));
     }
 
+    /**
+     * A vertex of the opaque face.
+     *
+     * <p>Kept on the plain position-colour format the membrane has always used, deliberately. The
+     * face's whole job is to write depth and paint over what is behind it, and that is a job for a
+     * surface the pipeline treats as solid - unlike the glow around it, which had to be moved onto an
+     * emissive path to stop shader packs lighting it.
+     */
     private static void emit(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float bias,
                              double angle, double radius, float red, float green, float blue, float alpha) {
+        Vector3f point = place(rift, bias, angle, radius);
+        solidVertex(consumer, matrix, point.x, point.y, point.z, red, green, blue, alpha);
+    }
+
+    /**
+     * One vertex of the opaque face or the bore behind it.
+     *
+     * <p>Plain position and colour, which is the format the membrane has always used and must keep.
+     * Its whole job is to write depth and paint over what is behind it, and that is a job for a
+     * surface the pipeline treats as solid - unlike the glow around it, which had to be moved onto an
+     * emissive path to stop shader packs lighting it.
+     *
+     * <p>One of exactly two methods in this class that touch a buffer; see {@link #glowVertex} for
+     * the other, and for why that split is worth enforcing.
+     */
+    private static void solidVertex(VertexConsumer consumer, Matrix4f matrix,
+                                    float x, float y, float z,
+                                    float red, float green, float blue, float alpha) {
+        consumer.addVertex(matrix, x, y, z).setColor(red, green, blue, alpha);
+    }
+
+    /**
+     * Where a point on the aperture's disc lands in world space.
+     *
+     * <p>Written into a scratch vector rather than a fresh one because this runs a few thousand times
+     * a frame and only ever on the render thread.
+     */
+    private static Vector3f place(ActiveRift rift, float bias, double angle, double radius) {
         double cos = Math.cos(angle) * radius;
         double sin = Math.sin(angle) * radius * rift.aspect;
-        float x = (float) (rift.centre.x + rift.right.x * cos + rift.up.x * sin) + rift.normal.x * bias;
-        float y = (float) (rift.centre.y + rift.right.y * cos + rift.up.y * sin) + rift.normal.y * bias;
-        float z = (float) (rift.centre.z + rift.right.z * cos + rift.up.z * sin) + rift.normal.z * bias;
-        consumer.addVertex(matrix, x, y, z).setColor(red, green, blue, alpha);
+        return POINT.set(
+                (float) (rift.centre.x + rift.right.x * cos + rift.up.x * sin) + rift.normal.x * bias,
+                (float) (rift.centre.y + rift.right.y * cos + rift.up.y * sin) + rift.normal.y * bias,
+                (float) (rift.centre.z + rift.right.z * cos + rift.up.z * sin) + rift.normal.z * bias);
     }
 }

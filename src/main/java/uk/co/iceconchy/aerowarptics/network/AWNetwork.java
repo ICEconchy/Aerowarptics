@@ -24,7 +24,7 @@ import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 public final class AWNetwork {
 
     /** Bumped when a payload's shape changes. */
-    private static final String VERSION = "6";
+    private static final String VERSION = "8";
 
     private AWNetwork() {
     }
@@ -50,6 +50,9 @@ public final class AWNetwork {
         registrar.playToServer(ServerboundChutePacket.TYPE,
                 ServerboundChutePacket.STREAM_CODEC,
                 ServerboundChutePacket::handle);
+        registrar.playToServer(ServerboundModulatorPacket.TYPE,
+                ServerboundModulatorPacket.STREAM_CODEC,
+                ServerboundModulatorPacket::handle);
 
         registrar.playToServer(ServerboundConfigureAnchorPacket.TYPE,
                 ServerboundConfigureAnchorPacket.STREAM_CODEC,
@@ -73,6 +76,9 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundChutePanelPacket.TYPE,
                 ClientboundChutePanelPacket.STREAM_CODEC,
                 ClientboundChutePanelPacket::handle);
+        registrar.playToClient(ClientboundModulatorPanelPacket.TYPE,
+                ClientboundModulatorPanelPacket.STREAM_CODEC,
+                ClientboundModulatorPanelPacket::handle);
 
         registrar.playToClient(ClientboundGateDialPacket.TYPE,
                 ClientboundGateDialPacket.STREAM_CODEC,
@@ -86,6 +92,10 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundCorridorPacket.TYPE,
                 ClientboundCorridorPacket.STREAM_CODEC,
                 ClientboundCorridorPacket::handle);
+        registrar.playToClient(ClientboundRiftBeaconPacket.TYPE,
+                ClientboundRiftBeaconPacket.STREAM_CODEC,
+                ClientboundRiftBeaconPacket::handle);
+
         registrar.playToClient(ClientboundWarpFeedbackPacket.TYPE,
                 ClientboundWarpFeedbackPacket.STREAM_CODEC,
                 ClientboundWarpFeedbackPacket::handle);

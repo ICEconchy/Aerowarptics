@@ -2,6 +2,11 @@ package uk.co.iceconchy.aerowarptics;
 
 import org.junit.jupiter.api.Test;
 import uk.co.iceconchy.aerowarptics.client.fx.RiftShatter;
+import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorTheme;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -277,5 +282,222 @@ class RiftShatterTest {
         assertEquals(0.0F, RiftShatter.crackReach(0.0F));
         assertEquals(1.0F, RiftShatter.crackReach(1.0F), 1.0e-6F);
         assertEquals(1.0F, RiftShatter.crackReach(3.0F), 1.0e-6F, "the cracks retreated after running");
+    }
+
+    // --------------------------------------------------------------- patterns
+
+    /**
+     * A Rift Modulator's other two shapes, held to the same tiling and timing invariants as the
+     * default {@link RiftShatter.Pattern#GLASS} above - a gear or a rune circle that left a gap or an
+     * overlap would be exactly as wrong as a pane of glass that did.
+     */
+    private static List<RiftShatter.Pattern> namedPatterns() {
+        return List.of(RiftShatter.Pattern.GEARS, RiftShatter.Pattern.RUNES,
+                RiftShatter.Pattern.EMBERS, RiftShatter.Pattern.MOTES);
+    }
+
+    /** Every pattern including glass, taken from the canonical list so this cannot go stale. */
+    private static List<RiftShatter.Pattern> allPatterns() {
+        return RiftShatter.Pattern.ALL;
+    }
+
+    @Test
+    void everyPatternTilesItsWholePane() {
+        for (RiftShatter.Pattern pattern : namedPatterns()) {
+            for (int seed : seeds()) {
+                RiftShatter.Shard[] shards = RiftShatter.fracture(seed, pattern);
+                assertEquals(pattern.cracks() * pattern.rings(), shards.length);
+
+                for (int ring = 0; ring < pattern.rings(); ring++) {
+                    float sweep = 0.0F;
+                    float inner = shards[ring * pattern.cracks()].innerT();
+                    float outer = shards[ring * pattern.cracks()].outerT();
+                    for (int crack = 0; crack < pattern.cracks(); crack++) {
+                        RiftShatter.Shard shard = shards[ring * pattern.cracks() + crack];
+                        sweep += shard.angle1() - shard.angle0();
+                        assertEquals(inner, shard.innerT(), 1.0e-6F,
+                                "ragged inner edge on ring " + ring + " of " + pattern);
+                        assertEquals(outer, shard.outerT(), 1.0e-6F,
+                                "ragged outer edge on ring " + ring + " of " + pattern);
+                    }
+                    assertEquals(TWO_PI, sweep, 1.0e-4F,
+                            "ring " + ring + " of " + pattern + " did not close for seed " + seed);
+                }
+
+                for (int ring = 1; ring < pattern.rings(); ring++) {
+                    assertEquals(shards[(ring - 1) * pattern.cracks()].outerT(),
+                            shards[ring * pattern.cracks()].innerT(), 1.0e-6F,
+                            "a gap between rings " + (ring - 1) + " and " + ring + " of " + pattern);
+                }
+            }
+        }
+    }
+
+    @Test
+    void everyPatternsShardHasArea() {
+        for (RiftShatter.Pattern pattern : namedPatterns()) {
+            for (int seed : seeds()) {
+                for (RiftShatter.Shard shard : RiftShatter.fracture(seed, pattern)) {
+                    assertTrue(shard.angle1() > shard.angle0(), "a shard with no width, " + pattern);
+                    assertTrue(shard.outerT() > shard.innerT(), "a shard with no depth, " + pattern);
+                    assertTrue(shard.innerT() >= 0.0F && shard.outerT() <= 1.0F,
+                            "a shard outside the pane it was cut from, " + pattern);
+                }
+            }
+        }
+    }
+
+    @Test
+    void everyPatternBreaksTheSameWayTwice() {
+        for (RiftShatter.Pattern pattern : namedPatterns()) {
+            int seed = RiftShatter.seedFor(184.5D, 91.0D, -2048.25D);
+            RiftShatter.Shard[] first = RiftShatter.fracture(seed, pattern);
+            RiftShatter.Shard[] second = RiftShatter.fracture(seed, pattern);
+            assertEquals(first.length, second.length);
+            for (int i = 0; i < first.length; i++) {
+                assertEquals(first[i], second[i], pattern + " broke differently at shard " + i);
+            }
+        }
+    }
+
+    /**
+     * Every piece of every pattern is loose before the opening is over, exactly the bound {@link
+     * #thePaneIsFullyBrokenByTheTimeTheHoleIsOpen} holds glass to - a Modulator's choice of theme must
+     * never leave a hole standing open with a tooth still attached.
+     *
+     * <p>Worth having per-pattern rather than only for glass because the sequencing differs: a ratchet
+     * spends its budget going round the rim and an inward sweep spends it coming in from the edge, so
+     * each has its own way of running over.
+     */
+    @Test
+    void everyPatternStaysInsideTheShatterBudget() {
+        float shatterTicks = 20.0F * (1.0F - RiftShatter.CRACK_PHASE);
+        for (RiftShatter.Pattern pattern : allPatterns()) {
+            for (int seed : seeds()) {
+                for (RiftShatter.Shard shard : RiftShatter.fracture(seed, pattern)) {
+                    assertTrue(shard.delay() >= 0.0F, "a piece of " + pattern + " broke before the pane did");
+                    assertTrue(shard.delay() <= shatterTicks,
+                            "a piece of " + pattern + " was still attached after the hole finished "
+                                    + "opening: " + shard.delay());
+                }
+            }
+        }
+    }
+
+    /**
+     * A piece that does not travel must not outstay one that does.
+     *
+     * <p>{@code lifeScale} is what keeps a motionless pattern honest. A rune that never moves but
+     * lingers the full {@link RiftShatter#SHARD_LIFE} is a coloured disc sitting over the opening it
+     * was supposed to have got out of the way of - which is not a subtle bug, but is exactly the sort
+     * that only shows up in a running game.
+     */
+    @Test
+    void aPatternThatDoesNotTravelDoesNotLinger() {
+        for (RiftShatter.Pattern pattern : namedPatterns()) {
+            assertTrue(pattern.lifeScale() > 0.0F && pattern.lifeScale() <= 1.0F,
+                    pattern + " has a nonsensical life scale: " + pattern.lifeScale());
+            if (pattern.motion() == RiftShatter.Motion.DISSOLVE) {
+                assertTrue(pattern.lifeScale() <= 0.5F,
+                        "a pattern whose pieces never move must clear quickly, but " + pattern
+                                + " lingers for " + pattern.lifeScale() + " of a full shard life");
+            }
+        }
+        assertEquals(1.0F, RiftShatter.Pattern.GLASS.lifeScale(), "glass keeps its long drifting tail");
+    }
+
+    /**
+     * The three themes actually move differently.
+     *
+     * <p>This is the regression this test file most wants to hold. The fracture shape alone is nearly
+     * invisible at these sizes - cells this small, seen for a second, all look much alike - so a theme
+     * that shares another's {@link RiftShatter.Motion} reads as the same animation in a different
+     * colour however differently it was cut up. Two patterns landing on the same motion is therefore a
+     * bug even though nothing about it would crash, fail to compile, or look wrong in a still.
+     */
+    @Test
+    void everyPatternMovesItsOwnWay() {
+        Set<RiftShatter.Motion> motions = new HashSet<>();
+        for (RiftShatter.Pattern pattern : allPatterns()) {
+            assertTrue(motions.add(pattern.motion()),
+                    pattern + " moves the same way as another pattern, so it will read as that one");
+        }
+        assertEquals(allPatterns().size(), motions.size());
+    }
+
+    /**
+     * Every theme has a shape, and no two themes share one.
+     *
+     * <p>Sequencing deliberately is <em>not</em> required to be unique - glass and embers both spread
+     * outwards from where they started, and that is simply true of both. Motion is the field that has
+     * to be distinct, so this checks the map rather than the fields: two themes landing on one pattern
+     * would make them the same animation whatever their fields said.
+     */
+    @Test
+    void everyThemeBreaksItsOwnWay() {
+        Set<RiftShatter.Pattern> claimed = new HashSet<>();
+        for (RiftModulatorTheme theme : RiftModulatorTheme.values()) {
+            RiftShatter.Pattern pattern = RiftShatter.patternFor(theme);
+            assertTrue(allPatterns().contains(pattern),
+                    theme + " maps to a pattern that is missing from Pattern.ALL");
+            assertTrue(claimed.add(pattern), theme + " breaks the same way as another theme");
+        }
+        assertEquals(RiftModulatorTheme.values().length, claimed.size());
+    }
+
+    @Test
+    void everyPatternsCracksRunAllTheWayRoundInOrder() {
+        for (RiftShatter.Pattern pattern : allPatterns()) {
+            for (int seed : seeds()) {
+                float[] angles = RiftShatter.crackAngles(seed, pattern);
+                assertEquals(pattern.cracks(), angles.length);
+                for (int crack = 1; crack < angles.length; crack++) {
+                    assertTrue(angles[crack] > angles[crack - 1],
+                            pattern + " put its cracks out of order at " + crack + ", seed " + seed);
+                }
+                assertTrue(angles[0] + TWO_PI > angles[angles.length - 1],
+                        pattern + " overlapped itself where it closed, seed " + seed);
+            }
+        }
+    }
+
+    /** A motion that keeps its pieces in the plane must not also be throwing them through it. */
+    @Test
+    void aPlanarMotionNeverLeavesTheAperturesPlane() {
+        for (RiftShatter.Pattern pattern : namedPatterns()) {
+            if (pattern.motion() == RiftShatter.Motion.TUMBLE) {
+                continue;
+            }
+            assertEquals(0.0F, pattern.pushVariance(),
+                    pattern + " keeps its pieces in the plane but was given a push through it");
+            for (int seed : seeds()) {
+                for (RiftShatter.Shard shard : RiftShatter.fracture(seed, pattern)) {
+                    assertEquals(0.0F, shard.push(),
+                            "a piece of " + pattern + " was thrown out of the aperture's plane");
+                }
+            }
+        }
+    }
+
+    /**
+     * Locks in the claim {@code RiftShatter}'s class doc makes: the parameter-less overloads are
+     * exactly {@link RiftShatter.Pattern#GLASS}, not merely something that looks like it.
+     */
+    @Test
+    void thePatternlessOverloadsAreExactlyGlass() {
+        for (int seed : seeds()) {
+            assertEquals(java.util.Arrays.toString(RiftShatter.crackAngles(seed)),
+                    java.util.Arrays.toString(RiftShatter.crackAngles(seed, RiftShatter.Pattern.GLASS)));
+            assertEquals(java.util.Arrays.toString(RiftShatter.ringRadii(seed)),
+                    java.util.Arrays.toString(RiftShatter.ringRadii(seed, RiftShatter.Pattern.GLASS)));
+            assertArrayEquals(RiftShatter.fracture(seed), RiftShatter.fracture(seed, RiftShatter.Pattern.GLASS));
+        }
+    }
+
+    private static void assertArrayEquals(RiftShatter.Shard[] expected, RiftShatter.Shard[] actual) {
+        assertEquals(expected.length, actual.length);
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], actual[i], "shard " + i + " differs");
+        }
     }
 }

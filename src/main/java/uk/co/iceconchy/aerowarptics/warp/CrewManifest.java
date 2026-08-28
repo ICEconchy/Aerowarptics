@@ -14,6 +14,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
 
@@ -58,9 +59,26 @@ public final class CrewManifest {
      *
      * <p>Long enough to cover a drive that dies at the crossing and a hull that is still coasting to
      * a stop, short enough that a warp which fails completely stops following anybody around within a
-     * few seconds.
+     * few seconds. Configurable because a very large hull may take more than the old fixed value to
+     * settle, and a manifest that expires while the ship is still coasting leaves its crew behind.
      */
-    private static final int GRACE_TICKS = 200;
+    /** Default grace period when the config is not loaded, e.g. during unit tests. */
+    static final int DEFAULT_GRACE_TICKS = 600;
+
+    /**
+     * How long a booking outlives the last refresh.
+     *
+     * <p>Falls back to the default when the config is not loaded, which is the case during unit
+     * tests. The actual value comes from {@link AWConfig#MANIFEST_GRACE_TICKS}.
+     */
+    public static int graceTicks() {
+        try {
+            return AWConfig.MANIFEST_GRACE_TICKS.get();
+        } catch (IllegalStateException e) {
+            // Config not loaded yet - happens in unit tests.
+            return DEFAULT_GRACE_TICKS;
+        }
+    }
 
     /**
      * How far from their seat somebody has to be before they are put back.
@@ -74,7 +92,7 @@ public final class CrewManifest {
     private static final class Booking {
         private final ResourceKey<Level> dimension;
         private final Map<UUID, Vec3> seats = new HashMap<>();
-        private int ticksLeft = GRACE_TICKS;
+        private int ticksLeft = graceTicks();
 
         private Booking(ResourceKey<Level> dimension) {
             this.dimension = dimension;
@@ -91,7 +109,7 @@ public final class CrewManifest {
     public static void board(Airship airship) {
         Booking booking = BOOKINGS.computeIfAbsent(airship.uuid(),
                 id -> new Booking(airship.level().dimension()));
-        booking.ticksLeft = GRACE_TICKS;
+        booking.ticksLeft = graceTicks();
         record(airship, booking);
     }
 
@@ -106,7 +124,7 @@ public final class CrewManifest {
         if (booking == null) {
             return;
         }
-        booking.ticksLeft = GRACE_TICKS;
+        booking.ticksLeft = graceTicks();
         record(airship, booking);
     }
 
@@ -136,9 +154,6 @@ public final class CrewManifest {
         return blocks > ADRIFT;
     }
 
-    public static int graceTicks() {
-        return GRACE_TICKS;
-    }
 
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
@@ -187,7 +202,11 @@ public final class CrewManifest {
                 continue;
             }
             if (player.level() != level) {
-                continue; // somewhere this manifest has no say over
+                // The player is in another dimension - perhaps through a portal or a dimension
+                // change during the warp. Do not remove them from the booking: if they return
+                // to this dimension before the grace period expires, the manifest will catch
+                // them. Removing them was the silent loss that left crew stranded.
+                continue;
             }
             Vec3 belongs = airship.toWorld(seat.getValue());
             if (!adrift(player.position().distanceTo(belongs))) {

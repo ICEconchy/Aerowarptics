@@ -29,11 +29,40 @@ draws stress, and needs a minimum RPM before it will charge at all.
 
 Every number is a config default, not a constant.
 
+It is built as a **tesseract**: a cage the size of the block with a second, smaller cage inside it,
+joined corner to corner by eight diagonals. The rift hangs in the middle of the inner cage, with two
+toothed rings turning around it on crossed axes like the rings of an armillary sphere. The harder the
+drive is driven the faster everything turns, and the rift grows as the charge builds — so a drive
+that's ready to go looks it from across a hangar.
+
 The drive's screen is a **diagnostic panel and nothing else**: speed against requirement, stress,
 charge, hull mass, bow setting, and a checklist of everything a jump still needs, in the order the
 server checks them. There is no destination list and no launch button — a drive is a machine, not a
 control. You set a course at a chart table and fire it with a redstone signal. What the console is for
 is answering *"why has this not gone anywhere"*, which it does by naming the condition that is missing.
+
+A **Rift Modulator** bolted beside the drive lets its pilot choose the rift's core and rim colour, its
+theme and its intensity instead of the tier's own — sixteen swatches each (left click for the core,
+right click for the rim), blended across the aperture's face rather than one flat tint, five themes, a
+25%–200% strength dial, applied to the aperture, the corridor and the exit shockwave. It runs on a
+trickle of Rift Essence spent only while the drive is actually warping, and falls back to the tier's own
+colours the moment it runs dry or is taken away.
+
+**A theme is geometry, not a palette.** Each changes what stands around the aperture for its whole
+life, how it winds up before the hole exists, and how the pane comes apart:
+
+- **Standard** — struck glass. Unchanged.
+- **Clockwork** — a toothed ring gear with three counter-rotating satellites meshing outside it, and a
+  working clock face with hands across the aperture. Opens as an iris: ten blades sweep aside.
+- **Arcane** — twenty-four written glyphs circling the rim and a seven-pointed figure inscribed on the
+  face. The circle is drawn, charged, and discharged inward.
+- **Ember** — a mouth. Fangs bite inward over the rim and breathe; seven eyes watch from outside it,
+  blinking on their own timers, pupils following you as you move.
+- **Starlight** — three orbits genuinely tilted out of the aperture's plane, carrying ring bands and
+  four planets that pass behind the rift and are hidden by it.
+
+All of it is drawn in the colours the pilot picked, untinted — themes separate themselves by shape and
+motion, never by overriding a chosen hue.
 
 ### Warp Anchor
 
@@ -84,9 +113,28 @@ bigger machine.
 the size of the doorway — and the gate at the other end needs nothing but to exist. A destination gate
 is a doorway you build at a mine and walk away from. A gate standing dark draws no stress at all.
 
+A connected gate fills its ring with **Rift Portal**: a pane of shimmering violet that stands in the
+world like a nether portal, lights the room around it, and takes the shape of whatever ring you built.
+Walk into it and the gate does the rest.
+
 Two gates are rarely the same size or the same way round, so a crossing is carried over as a
 **fraction of the opening** and a **rotation** of everything else: enter the top left of a large gate
 and you leave by the top left of a small one, with momentum and facing turned to match.
+
+### Rift Fissure
+
+**Not every rift was opened on purpose.**
+
+Ruins generate in the overworld where somebody's gate went wrong: a broken ring in a paved yard, a
+sunken vault, a survey mast on a hill. Standing in one of them, invisible, is a **Rift Fissure** — a
+tear that never closed, still leaking Rift Essence into an empty room.
+
+You will walk through one and never know. **Rift Infused Goggles** are the only way to see it: Create's
+goggles with a rift-ground lens, so they read every machine the engineer's pair does and show the one
+thing nothing else will. Put them on and the tear shatters into view in front of you.
+
+Stand a **Spatial Siphon** beside it and the fissure empties into it, closing visibly as it goes —
+several times what one vessel holds, so bring pipes. When it is spent it seals over for good.
 
 ### Spatial Siphon
 
@@ -121,11 +169,11 @@ there is no ground to fall to — is handed their momentum back and put in their
 None of the above is discoverable on its own, so there are four ways in:
 
 - **The Navigator's Handbook** — an in-game book with its own screen, and the only one of these four
-  that walks the whole thing start to finish. Eight chapters, sixteen pages, an animated diagram on
-  every one, ribbons along the top to jump by, and pages that turn like pages.
+  that walks the whole thing start to finish. Nine chapters, twenty pages, an animated diagram on
+  most of them, ribbons along the top to jump by, and pages that turn like pages.
 - **Ponder scenes** — hold **[W]** over any item in this mod for a scene in the same window Create
-  uses for its own. Seven of them, in two chapters: *Warp Travel* and *Rift Gates*.
-- **13 advancements** on one tree, which double as the progression the mod otherwise only implies —
+  uses for its own. Twelve of them, in two chapters: *Warp Travel* and *Rift Gates*.
+- **20 advancements** on one tree, which double as the progression the mod otherwise only implies —
   from your first Rift Core to a two-thousand-block haul, a jump to somewhere nobody has been, and
   taking a vehicle through a gate.
 - **JEI information pages** on every item, covering the part JEI cannot work out from a recipe: that a

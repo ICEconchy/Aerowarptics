@@ -29,6 +29,7 @@ public final class AWSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> WARP_FAILED = register("warp_failed");
     public static final DeferredHolder<SoundEvent, SoundEvent> DRIVE_COOLDOWN = register("drive_cooldown");
     public static final DeferredHolder<SoundEvent, SoundEvent> ANCHOR_CONFIGURED = register("anchor_configured");
+    public static final DeferredHolder<SoundEvent, SoundEvent> WARP_SCATTER = register("warp_scatter");
 
     private AWSounds() {
     }

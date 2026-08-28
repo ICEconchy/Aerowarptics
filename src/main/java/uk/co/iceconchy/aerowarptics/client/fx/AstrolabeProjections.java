@@ -117,8 +117,12 @@ public final class AstrolabeProjections {
             // at the pose the hull is being drawn at this frame rather than the one it will tick to,
             // or the chart lags the table it is standing on by up to a tick of the ship's travel.
             Pose3dc pose = TerrainHologram.poseOf(level, table.getBlockPos(), partialTick);
-            Vec3 centre = TerrainHologram.centreOf(table.getBlockPos(), pose);
-            projection.hologram.refresh(level, centre, gameTime);
+            // The middle of the whole table, not of the block holding its state. A table is anchored
+            // by its lowest corner, so on anything but a one-by-one those are different places and
+            // the map would hang off one edge.
+            double offset = (table.size() - 1) * 0.5D;
+            Vec3 centre = TerrainHologram.centreOf(table.getBlockPos(), offset, pose);
+            projection.hologram(table.size()).refresh(level, centre, gameTime);
             float alpha = Math.min(1.0F, ++projection.age / FADE_TICKS) * 0.8F;
 
             poseStack.pushPose();
@@ -135,7 +139,7 @@ public final class AstrolabeProjections {
             // Clearance above the tabletop, measured up the table rather than up the world. centre is
             // the middle of the block, so it starts half a block below the base.
             poseStack.translate(0.0D, PROJECTION_HEIGHT - 0.5D, 0.0D);
-            projection.hologram.render(poseStack, buffer, sweep, alpha, centre);
+            projection.hologram(table.size()).render(poseStack, buffer, sweep, alpha, centre);
             poseStack.popPose();
             drew = true;
         }
@@ -146,8 +150,24 @@ public final class AstrolabeProjections {
     }
 
     private static final class Projection {
-        private final TerrainHologram hologram = new TerrainHologram();
+        private TerrainHologram hologram;
+        private int builtFor;
         private long seenAt;
         private int age;
+
+        /**
+         * This table's map, rebuilt if the table has been resized under it.
+         *
+         * <p>A hologram sizes its own buffers once, from the table it belongs to, so growing a
+         * two-by-two into a three-by-three has to produce a new one rather than a bigger picture
+         * drawn into a smaller grid.
+         */
+        private TerrainHologram hologram(int size) {
+            if (hologram == null || builtFor != size) {
+                hologram = new TerrainHologram(size);
+                builtFor = size;
+            }
+            return hologram;
+        }
     }
 }

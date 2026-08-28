@@ -438,7 +438,7 @@ public class RiftProbeBlockEntity extends SmartBlockEntity implements IHaveGoggl
     @Override
     public boolean addToGoggleTooltip(List<Component> tooltip, boolean isPlayerSneaking) {
         AWLang.translate("gui.goggles.rift_probe").forGoggles(tooltip);
-        AWLang.translate("gui.rift_probe.essence", tank.getFluidAmount(), CAPACITY)
+        AWLang.translate("gui.rift_probe.essence", AWLang.count(tank.getFluidAmount()), AWLang.count(CAPACITY))
                 .style(ChatFormatting.GRAY)
                 .forGoggles(tooltip, 1);
         AWLang.translate("gui.rift_probe.aim",

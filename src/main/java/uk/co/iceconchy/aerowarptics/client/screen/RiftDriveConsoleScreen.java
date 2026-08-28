@@ -190,10 +190,10 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
                 String.format("%.0f su", data.stressImpact()), AWScreenStyle.VALUE);
         line = AWScreenStyle.readout(graphics, font, left, line, width,
                 AWLang.translate("gui.rift_navigation.range").component(),
-                AWLang.distance(data.maximumRange()) + " m", AWScreenStyle.VALUE);
+                AWLang.distance(data.maximumRange()), AWScreenStyle.VALUE);
         line = AWScreenStyle.readout(graphics, font, left, line, width,
                 AWLang.translate("gui.rift_drive.mass").component(),
-                AWLang.distance(data.airshipMass()), AWScreenStyle.VALUE);
+                AWLang.count(data.airshipMass()), AWScreenStyle.VALUE);
         line = AWScreenStyle.readout(graphics, font, left, line, width,
                 AWLang.translate("gui.rift_navigation.charge").component(),
                 AWLang.percent(data.charge()),
@@ -254,34 +254,40 @@ public class RiftDriveConsoleScreen extends AbstractSimiScreen {
         return y + 10;
     }
 
+    /**
+     * The one bar band: spin-up while the drive is winding up, charge the rest of the time.
+     *
+     * <p>They share a band rather than having one each because they are never both worth showing. A
+     * drive only reaches {@code STABILIZING} once it is fully charged, so the charge bar this replaces
+     * is a full bar that has stopped being the answer to anything - and the readouts panel is still
+     * carrying the charge as a number besides.
+     */
     private void renderBars(GuiGraphics graphics, RiftDriveState state, float partialTicks) {
-        Rect chargeRect = LAYOUT.charge();
-        int left = guiLeft + chargeRect.x();
-        int width = chargeRect.width();
+        Rect band = LAYOUT.bar();
+        int left = guiLeft + band.x();
+        int width = band.width();
+        int caption = guiTop + band.y();
+        int bar = caption + 10;
+
+        if (state == RiftDriveState.STABILIZING) {
+            graphics.drawString(font, AWLang.translate("gui.rift_drive.spin").component(),
+                    left, caption, AWScreenStyle.LABEL, false);
+            AWScreenStyle.workingBar(graphics, left, bar, width, AWLayouts.BAR,
+                    spin.get(partialTicks), AWScreenStyle.ACCENT, ticksOpen + partialTicks);
+            return;
+        }
 
         graphics.drawString(font, AWLang.translate("gui.rift_navigation.charge").component(),
-                left, guiTop + chargeRect.y(), AWScreenStyle.LABEL, false);
-        int chargeBar = guiTop + chargeRect.y() + 10;
-
+                left, caption, AWScreenStyle.LABEL, false);
         boolean full = data.charge() >= 1.0F;
         int chargeColour = full ? AWScreenStyle.OK : AWScreenStyle.WARN;
         if (full) {
-            AWScreenStyle.bar(graphics, left, chargeBar, width, AWLayouts.BAR,
+            AWScreenStyle.bar(graphics, left, bar, width, AWLayouts.BAR,
                     charge.get(partialTicks), chargeColour);
         } else {
             // A travelling highlight while it fills, so the bar reads as working rather than stuck.
-            AWScreenStyle.workingBar(graphics, left, chargeBar, width, AWLayouts.BAR,
+            AWScreenStyle.workingBar(graphics, left, bar, width, AWLayouts.BAR,
                     charge.get(partialTicks), chargeColour, ticksOpen + partialTicks);
-        }
-
-        // The spin-up bar only means anything while the drive is winding up, and showing an empty one
-        // the rest of the time would read as a second thing that is not ready.
-        Rect spinRect = LAYOUT.spin();
-        if (state == RiftDriveState.STABILIZING) {
-            graphics.drawString(font, AWLang.translate("gui.rift_drive.spin").component(),
-                    left, guiTop + spinRect.y(), AWScreenStyle.LABEL, false);
-            AWScreenStyle.workingBar(graphics, left, guiTop + spinRect.y() + 10, width, AWLayouts.BAR,
-                    spin.get(partialTicks), AWScreenStyle.ACCENT, ticksOpen + partialTicks);
         }
     }
 

@@ -40,6 +40,14 @@ def gate_travel(**conditions):
     return {"trigger": f"{MOD}:gate_travel", "conditions": conditions}
 
 
+def fissure_closed(**conditions):
+    return {"trigger": f"{MOD}:fissure_closed", "conditions": conditions}
+
+
+def ship_summoned(**conditions):
+    return {"trigger": f"{MOD}:ship_summoned", "conditions": conditions}
+
+
 DRIVES = [f"{MOD}:rift_drive_mk_i", f"{MOD}:rift_drive_mk_ii",
           f"{MOD}:rift_drive_mk_iii", f"{MOD}:rift_drive_singularity"]
 
@@ -50,6 +58,12 @@ TREE = {
         "Folding Space",
         "Craft a Rift Core, and stop treating the distance between two places as a fact",
         {"rift_core": has_item(f"{MOD}:rift_core")},
+    ),
+    "handbook": (
+        "root", f"{MOD}:handbook", "task",
+        "Ship's Papers",
+        "Craft the Navigator's Handbook, and read how the rest of this is meant to go together",
+        {"handbook": has_item(f"{MOD}:handbook")},
     ),
     "warp_anchor": (
         "root", f"{MOD}:warp_anchor", "task",
@@ -105,11 +119,41 @@ TREE = {
         "Obtain a Rift Probe, and stop being limited to places you have already walked",
         {"rift_probe": has_item(f"{MOD}:rift_probe")},
     ),
+    "rift_modulator": (
+        "rift_drive", f"{MOD}:rift_modulator", "task",
+        "House Colours",
+        "Obtain a Rift Modulator, and stop flying whatever colour your tier happened to come in",
+        {"rift_modulator": has_item(f"{MOD}:rift_modulator")},
+    ),
     "blind_jump": (
         "rift_probe", f"{MOD}:rift_probe", "challenge",
         "Nobody Has Been Here",
         "Warp to a fix a Rift Probe found, rather than to an anchor somebody placed",
         {"blind": warped(fix=True)},
+    ),
+    "rift_goggles": (
+        "root", f"{MOD}:rift_goggles", "task",
+        "Second Sight",
+        "Craft Rift Infused Goggles. There is something in this world that nothing else will show you",
+        {"rift_goggles": has_item(f"{MOD}:rift_goggles")},
+    ),
+    "fissure_closed": (
+        "rift_goggles", f"{MOD}:spatial_siphon", "goal",
+        "Sealed Over",
+        "Empty a Rift Fissure with a Spatial Siphon, and be there when it closes for good",
+        {"closed": fissure_closed()},
+    ),
+    "rift_beacon": (
+        "first_warp", f"{MOD}:rift_beacon", "task",
+        "Whistle For It",
+        "Obtain a Rift Beacon, and stop having to be aboard a ship to command it",
+        {"rift_beacon": has_item(f"{MOD}:rift_beacon")},
+    ),
+    "ship_summoned": (
+        "rift_beacon", f"{MOD}:rift_beacon", "goal",
+        "Come About",
+        "Call a bound airship down to the ground you are pointing at",
+        {"summoned": ship_summoned()},
     ),
     "rift_gate": (
         "root", f"{MOD}:rift_gate", "task",

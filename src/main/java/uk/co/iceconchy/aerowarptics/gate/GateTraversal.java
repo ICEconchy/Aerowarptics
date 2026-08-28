@@ -73,6 +73,26 @@ public final class GateTraversal {
     }
 
     /**
+     * A horizontal unit vector pointing the way a given yaw faces.
+     *
+     * <p>The inverse of {@link #yawOfDirection}, and the pair exist for the same reason
+     * {@link #rotateDirection} does: something that only has a world-space yaw or a world-space
+     * direction to give still needs to be turned by a rotation defined purely in another frame - a
+     * gate's own local one, on a hull that may be facing any way at all rather than one of the four
+     * this class otherwise only ever turns between. Round-tripping either one is a no-op; that is
+     * what {@code GateTraversalTest} pins.
+     */
+    public static Vec3 directionOfYaw(float yaw) {
+        float radians = yaw * Mth.DEG_TO_RAD;
+        return new Vec3(-Mth.sin(radians), 0.0D, Mth.cos(radians));
+    }
+
+    /** The yaw a horizontal direction faces. Only the X and Z of {@code direction} matter. */
+    public static float yawOfDirection(Vec3 direction) {
+        return (float) (Mth.atan2(-direction.x, direction.z) * Mth.RAD_TO_DEG);
+    }
+
+    /**
      * A traveller's arrival at the far gate.
      *
      * @param position where they come out

@@ -3,6 +3,7 @@ package uk.co.iceconchy.aerowarptics.registry;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
+import net.minecraft.world.level.material.PushReaction;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -12,8 +13,11 @@ import uk.co.iceconchy.aerowarptics.chute.RiftChuteBlock;
 import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlock;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlock;
+import uk.co.iceconchy.aerowarptics.fissure.RiftFissureBlock;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateBlock;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateFrameBlock;
+import uk.co.iceconchy.aerowarptics.gate.RiftPortalBlock;
+import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlock;
 import uk.co.iceconchy.aerowarptics.probe.RiftProbeBlock;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 
@@ -55,6 +59,24 @@ public final class AWBlocks {
                     .requiresCorrectToolForDrops()));
 
     /**
+     * A Rift Fissure: a tear that generates in the world rather than being opened by a machine.
+     *
+     * <p>Strong as bedrock and drops nothing, because there is no sensible thing for a pickaxe to do
+     * to a hole in space. The only way to be rid of one in survival is to empty it with a Spatial
+     * Siphon, which is the point of it. No light, either - a glow in an empty room would say exactly
+     * where the invisible thing is, to a player with no goggles on.
+     */
+    public static final DeferredBlock<RiftFissureBlock> RIFT_FISSURE = BLOCKS.register("rift_fissure",
+            () -> new RiftFissureBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.NONE)
+                    .strength(-1.0F, 3_600_000.0F)
+                    .sound(SoundType.EMPTY)
+                    .noCollission()
+                    .noOcclusion()
+                    .noLootTable()
+                    .pushReaction(PushReaction.BLOCK)));
+
+    /**
      * A block of gate frame.
      *
      * <p>Inert on purpose. The frame of a gate is a wall, and forty blocks of wall do not need forty
@@ -67,6 +89,31 @@ public final class AWBlocks {
                     .sound(SoundType.COPPER)
                     .lightLevel(state -> 3)
                     .requiresCorrectToolForDrops()));
+
+    /**
+     * The pane that stands in a gate's opening while it is connected.
+     *
+     * <p>Placed by the gate and by nothing else - no item, no recipe, nothing that drops - and as
+     * hard as bedrock for the same reason a Nether portal is: there is nothing sensible for a pickaxe
+     * to do to a hole in space, and the way to be rid of one is to shut the gate holding it. It lights
+     * itself brightly, because a doorway across a dark hangar should be the thing you can see; and it
+     * has no collision, because walking into it is the entire point. It dims a little while it is
+     * opening or closing - see {@link RiftPortalBlock#STAGE} - because it is not fully there yet.
+     *
+     * <p>Random ticks are on so a pane orphaned by a ring broken in an unloaded chunk can notice and
+     * take itself away. See {@link RiftPortalBlock}.
+     */
+    public static final DeferredBlock<RiftPortalBlock> RIFT_PORTAL = BLOCKS.register("rift_portal",
+            () -> new RiftPortalBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_PURPLE)
+                    .strength(-1.0F, 3_600_000.0F)
+                    .sound(SoundType.GLASS)
+                    .lightLevel(RiftPortalBlock::stageLight)
+                    .noCollission()
+                    .noOcclusion()
+                    .noLootTable()
+                    .randomTicks()
+                    .pushReaction(PushReaction.BLOCK)));
 
     /** The one piece of the ring that thinks. Counts as frame, so it may sit anywhere in the circle. */
     public static final DeferredBlock<RiftGateBlock> RIFT_GATE = BLOCKS.register("rift_gate",
@@ -108,6 +155,20 @@ public final class AWBlocks {
                     .noOcclusion()
                     .requiresCorrectToolForDrops()));
 
+    /**
+     * The Rift Modulator: a cosmetic module a pilot bolts beside a Rift Drive to dress the rift it
+     * tears. No light of its own - like the chute, the light in the block is the lens the renderer
+     * draws, and a block that glowed the same whether or not it was actually linked and fuelled would
+     * be lying about which state it was in.
+     */
+    public static final DeferredBlock<RiftModulatorBlock> RIFT_MODULATOR = BLOCKS.register("rift_modulator",
+            () -> new RiftModulatorBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_PURPLE)
+                    .strength(2.5F, 6.0F)
+                    .sound(SoundType.COPPER)
+                    .noOcclusion()
+                    .requiresCorrectToolForDrops()));
+
     public static final DeferredBlock<WarpAnchorBlock> WARP_ANCHOR = BLOCKS.register("warp_anchor",
             () -> new WarpAnchorBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.TERRACOTTA_LIGHT_BLUE)
@@ -121,7 +182,9 @@ public final class AWBlocks {
         for (RiftDriveTier tier : RiftDriveTier.values()) {
             RIFT_DRIVES.put(tier, BLOCKS.register(tier.blockName(),
                     () -> new RiftDriveBlock(BlockBehaviour.Properties.of()
-                            .mapColor(MapColor.COLOR_ORANGE)
+                            // Purple with the rest of them now the drive is a cage rather than a
+                            // brass box; orange was the colour of the housing it no longer has.
+                            .mapColor(MapColor.COLOR_PURPLE)
                             .strength(4.0F, 10.0F)
                             .sound(SoundType.COPPER)
                             .lightLevel(state -> 5)

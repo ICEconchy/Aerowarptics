@@ -46,23 +46,6 @@ final class ClientRuntime {
         PacketDistributor.sendToServer(ServerboundAstrolabePacket.open(tablePos));
     }
 
-    /**
-     * The colour a gate's aperture burns.
-     *
-     * <p>Its own, rather than any drive tier's. A doorway standing in a field is not the same thing as
-     * a ship's drive tearing one open, and telling them apart at a glance is worth one constant.
-     */
-    private static final int GATE_COLOUR = 0xA24BFF;
-
-    /**
-     * Ticks a gate's aperture takes to shatter open.
-     *
-     * <p>A constant rather than the server's dial time. This decides how long a piece of animation
-     * runs and nothing else, and a client reading a server setting to find out is a coin toss over a
-     * number that does not matter.
-     */
-    private static final int GATE_OPEN_TICKS = 40;
-
     static void requestGateDial(net.minecraft.core.BlockPos gatePos) {
         PacketDistributor.sendToServer(ServerboundGatePacket.open(gatePos));
     }
@@ -109,6 +92,22 @@ final class ClientRuntime {
         ScreenOpener.open(new uk.co.iceconchy.aerowarptics.client.screen.RiftChuteScreen(packet));
     }
 
+    static void requestModulatorPanel(net.minecraft.core.BlockPos modulatorPos) {
+        PacketDistributor.sendToServer(
+                uk.co.iceconchy.aerowarptics.network.ServerboundModulatorPacket.open(modulatorPos));
+    }
+
+    static void acceptModulatorPanel(
+            uk.co.iceconchy.aerowarptics.network.ClientboundModulatorPanelPacket packet) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.screen instanceof uk.co.iceconchy.aerowarptics.client.screen.RiftModulatorScreen open
+                && open.matches(packet.modulatorPos())) {
+            open.accept(packet);
+            return;
+        }
+        ScreenOpener.open(new uk.co.iceconchy.aerowarptics.client.screen.RiftModulatorScreen(packet));
+    }
+
     static void acceptProbeReading(uk.co.iceconchy.aerowarptics.network.ClientboundProbeReadingPacket packet) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.screen instanceof uk.co.iceconchy.aerowarptics.client.screen.RiftProbeScreen open
@@ -121,20 +120,15 @@ final class ClientRuntime {
      * Whether a block entity is actually in the world the player is looking at.
      *
      * <p>Ponder runs scenes in a level of its own, and the block entities in it tick like any other -
-     * so a Rift Gate sitting in a scene would otherwise ask for an aperture, and get one drawn in the
-     * real world at the scene's coordinates. Ambient effects are for the world; a scene draws itself.
+     * so a Rift Chute sitting in a scene would otherwise ask for an aperture, and get one drawn in
+     * the real world at the scene's coordinates. Ambient effects are for the world; a scene draws
+     * itself.
      */
     private static boolean inTheWorld(net.minecraft.world.level.block.entity.BlockEntity block) {
         return block.getLevel() != null && block.getLevel() == Minecraft.getInstance().level;
     }
 
-    /**
-     * Keeps a gate's aperture standing.
-     *
-     * <p>Held rather than opened once, so it survives the player leaving and coming back, and closes
-     * on its own if the gate stops saying it is there. See {@code RiftEffectManager.hold}.
-     */
-    /** Colour of a chute's aperture. The same violet a gate tears, so the family reads. */
+    /** Colour of a chute's aperture. The same violet the gates are lit in, so the family reads. */
     private static final int CHUTE_COLOUR = 0xA24BFF;
 
     /** Ticks a chute's aperture takes to shatter open - the same break a gate's does. */
@@ -146,8 +140,8 @@ final class ClientRuntime {
     /**
      * Holds a Rift Chute's aperture open, and turns it to face the viewer.
      *
-     * <p>The same aperture a Rift Gate tears, down to the shatter and the seal - a chute is a small
-     * hole in space and there is no reason for it to break differently from a large one. It is
+     * <p>The same aperture an airship flies through, down to the shatter and the seal - a chute is a
+     * small hole in space and there is no reason for it to break differently from a large one. It is
      * billboarded rather than fixed, because the housing is open on all four sides and a pane with a
      * fixed normal would be edge-on and invisible from half of them.
      */
@@ -172,53 +166,6 @@ final class ClientRuntime {
         RiftEffectManager.hold(holder, centre, toViewer.normalize(),
                 CHUTE_RADIUS, CHUTE_RADIUS, CHUTE_COLOUR, CHUTE_OPEN_TICKS);
         RiftEffectManager.aim(holder, toViewer.normalize());
-    }
-
-    /** How many angles a gate's aperture is shaped by. Fine enough to follow one block's edge. */
-    private static final int GATE_PROFILE_STEPS = 192;
-
-    /**
-     * Samples a gate opening's reach at each angle, for {@code RiftEffectManager.shapeTo}.
-     *
-     * <p>Recomputed each tick rather than cached. It is ninety-six marches over a mask of at most two
-     * hundred cells, which is nothing beside what the aperture costs to draw, and caching it would
-     * mean noticing when a ring is rebuilt into a different shape.
-     */
-    private static float[] profileOf(uk.co.iceconchy.aerowarptics.gate.RiftGateShape shape) {
-        float[] profile = new float[GATE_PROFILE_STEPS];
-        for (int step = 0; step < GATE_PROFILE_STEPS; step++) {
-            double angle = step * (Math.PI * 2.0D) / GATE_PROFILE_STEPS;
-            profile[step] = (float) shape.reachAt(angle);
-        }
-        return profile;
-    }
-
-    static void tickGateAperture(uk.co.iceconchy.aerowarptics.gate.RiftGateBlockEntity gate) {
-        if (!inTheWorld(gate)) {
-            return;
-        }
-        long holder = gate.getBlockPos().asLong();
-        uk.co.iceconchy.aerowarptics.gate.RiftGateShape shape = gate.shape();
-        if (shape == null || !gate.state().hasAperture()) {
-            RiftEffectManager.release(holder);
-            return;
-        }
-        if (gate.state() == uk.co.iceconchy.aerowarptics.gate.RiftGateState.CLOSING) {
-            // The gate's closing state is the animation, not the pause before it. Holding the
-            // aperture open through it and letting go afterwards left the hole standing at full size
-            // for a second and then shrinking, which reads as a gate that shuts a beat late.
-            RiftEffectManager.seal(holder);
-            return;
-        }
-        net.minecraft.world.phys.Vec3 normal =
-                shape.normal() == net.minecraft.core.Direction.Axis.X
-                        ? new net.minecraft.world.phys.Vec3(1.0D, 0.0D, 0.0D)
-                        : new net.minecraft.world.phys.Vec3(0.0D, 0.0D, 1.0D);
-        RiftEffectManager.hold(holder, shape.centre(), normal, shape.halfWidth(), shape.halfHeight(),
-                GATE_COLOUR, GATE_OPEN_TICKS);
-        // Bend the aperture to the opening. A ring is flood filled, so its hole is very often not a
-        // rectangle, and an ellipse fitted to the bounding box hangs straight through the frame.
-        RiftEffectManager.shapeTo(holder, profileOf(shape));
     }
 
     static void openWarpAnchorScreen(WarpAnchorBlockEntity anchor) {
@@ -262,6 +209,76 @@ final class ClientRuntime {
             return;
         }
         WarpEffects.tickDrive(drive);
+    }
+
+    /**
+     * The colour a fissure burns.
+     *
+     * <p>Deeper than a gate's, and dimmer. A gate is a doorway somebody built and lit; a fissure is
+     * an old wound in the same fabric, and it should read as the thing the machines were reverse
+     * engineered from rather than as another machine.
+     */
+    private static final int FISSURE_COLOUR = 0x8B4FE0;
+
+    /** Half-width of a fissure's tear at full size, in blocks. */
+    private static final double FISSURE_RADIUS = 1.15D;
+
+    /** Ticks a fissure's tear takes to shatter into view when the goggles go on. */
+    private static final int FISSURE_OPEN_TICKS = 26;
+
+    static void tickFissure(uk.co.iceconchy.aerowarptics.fissure.RiftFissureBlockEntity fissure) {
+        if (!inTheWorld(fissure)) {
+            return;
+        }
+        long holder = fissure.getBlockPos().asLong();
+        Minecraft minecraft = Minecraft.getInstance();
+        if (fissure.isSealing()) {
+            RiftEffectManager.seal(holder);
+            return;
+        }
+        if (!uk.co.iceconchy.aerowarptics.fissure.RiftGogglesItem.isWorn(minecraft.player)) {
+            // Not sealed and not released: simply stop renewing it. A held aperture nobody is
+            // renewing collapses on its own after a moment, so taking the goggles off closes the
+            // tear rather than deleting it - and putting them straight back on catches it before it
+            // has gone anywhere.
+            return;
+        }
+        net.minecraft.world.phys.Vec3 centre =
+                net.minecraft.world.phys.Vec3.atCenterOf(fissure.getBlockPos());
+        net.minecraft.world.phys.Vec3 toViewer =
+                minecraft.gameRenderer.getMainCamera().getPosition().subtract(centre);
+        if (toViewer.lengthSqr() < 1.0e-6D) {
+            toViewer = new net.minecraft.world.phys.Vec3(0.0D, 0.0D, 1.0D);
+        }
+        // Facing the camera, for the same reason a chute's does: a fissure hangs in the middle of a
+        // room with nothing to say which way it ought to lie, and a fixed plane would be edge-on and
+        // invisible from half the places a player can stand.
+        double radius = FISSURE_RADIUS * Math.max(0.05F, fissure.openness());
+        RiftEffectManager.hold(holder, centre, toViewer.normalize(), radius, radius,
+                FISSURE_COLOUR, FISSURE_OPEN_TICKS);
+        RiftEffectManager.aim(holder, toViewer.normalize());
+    }
+
+    /** Whether this client's own player is wearing the rift-infused lens. */
+    static boolean seesFissures() {
+        return uk.co.iceconchy.aerowarptics.fissure.RiftGogglesItem.isWorn(Minecraft.getInstance().player);
+    }
+
+    static void animateFissure(net.minecraft.world.level.Level level,
+                               net.minecraft.core.BlockPos pos,
+                               net.minecraft.util.RandomSource random) {
+        if (!seesFissures()) {
+            return;
+        }
+        for (int spark = 0; spark < 2; spark++) {
+            level.addParticle(uk.co.iceconchy.aerowarptics.registry.AWParticles.RIFT_SPARK.get(),
+                    pos.getX() + 0.5D + (random.nextDouble() - 0.5D) * 2.2D,
+                    pos.getY() + 0.5D + (random.nextDouble() - 0.5D) * 2.2D,
+                    pos.getZ() + 0.5D + (random.nextDouble() - 0.5D) * 2.2D,
+                    (random.nextDouble() - 0.5D) * 0.02D,
+                    (random.nextDouble() - 0.5D) * 0.02D,
+                    (random.nextDouble() - 0.5D) * 0.02D);
+        }
     }
 
     static void openHandbook() {

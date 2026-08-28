@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " G ",
+    "GLG",
+    " C "
+  ],
+  "key": {
+    "G": {
+      "item": "create:brass_sheet"
+    },
+    "L": {
+      "item": "aerowarptics:rift_lens"
+    },
+    "C": {
+      "item": "aerowarptics:rift_core"
+    }
+  },
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_beacon"
+  }
+}

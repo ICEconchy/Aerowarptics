@@ -9,6 +9,8 @@ import uk.co.iceconchy.aerowarptics.network.ClientboundAstrolabeChartPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundDriveConsolePacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundGateDialPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpEffectPacket;
+import uk.co.iceconchy.aerowarptics.client.fx.SummonBeacons;
+import uk.co.iceconchy.aerowarptics.network.ClientboundRiftBeaconPacket;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 
 /**
@@ -85,6 +87,20 @@ public final class AWClientHooks {
         }
     }
 
+    /** A player clicked a Rift Modulator. */
+    public static void requestModulatorPanel(net.minecraft.core.BlockPos modulatorPos) {
+        if (client()) {
+            ClientRuntime.requestModulatorPanel(modulatorPos);
+        }
+    }
+
+    public static void acceptModulatorPanel(
+            uk.co.iceconchy.aerowarptics.network.ClientboundModulatorPanelPacket packet) {
+        if (client()) {
+            ClientRuntime.acceptModulatorPanel(packet);
+        }
+    }
+
     public static void acceptProbeReading(
             uk.co.iceconchy.aerowarptics.network.ClientboundProbeReadingPacket packet) {
         if (client()) {
@@ -102,13 +118,6 @@ public final class AWClientHooks {
     public static void acceptGateDial(ClientboundGateDialPacket packet) {
         if (client()) {
             ClientRuntime.acceptGateDial(packet);
-        }
-    }
-
-    /** Ambient gate visuals, driven from the gate's own client tick. */
-    public static void tickGateAperture(uk.co.iceconchy.aerowarptics.gate.RiftGateBlockEntity gate) {
-        if (client()) {
-            ClientRuntime.tickGateAperture(gate);
         }
     }
 
@@ -163,11 +172,53 @@ public final class AWClientHooks {
     }
 
     /**
+     * Keeps a Rift Fissure's tear alive on the client, from the fissure's own client tick.
+     *
+     * <p>Nothing is sent from the server to make a fissure visible. Whether a player can see one is a
+     * fact about what is on their head, which is a question only their own client can answer - and
+     * answering it here rather than server-side is also what stops a fissure's position being
+     * broadcast to a client that has no business knowing it is there.
+     */
+    public static void tickFissure(uk.co.iceconchy.aerowarptics.fissure.RiftFissureBlockEntity fissure) {
+        if (client()) {
+            ClientRuntime.tickFissure(fissure);
+        }
+    }
+
+    /** Ambient sparks around a fissure, drawn only for a player wearing the goggles. */
+    public static void animateFissure(net.minecraft.world.level.Level level,
+                                      net.minecraft.core.BlockPos pos,
+                                      net.minecraft.util.RandomSource random) {
+        if (client()) {
+            ClientRuntime.animateFissure(level, pos, random);
+        }
+    }
+
+    /**
+     * Whether the player at this client is looking through a rift-infused lens.
+     *
+     * <p>Asked by a fissure before it says anything to a goggle tooltip. Create offers that tooltip to
+     * anyone wearing <em>any</em> registered goggles, an engineer's plain pair included, so a fissure
+     * has to check for itself which lens is being worn - the tear, its sparks and its hit box all
+     * already do, and the readout was the one place that did not.
+     */
+    public static boolean seesFissures() {
+        return client() && ClientRuntime.seesFissures();
+    }
+
+    /**
      * A player has read the Navigator's Handbook.
      *
      * <p>The only entry point here with no packet behind it: the book says the same thing on every
      * world, so there is nothing for the server to answer with.
      */
+    /** Lights the beam and throws the shockwave where a ship has just been called. */
+    public static void markSummon(ClientboundRiftBeaconPacket packet) {
+        if (client()) {
+            SummonBeacons.mark(packet);
+        }
+    }
+
     public static void openHandbook() {
         if (client()) {
             ClientRuntime.openHandbook();

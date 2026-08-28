@@ -1,0 +1,22 @@
+{
+  "variants": {
+    "axis=x,stage=opening": {
+      "model": "aerowarptics:block/rift_portal_ns_opening"
+    },
+    "axis=x,stage=open": {
+      "model": "aerowarptics:block/rift_portal_ns"
+    },
+    "axis=x,stage=closing": {
+      "model": "aerowarptics:block/rift_portal_ns_closing"
+    },
+    "axis=z,stage=opening": {
+      "model": "aerowarptics:block/rift_portal_ew_opening"
+    },
+    "axis=z,stage=open": {
+      "model": "aerowarptics:block/rift_portal_ew"
+    },
+    "axis=z,stage=closing": {
+      "model": "aerowarptics:block/rift_portal_ew_closing"
+    }
+  }
+}

@@ -1,6 +1,3 @@
 {
-  "parent": "minecraft:item/generated",
-  "textures": {
-    "layer0": "aerowarptics:item/astrolabe"
-  }
+  "parent": "aerowarptics:block/astrolabe"
 }

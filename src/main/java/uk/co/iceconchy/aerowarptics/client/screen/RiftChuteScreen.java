@@ -282,14 +282,14 @@ public class RiftChuteScreen extends AbstractSimiScreen {
         int line = top + 15;
         line = AWScreenStyle.readout(graphics, font, left, line, width,
                 AWLang.translate("gui.rift_chute.cost").component(),
-                data.costPerItem() + " mB", AWScreenStyle.VALUE);
+                AWLang.essence(data.costPerItem()), AWScreenStyle.VALUE);
 
         // The essence bar, captioned above it the way the console's bars are.
         graphics.drawString(font, AWLang.translate("gui.rift_chute.supply").component(),
                 left, line + 4, AWScreenStyle.LABEL, false);
         AWScreenStyle.bar(graphics, left, line + 15, width, AWLayouts.BAR,
                 fill.get(partialTicks), AWScreenStyle.ACCENT);
-        graphics.drawString(font, data.essence() + " / " + data.capacity() + " mB",
+        graphics.drawString(font, AWLang.essence(data.essence(), data.capacity()),
                 left, line + 23, AWScreenStyle.LABEL, false);
 
         // The most important line on the screen: why nothing is moving.

@@ -596,7 +596,7 @@ public class RiftChuteBlockEntity extends SmartBlockEntity
         AWLang.translate("gui.goggles.rift_chute").forGoggles(tooltip);
         AWLang.translate(riftOpen ? "gui.rift_chute.rift_open" : "gui.rift_chute.rift_collapsed")
                 .style(riftOpen ? ChatFormatting.GRAY : ChatFormatting.RED).forGoggles(tooltip, 1);
-        AWLang.translate("gui.rift_chute.essence", tank.getFluidAmount(), CAPACITY)
+        AWLang.translate("gui.rift_chute.essence", AWLang.count(tank.getFluidAmount()), AWLang.count(CAPACITY))
                 .style(ChatFormatting.GRAY).forGoggles(tooltip, 1);
         return true;
     }

@@ -14,6 +14,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import org.joml.Matrix4f;
+import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeStructure;
 import uk.co.iceconchy.aerowarptics.astrolabe.TerrainPalette;
 
 /**
@@ -30,20 +31,20 @@ import uk.co.iceconchy.aerowarptics.astrolabe.TerrainPalette;
  * you cannot recognise is not a map of anywhere.
  *
  * <p>Sampling is cached and rebuilt only when the ship has actually gone somewhere. A table on a
- * moving hull would otherwise re-read six thousand heightmap columns every frame, which is a lot of
+ * moving hull would otherwise re-read thousands of heightmap columns every frame, which is a lot of
  * work to produce a picture that has not changed.
  */
 @OnlyIn(Dist.CLIENT)
 public final class TerrainHologram {
 
-    /** Samples across the projection, one per block. */
-    private static final int CELLS = 80;
+    /** Samples across a full-sized projection, one per block. Smaller tables chart proportionally less. */
+    private static final int FULL_CELLS = 80;
 
     /** Blocks between samples. One: this is a map, not a mosaic. */
     private static final int STEP = 1;
 
-    /** How wide the projection is drawn, in blocks. A little inside the table it sits on. */
-    private static final float SPAN = 2.6F;
+    /** How wide a full-sized projection is drawn, in blocks. A little inside the table it sits on. */
+    private static final float FULL_SPAN = 2.6F;
 
     /** Vertical range of terrain the projection can express, in blocks either side of the ship. */
     private static final float RELIEF_RANGE = 48.0F;
@@ -61,7 +62,7 @@ public final class TerrainHologram {
      * so a range centred on the ship's own altitude would hang almost entirely downwards, and the
      * bottom of it would be inside the table.
      */
-    private static final float RELIEF_HEIGHT = 0.85F;
+    private static final float FULL_RELIEF_HEIGHT = 0.85F;
 
     /** Blocks of terrain a step has to drop before it is drawn as a cliff face rather than a slope. */
     private static final int CLIFF = 2;
@@ -76,7 +77,7 @@ public final class TerrainHologram {
      * Ticks a rebuild has to wait however far the ship has gone.
      *
      * <p>Distance alone is not a floor. A hull in a warp corridor covers nine blocks a tick, which
-     * without this would mean resampling six thousand columns every single frame of the one part of
+     * without this would mean resampling every column every single frame of the one part of
      * the journey where nobody can see the table anyway.
      */
     private static final int MIN_REBUILD_TICKS = 10;
@@ -91,7 +92,7 @@ public final class TerrainHologram {
      * enough. Past the limit the terrain goes back to being dragged along, which is wrong but is at
      * least still on the table.
      */
-    private static final float MAX_SHIFT = 0.3F;
+    private static final float FULL_MAX_SHIFT = 0.3F;
 
     /** Rows either side of the scan line that are lifted as it passes. */
     private static final int BAND = 3;
@@ -102,11 +103,45 @@ public final class TerrainHologram {
     /** How far towards that tint. Light: the map has to survive being tinted. */
     private static final float TINT_STRENGTH = 0.16F;
 
-    private final int[] colours = new int[CELLS * CELLS];
-    private final float[] heights = new float[CELLS * CELLS];
-    private final int[] surface = new int[CELLS * CELLS];
-    private final byte[] palette = new byte[CELLS * CELLS];
-    private final int[] depth = new int[CELLS * CELLS];
+    /**
+     * How much of a full-sized table this one is: 1/3, 2/3 or 1.
+     *
+     * <p>Everything about the picture scales by it together - how far it is thrown, how much ground
+     * it covers, and how tall its relief stands. Scaling the span without the sample count would
+     * give a small table the same landscape drawn smaller, which is a worse map rather than a
+     * smaller one; scaling both keeps a block of ground the same size on every table, so the only
+     * thing a bigger table buys is more of it.
+     */
+    private final float scale;
+
+    private final int cells;
+    private final float span;
+    private final float reliefHeight;
+    private final float maxShift;
+
+    private final int[] colours;
+    private final float[] heights;
+    private final int[] surface;
+    private final byte[] palette;
+    private final int[] depth;
+
+    /**
+     * @param size blocks along a side of the table drawing this, 1 to
+     *             {@link uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeStructure#MAX_SIZE}
+     */
+    public TerrainHologram(int size) {
+        this.scale = Mth.clamp(size, 1, AstrolabeStructure.MAX_SIZE)
+                / (float) AstrolabeStructure.MAX_SIZE;
+        this.cells = Math.max(8, Math.round(FULL_CELLS * scale));
+        this.span = FULL_SPAN * scale;
+        this.reliefHeight = FULL_RELIEF_HEIGHT * scale;
+        this.maxShift = FULL_MAX_SHIFT * scale;
+        this.colours = new int[cells * cells];
+        this.heights = new float[cells * cells];
+        this.surface = new int[cells * cells];
+        this.palette = new byte[cells * cells];
+        this.depth = new int[cells * cells];
+    }
 
     private boolean built;
     private long builtAt = Long.MIN_VALUE;
@@ -136,8 +171,8 @@ public final class TerrainHologram {
         builtAround = centre;
         built = true;
 
-        originX = Mth.floor(centre.x) - CELLS * STEP / 2;
-        originZ = Mth.floor(centre.z) - CELLS * STEP / 2;
+        originX = Mth.floor(centre.x) - cells * STEP / 2;
+        originZ = Mth.floor(centre.z) - cells * STEP / 2;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
         // Chunk presence is checked once per chunk rather than once per sample.
@@ -147,10 +182,10 @@ public final class TerrainHologram {
 
         // Heights first, colours second. Shading a cell needs its northern neighbour's height, and on
         // the row where one chunk meets the next that neighbour has not been read yet.
-        for (int row = 0; row < CELLS; row++) {
+        for (int row = 0; row < cells; row++) {
             int worldZ = originZ + row * STEP;
-            for (int column = 0; column < CELLS; column++) {
-                int index = row * CELLS + column;
+            for (int column = 0; column < cells; column++) {
+                int index = row * cells + column;
                 int worldX = originX + column * STEP;
                 int chunkX = worldX >> 4;
                 int chunkZ = worldZ >> 4;
@@ -174,16 +209,16 @@ public final class TerrainHologram {
             }
         }
 
-        for (int row = 0; row < CELLS; row++) {
-            for (int column = 0; column < CELLS; column++) {
-                int index = row * CELLS + column;
+        for (int row = 0; row < cells; row++) {
+            for (int column = 0; column < cells; column++) {
+                int index = row * cells + column;
                 if (surface[index] == TerrainPalette.UNKNOWN_SURFACE) {
                     colours[index] = 0;
                     heights[index] = 0.0F;
                     continue;
                 }
                 MapColor colour = MapColor.byId(palette[index] & 0xFF);
-                int north = row > 0 ? surface[index - CELLS] : TerrainPalette.UNKNOWN_SURFACE;
+                int north = row > 0 ? surface[index - cells] : TerrainPalette.UNKNOWN_SURFACE;
                 MapColor.Brightness brightness = colour == MapColor.WATER
                         ? TerrainPalette.depth(depth[index], column, row)
                         : TerrainPalette.slope(surface[index], north, STEP, column, row);
@@ -217,8 +252,8 @@ public final class TerrainHologram {
             return;
         }
         Matrix4f matrix = poseStack.last().pose();
-        float cell = SPAN / CELLS;
-        int scanRow = Mth.clamp((int) (sweep * CELLS), 0, CELLS - 1);
+        float cell = span / cells;
+        int scanRow = Mth.clamp((int) (sweep * cells), 0, cells - 1);
 
         // Where the samples belong relative to where the table is now.
         //
@@ -228,21 +263,21 @@ public final class TerrainHologram {
         // which on a moving ship is most of what "the map jitters" was. Offsetting by the distance the
         // table has travelled since the samples were taken pins the terrain to the ground it was read
         // off, so the ship slides across its own chart and a rebuild changes nothing anybody can see.
-        float shiftX = Mth.clamp((float) (originX + CELLS * STEP / 2.0D - centre.x) * cell / STEP,
-                -MAX_SHIFT, MAX_SHIFT);
-        float shiftZ = Mth.clamp((float) (originZ + CELLS * STEP / 2.0D - centre.z) * cell / STEP,
-                -MAX_SHIFT, MAX_SHIFT);
-        float half = SPAN / 2.0F;
+        float shiftX = Mth.clamp((float) (originX + cells * STEP / 2.0D - centre.x) * cell / STEP,
+                -maxShift, maxShift);
+        float shiftZ = Mth.clamp((float) (originZ + cells * STEP / 2.0D - centre.z) * cell / STEP,
+                -maxShift, maxShift);
+        float half = span / 2.0F;
 
-        for (int row = 0; row < CELLS; row++) {
+        for (int row = 0; row < cells; row++) {
             // The scan line brightens a band as it passes, which is the whole of what stops a static
             // relief from looking like a painted model. Worked out per row rather than per cell.
             int fromScan = Math.abs(row - scanRow);
             float lift = fromScan > BAND ? 0.0F : 0.4F * (1.0F - fromScan / (float) (BAND + 1));
             float faceAlpha = alpha * (0.78F + lift * 0.22F);
 
-            for (int column = 0; column < CELLS; column++) {
-                int index = row * CELLS + column;
+            for (int column = 0; column < cells; column++) {
+                int index = row * cells + column;
                 int colour = colours[index];
                 if (colour == 0) {
                     continue;
@@ -257,14 +292,14 @@ public final class TerrainHologram {
                 // tiles at different heights with a hole between them. Only for a real step: at one
                 // sample a block the ordinary slope of a hillside is every cell, and filling those
                 // in would triple the geometry to draw something the shading already says.
-                if (column + 1 < CELLS && colours[index + 1] != 0
+                if (column + 1 < cells && colours[index + 1] != 0
                         && surface[index] - surface[index + 1] >= CLIFF) {
                     skirtX(matrix, buffer, x0 + cell, y, elevation(heights[index + 1]), z0, cell,
                             withAlpha(colour, alpha * 0.5F));
                 }
-                if (row + 1 < CELLS && colours[index + CELLS] != 0
-                        && surface[index] - surface[index + CELLS] >= CLIFF) {
-                    skirtZ(matrix, buffer, x0, y, elevation(heights[index + CELLS]), z0 + cell, cell,
+                if (row + 1 < cells && colours[index + cells] != 0
+                        && surface[index] - surface[index + cells] >= CLIFF) {
+                    skirtZ(matrix, buffer, x0, y, elevation(heights[index + cells]), z0 + cell, cell,
                             withAlpha(colour, alpha * 0.5F));
                 }
             }
@@ -274,19 +309,19 @@ public final class TerrainHologram {
         // cells rather than left at one, because one cell is now a single block and invisible.
         // Deliberately not shifted with the terrain: this one is the table, which is the origin.
         float mote = cell * 3.0F;
-        int here = (CELLS / 2) * CELLS + CELLS / 2;
-        quad(matrix, buffer, -mote * 0.5F, elevation(heights[here]) + RELIEF_HEIGHT * 0.03F,
+        int here = (cells / 2) * cells + cells / 2;
+        quad(matrix, buffer, -mote * 0.5F, elevation(heights[here]) + reliefHeight * 0.03F,
                 -mote * 0.5F, mote, withAlpha(0xFFFFFF, alpha));
     }
 
     /**
      * A sampled height, 0..1 from the bottom of the projection.
      *
-     * <p>The whole relief therefore sits between the projection's origin and one {@code RELIEF_HEIGHT}
+     * <p>The whole relief therefore sits between the projection's origin and one {@code reliefHeight}
      * above it, which is what keeps the low ground out of the tabletop it is floating over.
      */
-    private static float elevation(float normalised) {
-        return (normalised * 0.5F + 0.5F) * RELIEF_HEIGHT;
+    private float elevation(float normalised) {
+        return (normalised * 0.5F + 0.5F) * reliefHeight;
     }
 
     private static void quad(Matrix4f matrix, VertexConsumer buffer, float x, float y, float z,
@@ -346,9 +381,17 @@ public final class TerrainHologram {
         return subLevel == null ? null : subLevel.logicalPose();
     }
 
-    /** Where a block is in the world under a given pose - the middle of it, as the maps expect. */
-    public static Vec3 centreOf(BlockPos pos, Pose3dc pose) {
-        Vec3 local = Vec3.atCenterOf(pos);
+    /**
+     * Where a table's middle is in the world.
+     *
+     * <p>The offset is applied before the pose rather than after, because it is a distance measured
+     * across the table - and on a hull that is pitched or turned, "half a block that way" means
+     * something different in the ship's frame than it does in the world's.
+     *
+     * @param offset blocks from the anchoring cell to the middle of the table, along both axes
+     */
+    public static Vec3 centreOf(BlockPos pos, double offset, Pose3dc pose) {
+        Vec3 local = Vec3.atCenterOf(pos).add(offset, 0.0D, offset);
         return pose == null ? local : pose.transformPosition(local);
     }
 }

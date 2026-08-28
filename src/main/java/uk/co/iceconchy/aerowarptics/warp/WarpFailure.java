@@ -51,7 +51,18 @@ public enum WarpFailure implements StringRepresentable {
     /** The sequence was interrupted, typically by a server restart. */
     INTERRUPTED("interrupted"),
     /** Sable rejected the move. */
-    RELOCATION_FAILED("relocation_failed");
+    RELOCATION_FAILED("relocation_failed"),
+
+    /**
+     * A Rift Beacon was used before it had been pointed at a drive.
+     *
+     * <p>Appended rather than filed with the other refusals on purpose: these are sent by ordinal
+     * over the wire, so inserting a constant anywhere but the end renames every reason after it on
+     * any client that has not updated in step.
+     */
+    BEACON_UNBOUND("beacon_unbound"),
+    /** A Rift Beacon's drive is no longer where it was bound, or its plot is not loaded. */
+    BEACON_DRIVE_MISSING("beacon_drive_missing");
 
     private final String name;
 
@@ -78,7 +89,8 @@ public enum WarpFailure implements StringRepresentable {
         return switch (this) {
             case NONE, INSUFFICIENT_POWER, INSUFFICIENT_CHARGE, DRIVE_BUSY, NO_AIRSHIP,
                  ANCHOR_MISSING, ANCHOR_DISABLED, ANCHOR_FORBIDDEN, DESTINATION_TOO_CLOSE,
-                 DESTINATION_TOO_FAR, DIMENSION_UNSUPPORTED, UNAUTHORISED, AIRSHIP_ALREADY_WARPING -> false;
+                 DESTINATION_TOO_FAR, DIMENSION_UNSUPPORTED, UNAUTHORISED, AIRSHIP_ALREADY_WARPING,
+                 BEACON_UNBOUND, BEACON_DRIVE_MISSING -> false;
             default -> true;
         };
     }

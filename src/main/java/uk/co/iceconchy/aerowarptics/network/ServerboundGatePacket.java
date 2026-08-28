@@ -118,13 +118,22 @@ public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target
      * <p>The reach bound is deliberately generous and deliberately cheap. It exists to stop a client
      * driving a gate on the far side of the world, not to be the authority on who may dial what -
      * that authority is the destination's, and it is applied when a connection is actually struck.
+     *
+     * <p>A gate aboard an airship lives in a plot chunk whose coordinates have nothing to do with the
+     * player's, so the cheap bound is only applied to one on the ground - the same reason every other
+     * machine that can ride a hull skips it too. Without this, a gate built on any sub-level never
+     * opened its dial panel at all: the distance came back enormous and every request was refused
+     * before the packet handler ever looked at the gate.
      */
     private static RiftGateBlockEntity resolve(ServerPlayer player, ServerLevel level, BlockPos pos) {
         if (!level.isLoaded(pos) || !(level.getBlockEntity(pos) instanceof RiftGateBlockEntity gate)) {
             return null;
         }
         double reach = AWConfig.MAX_INTERACTION_DISTANCE.get() + 16.0D;
-        return player.blockPosition().distSqr(pos) > reach * reach ? null : gate;
+        if (gate.airship() == null && player.blockPosition().distSqr(pos) > reach * reach) {
+            return null;
+        }
+        return gate;
     }
 
     /** Only the owner may rename a gate, and only to a name nothing else has taken. */

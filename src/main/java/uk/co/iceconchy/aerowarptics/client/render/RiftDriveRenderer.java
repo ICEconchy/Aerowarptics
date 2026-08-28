@@ -2,7 +2,9 @@ package uk.co.iceconchy.aerowarptics.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.core.Direction;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.neoforged.api.distmarker.Dist;
@@ -20,15 +22,30 @@ import uk.co.iceconchy.aerowarptics.drive.RiftDriveState;
  * <p>Animation selection happens in the block entity, from state the server sent; this renderer only
  * adds the state-driven colour and the full-bright core so the machine glows harder as it charges.
  *
- * <p>It also aims the bow needle. That is done here rather than in an animation because the setting
- * is a fixed quarter turn rather than a movement, and because the block entity already eases the
- * angle for the swing - the renderer just reads it off.
+ * <p>Two things are posed here rather than animated, for the same reason: a clip loops, and neither
+ * of these is a loop. The bow needle is a setting - a fixed quarter turn, already eased by the block
+ * entity, which the renderer just reads off. The rift's size is a reading: it grows with the charge,
+ * so a drive at a third full and a drive ready to go look different from across a hangar, which no
+ * amount of playing the charging clip faster can say.
  */
 @OnlyIn(Dist.CLIENT)
 public class RiftDriveRenderer extends GeoBlockRenderer<RiftDriveBlockEntity> {
 
     private static final int FULL_BRIGHT = 0xF0_00F0;
     private static final String NEEDLE_BONE = "needle";
+    private static final String CORE_BONE = "core";
+
+    /**
+     * How large the rift is ever drawn, as a multiple of the modelled knot.
+     *
+     * <p>Shared with {@code tools/rift_drive_model.py}, which allows the core this much room when it
+     * checks that nothing in the model passes through anything else. Raising it here without raising
+     * it there puts the rift through the gear that is supposed to be turning around it.
+     */
+    private static final float MAX_CORE_SCALE = 1.5F;
+
+    /** Half a block, in the units GeckoLib's block renderer works in. See {@link #rotateBlock}. */
+    private static final double HALF_BLOCK = 0.5D;
 
     private float red = 1.0F;
     private float green = 1.0F;
@@ -37,6 +54,39 @@ public class RiftDriveRenderer extends GeoBlockRenderer<RiftDriveBlockEntity> {
 
     public RiftDriveRenderer() {
         super(new RiftDriveModel());
+    }
+
+    /**
+     * Turns the model to match the block's facing, about the middle of the block rather than the
+     * floor of it.
+     *
+     * <p>GeckoLib rotates about the origin its own {@code preRender} sets up, which is the centre of
+     * the block's <em>base</em> &mdash; {@code translate(0.5, 0, 0.5)}. That is right for the four
+     * horizontal facings, which only ever spin about the vertical axis through that point, and wrong
+     * for the two vertical ones. This model stands on its base plate and reaches fifteen pixels up,
+     * so tipping it a quarter turn about the floor swings it clean out of its own block: half sinks
+     * below the ground and the rest lands in the neighbour.
+     *
+     * <p>That is the drive that "sometimes comes out rotated". A {@code DirectionalKineticBlock}
+     * takes all six facings, and placing one while looking down at the ground sets {@code FACING} to
+     * {@code UP} &mdash; Create's ordinary behaviour, and correct, because the shaft enters along the
+     * axis the drive faces. Nothing about the placement is wrong; it simply has to draw as a drive
+     * lying on its back, and it did not.
+     *
+     * <p>Lifting the origin half a block, turning, and dropping it back puts the pivot at the block's
+     * centre, where a quarter turn keeps every part of the model inside the block it belongs to.
+     */
+    @Override
+    protected void rotateBlock(Direction facing, PoseStack poseStack) {
+        if (facing.getAxis().isHorizontal()) {
+            super.rotateBlock(facing, poseStack);
+            return;
+        }
+        poseStack.translate(0.0D, HALF_BLOCK, 0.0D);
+        poseStack.mulPose(facing == Direction.UP
+                ? Axis.XP.rotationDegrees(90.0F)
+                : Axis.XN.rotationDegrees(90.0F));
+        poseStack.translate(0.0D, -HALF_BLOCK, 0.0D);
     }
 
     @Override
@@ -51,6 +101,13 @@ public class RiftDriveRenderer extends GeoBlockRenderer<RiftDriveBlockEntity> {
         // The needle is aimed after the animation pass has written the bone's rotation, so it is
         // not overwritten. GeckoLib turns bones anticlockwise, which the heading already accounts for.
         model.getBone(NEEDLE_BONE).ifPresent(bone -> bone.setRotY(animatable.needleAngle(partialTick)));
+
+        float coreScale = coreScale(animatable, partialTick);
+        model.getBone(CORE_BONE).ifPresent(bone -> {
+            bone.setScaleX(coreScale);
+            bone.setScaleY(coreScale);
+            bone.setScaleZ(coreScale);
+        });
 
         intensity = switch (state) {
             case IDLE -> 0.25F;
@@ -82,12 +139,34 @@ public class RiftDriveRenderer extends GeoBlockRenderer<RiftDriveBlockEntity> {
     }
 
     /**
-     * Only the core is lit from the state colour. The gimbal rings are machined brass and are meant
-     * to read as metal catching the core's light, so lighting them too would flatten the machine into
-     * a lamp. The needle is lit separately, at a fixed brightness.
+     * How big the rift in the middle of the tesseract is drawn, this frame.
+     *
+     * <p>A drive with no charge in it still has a rift - a seed of one, the machine idling - and a
+     * charged drive has one straining against the bars of the inner cage. Everything between is the
+     * charge itself, which is the one number a pilot wants to read off the machine rather than out of
+     * a screen.
+     */
+    private static float coreScale(RiftDriveBlockEntity drive, float partialTick) {
+        float scale = switch (drive.state()) {
+            case IDLE -> 0.3F;
+            case CHARGING -> 0.3F + drive.chargePartial(partialTick) * 0.9F;
+            case CHARGED -> 1.3F;
+            case DESTINATION_SELECTED, STABILIZING -> 1.3F + drive.sequenceProgress() * 0.2F;
+            case WARPING -> MAX_CORE_SCALE;
+            case ARRIVING -> MAX_CORE_SCALE - drive.sequenceProgress() * 0.7F;
+            case COOLDOWN -> 0.8F - drive.sequenceProgress() * 0.5F;
+            case ERROR -> 0.35F;
+        };
+        return Math.min(scale, MAX_CORE_SCALE);
+    }
+
+    /**
+     * Only the core is lit from the state colour. The gears and the two cages are machined metal and
+     * are meant to read as metal catching the rift's light, so lighting them too would flatten the
+     * machine into a lamp. The needle is lit separately, at a fixed brightness.
      */
     private static boolean isGlowingBone(String name) {
-        return "core".equals(name);
+        return CORE_BONE.equals(name);
     }
 
     private int packColour() {

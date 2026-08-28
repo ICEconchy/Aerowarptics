@@ -67,8 +67,8 @@ public class AstrolabeBlock extends Block implements IBE<AstrolabeBlockEntity> {
 
     @Override
     protected RenderShape getRenderShape(BlockState state) {
-        // A formed table is one model spanning nine blocks, drawn by the centre's renderer. A loose
-        // panel is an ordinary baked model, so it still looks like something in a player's hand.
+        // A formed table is one model spanning its whole footprint, drawn by the origin's renderer.
+        // A loose panel is an ordinary baked model, so it still looks like something in a hand.
         return state.getValue(FORMED) ? RenderShape.ENTITYBLOCK_ANIMATED : RenderShape.MODEL;
     }
 
@@ -85,48 +85,84 @@ public class AstrolabeBlock extends Block implements IBE<AstrolabeBlockEntity> {
     @Override
     protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
         if (!level.isClientSide && !newState.is(this)) {
-            // Any table this cell was part of is now nine-minus-one blocks, which is not a table.
-            for (BlockPos candidate : AstrolabeStructure.cells(pos)) {
-                if (level.getBlockEntity(candidate) instanceof AstrolabeBlockEntity centre && centre.isMaster()) {
-                    unform(level, candidate);
+            // Any table this cell was part of is now short a block, which is not that table any more.
+            for (BlockPos candidate : AstrolabeStructure.neighbourhood(pos)) {
+                if (level.getBlockEntity(candidate) instanceof AstrolabeBlockEntity origin
+                        && origin.isMaster() && origin.table().covers(pos)) {
+                    unform(level, origin.table());
                 }
             }
         }
         IBE.onRemove(state, level, pos, newState);
         super.onRemove(state, level, pos, newState, movedByPiston);
+
+        // What is left may still be a table, just a smaller one - break a corner off a three by
+        // three and the remaining eight blocks hold a perfectly good two by two. Re-formed after the
+        // removal has actually happened, so the search sees the hole rather than the block that was
+        // about to leave.
+        if (!level.isClientSide && !newState.is(this)) {
+            for (BlockPos candidate : AstrolabeStructure.neighbourhood(pos)) {
+                tryForm(level, candidate);
+            }
+        }
     }
 
     /**
-     * Forms the table this block completes, if it completes one.
+     * Forms the largest table this block completes, if it completes one.
      *
-     * <p>Only loose cells are considered eligible, so a new block laid alongside a finished table
-     * cannot steal cells out of it and leave a hole where a working table used to be.
+     * <p>A cell may be built in when it is loose, or when it belongs to a table that would sit
+     * <em>wholly inside</em> the one being formed. That second case is what lets a table grow: a
+     * single block is already a working one-by-one, so without it a player could never build up to a
+     * two-by-two, because every block they laid would have formed a table of its own first.
+     *
+     * <p>What it still refuses is stealing. A cell belonging to a table that pokes outside the
+     * candidate is off limits, so laying blocks beside a finished table cannot dismantle it and leave
+     * a hole where somebody's chart used to be.
      */
     private static void tryForm(Level level, BlockPos placed) {
-        BlockPos centre = AstrolabeStructure.findCentre(placed, pos -> isLooseCell(level, pos));
-        if (centre == null) {
+        if (!(level.getBlockState(placed).is(AWBlocks.ASTROLABE.get()))) {
             return;
         }
-        for (BlockPos cell : AstrolabeStructure.cells(centre)) {
-            level.setBlock(cell, level.getBlockState(cell).setValue(FORMED, true), Block.UPDATE_ALL);
-            if (level.getBlockEntity(cell) instanceof AstrolabeBlockEntity be) {
-                be.setMaster(centre);
+        // Walked here rather than through a single predicate, because whether a cell may join
+        // depends on which table is being considered - a cell belonging to a one-by-one is fair game
+        // for the three-by-three around it and off limits to a two-by-two beside it.
+        AstrolabeStructure.Table table = null;
+        for (AstrolabeStructure.Table option : AstrolabeStructure.candidates(placed)) {
+            if (AstrolabeStructure.isComplete(option, cell -> canJoin(level, cell, option))) {
+                table = option;
+                break;
             }
         }
-        level.playSound(null, centre, net.minecraft.sounds.SoundEvents.BEACON_ACTIVATE,
+        if (table == null) {
+            return;
+        }
+        // Absorb whatever smaller tables were inside this one before claiming their cells.
+        for (BlockPos cell : table.cells()) {
+            if (level.getBlockEntity(cell) instanceof AstrolabeBlockEntity be && be.isFormed()
+                    && !be.table().equals(table)) {
+                unform(level, be.table());
+            }
+        }
+        for (BlockPos cell : table.cells()) {
+            level.setBlock(cell, level.getBlockState(cell).setValue(FORMED, true), Block.UPDATE_ALL);
+            if (level.getBlockEntity(cell) instanceof AstrolabeBlockEntity be) {
+                be.setMaster(table.origin(), table.size());
+            }
+        }
+        level.playSound(null, table.origin(), net.minecraft.sounds.SoundEvents.BEACON_ACTIVATE,
                 net.minecraft.sounds.SoundSource.BLOCKS, 0.5F, 1.6F);
     }
 
-    /** Breaks the table centred here back into loose cells. */
-    private static void unform(Level level, BlockPos centre) {
-        for (BlockPos cell : AstrolabeStructure.cells(centre)) {
+    /** Breaks a table back into loose cells. */
+    private static void unform(Level level, AstrolabeStructure.Table table) {
+        for (BlockPos cell : table.cells()) {
             if (!(level.getBlockEntity(cell) instanceof AstrolabeBlockEntity be)) {
                 continue;
             }
-            if (!centre.equals(be.master())) {
+            if (!table.origin().equals(be.master())) {
                 continue;
             }
-            be.setMaster(null);
+            be.setMaster(null, 0);
             BlockState state = level.getBlockState(cell);
             if (state.hasProperty(FORMED) && state.getValue(FORMED)) {
                 level.setBlock(cell, state.setValue(FORMED, false), Block.UPDATE_ALL);
@@ -134,9 +170,18 @@ public class AstrolabeBlock extends Block implements IBE<AstrolabeBlockEntity> {
         }
     }
 
-    private static boolean isLooseCell(LevelAccessor level, BlockPos pos) {
+    /** Whether a cell may be built into the table being considered. */
+    private static boolean canJoin(LevelAccessor level, BlockPos pos, AstrolabeStructure.Table into) {
         BlockState state = level.getBlockState(pos);
-        return state.is(AWBlocks.ASTROLABE.get()) && !state.getValue(FORMED);
+        if (!state.is(AWBlocks.ASTROLABE.get())) {
+            return false;
+        }
+        if (!state.getValue(FORMED)) {
+            return true;
+        }
+        return level.getBlockEntity(pos) instanceof AstrolabeBlockEntity be
+                && be.isFormed()
+                && be.table().isInside(into);
     }
 
     // ------------------------------------------------------------ interaction

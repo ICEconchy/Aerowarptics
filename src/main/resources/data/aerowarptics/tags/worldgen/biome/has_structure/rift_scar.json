@@ -1,0 +1,23 @@
+{
+  "values": [
+    "#minecraft:is_forest",
+    "#minecraft:is_taiga",
+    "#minecraft:is_hill",
+    "#minecraft:is_mountain",
+    "#minecraft:is_badlands",
+    "#minecraft:is_savanna",
+    "#minecraft:is_jungle",
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:snowy_plains",
+    "minecraft:desert",
+    "minecraft:swamp",
+    "minecraft:mangrove_swamp",
+    "minecraft:meadow",
+    "minecraft:cherry_grove",
+    "minecraft:grove",
+    "minecraft:snowy_slopes",
+    "minecraft:stony_peaks",
+    "minecraft:stony_shore"
+  ]
+}

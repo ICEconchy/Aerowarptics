@@ -34,8 +34,7 @@ class ScreenLayoutTest {
                 panels.put("header", layout.header());
                 panels.put("readouts", layout.readouts());
                 panels.put("requirements", layout.requirements());
-                panels.put("charge", layout.charge());
-                panels.put("spin", layout.spin());
+                panels.put("bar", layout.bar());
                 panels.put("cancel", layout.cancel());
                 panels.put("heading", layout.heading());
             }
@@ -94,6 +93,14 @@ class ScreenLayoutTest {
                 panels.put("back", layout.back());
                 panels.put("forward", layout.forward());
             }
+            case "modulator" -> {
+                AWLayouts.Modulator layout = AWLayouts.modulator();
+                panels.put("header", layout.header());
+                panels.put("swatches", layout.swatches());
+                panels.put("detail", layout.detail());
+                panels.put("intensity", layout.intensity());
+                panels.put("theme", layout.theme());
+            }
             default -> throw new IllegalArgumentException(screen);
         }
         return panels;
@@ -108,12 +115,13 @@ class ScreenLayoutTest {
             case "chute" -> new int[]{AWLayouts.CHUTE_WIDTH, AWLayouts.CHUTE_HEIGHT};
             case "probe" -> new int[]{AWLayouts.PROBE_WIDTH, AWLayouts.PROBE_HEIGHT};
             case "book" -> new int[]{AWLayouts.BOOK_WIDTH, AWLayouts.BOOK_HEIGHT};
+            case "modulator" -> new int[]{AWLayouts.MODULATOR_WIDTH, AWLayouts.MODULATOR_HEIGHT};
             default -> throw new IllegalArgumentException(screen);
         };
     }
 
     private static final List<String> SCREENS =
-            List.of("console", "chart", "dial", "anchor", "probe", "chute", "book");
+            List.of("console", "chart", "dial", "anchor", "probe", "chute", "book", "modulator");
 
     /**
      * The panels drawn with a recessed frame around them.
@@ -132,7 +140,8 @@ class ScreenLayoutTest {
             "chute", List.of("list", "detail"),
             // The handbook's pages draw their own edge and the shadow they throw into the spine, so
             // they want the same clearance from each other that a recessed panel does.
-            "book", List.of("left", "right"));
+            "book", List.of("left", "right"),
+            "modulator", List.of("swatches", "detail"));
 
     private static Map<String, Rect> framedPanels(String screen) {
         Map<String, Rect> all = panels(screen);
@@ -249,15 +258,40 @@ class ScreenLayoutTest {
     @Test
     void barBandsHaveRoomForTheirCaptions() {
         AWLayouts.Console console = AWLayouts.console();
-        for (Rect band : List.of(console.charge(), console.spin())) {
+        for (Rect band : List.of(console.bar(), AWLayouts.modulator().intensity())) {
             assertTrue(band.height() >= AWLayouts.BAR_BAND,
                     "a bar band is " + band.height() + "px, too short for a caption and a bar");
             assertTrue(AWLayouts.BAR_BAND >= 10 + AWLayouts.BAR,
                     "a bar band cannot hold a line of text plus its bar");
         }
         // And the caption, drawn at the band's top, clears the panel above it.
-        assertTrue(console.charge().y() - console.readouts().bottom() >= AWLayout.INSET,
+        assertTrue(console.bar().y() - console.readouts().bottom() >= AWLayout.INSET,
                 "the charge caption would be drawn over the readouts panel");
+    }
+
+    /**
+     * The console's two panels have room for everything they draw.
+     *
+     * <p>Every other check here is about panels against each other and against the window; none of
+     * them can see what a panel puts <em>inside</em> itself, which is how the requirements panel came
+     * to be six pixels short of its own contents and drew the course name below its bottom edge. The
+     * numbers below are the same ones {@code RiftDriveConsoleScreen} lays out with, so a line added to
+     * either panel has to be accounted for here before it can overflow in the game.
+     */
+    @Test
+    void theConsolePanelsHoldWhatTheyDraw() {
+        AWLayouts.Console console = AWLayouts.console();
+
+        // readouts: six label-and-value lines, from a two-pixel inset.
+        int readouts = AWLayout.INSET + 6 * AWLayout.LINE;
+        assertTrue(console.readouts().height() >= readouts,
+                "the readouts panel is " + console.readouts().height() + "px for " + readouts + "px of lines");
+
+        // requirements: a title, a rule, six checked conditions, a rule, and the course under it.
+        int requirements = AWLayout.INSET + 10 + 5 + 6 * 10 + 2 + 5 + 8;
+        assertTrue(console.requirements().height() >= requirements,
+                "the requirements panel is " + console.requirements().height() + "px for "
+                        + requirements + "px of content - the course line would be drawn below it");
     }
 
     /**

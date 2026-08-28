@@ -6,6 +6,9 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
 
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -246,5 +249,54 @@ public final class WarpPassengers {
             entity.teleportTo(world.x, world.y, world.z);
         }
         calm(entity);
+    }
+
+    // ------------------------------------------------------------------ nbt
+
+    /**
+     * Saves remembered seats so they survive a reload.
+     *
+     * <p>A warp that is interrupted by a server restart leaves passengers who had come off the hull
+     * in mid-air with no drive tick to notice them. Persisting the seats lets the recovery path in
+     * {@code RiftDriveBlockEntity.recoverFromInterruption} put them back rather than writing them off.
+     */
+    public CompoundTag save() {
+        CompoundTag tag = new CompoundTag();
+        ListTag list = new ListTag();
+        for (Map.Entry<UUID, Vec3> seat : seats.entrySet()) {
+            CompoundTag entry = new CompoundTag();
+            entry.putLong("Most", seat.getKey().getMostSignificantBits());
+            entry.putLong("Least", seat.getKey().getLeastSignificantBits());
+            entry.putDouble("X", seat.getValue().x);
+            entry.putDouble("Y", seat.getValue().y);
+            entry.putDouble("Z", seat.getValue().z);
+            list.add(entry);
+        }
+        tag.put("Seats", list);
+        return tag;
+    }
+
+    /**
+     * Restores remembered seats from a tag saved before a reload.
+     *
+     * <p>Only useful during interrupted-warp recovery, when the hull is wherever the crossing left it
+     * and the passengers need to be put back. Once {@link #settle} runs, the map is cleared.
+     */
+    public void load(CompoundTag tag) {
+        seats.clear();
+        if (tag == null || !tag.contains("Seats")) {
+            return;
+        }
+        ListTag list = tag.getList("Seats", Tag.TAG_COMPOUND);
+        for (int i = 0; i < list.size(); i++) {
+            CompoundTag entry = list.getCompound(i);
+            UUID id = new UUID(entry.getLong("Most"), entry.getLong("Least"));
+            seats.put(id, new Vec3(entry.getDouble("X"), entry.getDouble("Y"), entry.getDouble("Z")));
+        }
+    }
+
+    /** How many seats are currently remembered. Shared with the test. */
+    public int seatCount() {
+        return seats.size();
     }
 }

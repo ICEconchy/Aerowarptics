@@ -41,7 +41,7 @@ import java.util.UUID;
 /**
  * One cell of an Astrolabe Cartography Table.
  *
- * <p>All nine cells carry one of these; only the centre does any work. The rest remember which centre
+ * <p>Every cell carries one of these; only the origin does any work. The rest remember which origin
  * they belong to and forward everything to it, which is what lets a player click any part of the table
  * and get the same chart.
  *
@@ -72,6 +72,15 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
      */
     @Nullable
     private BlockPos master;
+
+    /**
+     * Blocks along a side of the table this cell belongs to, or 0 for a loose one.
+     *
+     * <p>Carried on every cell rather than only on the origin because the client needs it to
+     * draw: the renderer is handed a block entity and has to know how big a table it is part of
+     * before it can size anything.
+     */
+    private int size;
 
     /** The course the table is pointed at. Only meaningful on the centre. */
     @Nullable
@@ -158,15 +167,17 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
     /**
      * Tells this cell which table it is part of.
      *
-     * <p>Called for all nine cells when a table forms, and with {@code null} for all nine when one
-     * comes apart, so no cell is ever left pointing at a centre that is not there any more.
+     * <p>Called for every cell when a table forms, and with {@code null} for every cell when one
+     * comes apart, so no cell is ever left pointing at an origin that is not there any more.
      */
-    public void setMaster(@Nullable BlockPos centre) {
+    public void setMaster(@Nullable BlockPos centre, int tableSize) {
         BlockPos next = centre == null ? null : centre.immutable();
-        if (Objects.equals(master, next)) {
+        int nextSize = next == null ? 0 : tableSize;
+        if (Objects.equals(master, next) && size == nextSize) {
             return;
         }
         master = next;
+        size = nextSize;
         if (!isMaster()) {
             // Only the centre holds a course. A cell demoted out of the middle of a table must not
             // keep one, or rebuilding the table one block over would resurrect an old heading.
@@ -189,7 +200,30 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
         return master != null;
     }
 
-    /** Whether this cell is the middle of its table - the one that holds the course and draws the map. */
+    /**
+     * Blocks along a side of this cell's table, or 0 when it is loose.
+     *
+     * <p>Everything visible about a table scales off this: how big its model is drawn, how much
+     * ground its projection charts, and how wide that projection is thrown.
+     */
+    public int size() {
+        return size;
+    }
+
+    /**
+     * The table this cell belongs to, or {@code null} when it is loose.
+     *
+     * <p>Rebuilt from the two fields rather than stored, so there is one place a cell's membership
+     * lives and no way for a saved record to disagree with it.
+     */
+    @Nullable
+    public AstrolabeStructure.Table table() {
+        return master == null || size < AstrolabeStructure.MIN_SIZE
+                ? null
+                : new AstrolabeStructure.Table(master, size);
+    }
+
+    /** Whether this cell is its table's origin - the one that holds the course and draws the map. */
     public boolean isMaster() {
         return master != null && master.equals(worldPosition);
     }
@@ -331,6 +365,7 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
         super.write(tag, registries, clientPacket);
         if (master != null) {
             tag.put("Master", NbtUtils.writeBlockPos(master));
+            tag.putInt("Size", size);
         }
         if (destination != null) {
             tag.putUUID("Destination", destination);
@@ -343,6 +378,9 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(tag, registries, clientPacket);
         master = tag.contains("Master") ? NbtUtils.readBlockPos(tag, "Master").orElse(null) : null;
+        // Tables saved before there was more than one size are all three by three, and a zero
+        // here would render one as nothing at all.
+        size = master == null ? 0 : Math.max(1, tag.getInt("Size"));
         destination = tag.hasUUID("Destination") ? tag.getUUID("Destination") : null;
         destinationName = tag.getString("DestinationName");
         hasDrive = tag.getBoolean("HasDrive");

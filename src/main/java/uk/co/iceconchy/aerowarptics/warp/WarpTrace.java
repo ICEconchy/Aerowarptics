@@ -172,6 +172,24 @@ public final class WarpTrace {
                 num(new Vector3d(actual).distance(intended)));
     }
 
+    /**
+     * The drive's unstable exit scattered the hull from its intended target.
+     *
+     * <p>Gated behind the trace setting like every other entry here: scatter is an expected
+     * behaviour of a Singularity, not a fault, and a server admin who has not turned on tracing
+     * does not want every unstable warp filling the log.
+     */
+    public static void scatter(BlockPos drivePos, BlockPos intended, BlockPos actual, double distance) {
+        if (!enabled()) {
+            return;
+        }
+        double offset = new Vector3d(actual.getX() - intended.getX(), 0,
+                actual.getZ() - intended.getZ()).length();
+        AeroWarptics.LOGGER.info(
+                "[warp] SCATTER drive={} offset={} blocks of {} total (intended={} scattered={})",
+                pos(drivePos), num(offset), num(distance), pos(intended), pos(actual));
+    }
+
     // ---------------------------------------------------------------- format
 
     private static String vec(Vector3dc v) {

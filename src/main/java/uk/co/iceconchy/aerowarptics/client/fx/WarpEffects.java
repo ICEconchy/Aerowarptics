@@ -15,6 +15,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveState;
+import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorTheme;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpEffectPacket;
 import uk.co.iceconchy.aerowarptics.registry.AWParticles;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
@@ -127,11 +128,22 @@ public final class WarpEffects {
 
     // ------------------------------------------------------------- one-shots
 
-    /** Tier accent colours, matching the drive's core and the rift it tears open. */
-    private static final int[] TIER_COLOURS = {0x2FA8B8, 0x49D9C4, 0xE0B04A, 0xE45CFF};
-
-    private static int tierColour(int tierIndex) {
-        return TIER_COLOURS[Math.max(0, Math.min(TIER_COLOURS.length - 1, tierIndex))];
+    /**
+     * The particle a theme reaches for in place of the standard spark.
+     *
+     * <p>This is the whole of what a Rift Modulator's theme changes about the one-shot bursts below -
+     * a different mote, at a different pace. {@link RiftModulatorTheme#STANDARD} keeps every particle
+     * exactly as an undecorated drive already draws it. {@link RiftModulatorTheme#CLOCKWORK} has no
+     * dedicated mote of its own - {@link ParticleTypes#CRIT} is vanilla's own metallic glint, and
+     * reaching for it here is cheaper than a whole new particle type for one theme.
+     */
+    private static ParticleOptions themeMote(RiftModulatorTheme theme) {
+        return switch (theme) {
+            case EMBER -> ParticleTypes.FLAME;
+            case STARLIGHT -> ParticleTypes.END_ROD;
+            case CLOCKWORK -> ParticleTypes.CRIT;
+            default -> AWParticles.RIFT_SPARK.get();
+        };
     }
 
     /**
@@ -148,32 +160,41 @@ public final class WarpEffects {
             return;
         }
         RandomSource random = level.random;
-        double scale = density();
+        // Folded into one multiplier: the player's own particleDensity setting, and this warp's own
+        // intensity - a Modulator's choice, or 1.0. Every count below reads scale and nothing else, so
+        // there is exactly one place either of those two settings can drift out of a burst.
+        double scale = density() * packet.intensityOverride();
         float tierScale = 1.0F + packet.tierIndex() * 0.25F;
-        int colour = tierColour(packet.tierIndex());
+        float shakeScale = packet.intensityOverride();
+        // Already resolved server-side: a linked, fuelled Modulator's choice, or the tier's own
+        // colour and standard look. Nothing here needs to know which of the two it got.
+        int colour = packet.colourOverride();
+        int accentColour = packet.accentColourOverride();
+        RiftModulatorTheme theme = RiftModulatorTheme.byIndex(packet.themeOverride());
 
         Vec3 driveOrigin = toWorld(level, Vec3.atCenterOf(packet.drivePos()));
         Vec3 riftCentre = packet.hasRift() ? packet.centre() : driveOrigin;
 
         switch (packet.stage()) {
             case DESTINATION_LOCK -> ring(level, driveOrigin, random, 1.2D * tierScale, (int) (24 * scale),
-                    AWParticles.RIFT_SPARK.get());
+                    themeMote(theme));
             case STABILIZING -> ring(level, driveOrigin, random, 2.0D * tierScale, (int) (40 * scale),
-                    AWParticles.RIFT_SPARK.get());
+                    themeMote(theme));
             case RIFT_OPEN -> {
                 // How long it holds is the server's business: it knows how long the run in takes and
                 // how long the hull spends inside the aperture. It is closed explicitly when the hull
                 // is done with it, so this is only a backstop against a cue going missing.
-                RiftEffectManager.open(packet, colour, 20, Math.max(60, packet.duration() + 40), 25);
+                RiftEffectManager.open(packet, colour, accentColour, theme,
+                        20, Math.max(60, packet.duration() + 40), 25);
                 aperture(level, riftCentre, packet.normal(), random,
-                        Math.max(3.0D, packet.radius() * 0.6D), (int) (140 * scale));
-                WarpScreenShake.add(0.6F);
+                        Math.max(3.0D, packet.radius() * 0.6D), (int) (140 * scale), theme);
+                WarpScreenShake.add(0.6F * shakeScale);
             }
             case RIFT_TRANSIT -> {
                 // A hull is going through. The aperture keeps the fire going off its own clock from
                 // here, so this is one packet rather than one per tick for three seconds.
                 RiftEffectManager.transit(riftCentre, packet.duration());
-                WarpScreenShake.add(0.5F);
+                WarpScreenShake.add(0.5F * shakeScale);
             }
             case RIFT_CLOSE -> RiftEffectManager.collapse(riftCentre);
             case CORRIDOR -> {
@@ -185,9 +206,10 @@ public final class WarpEffects {
             }
             case WARP_EXIT -> {
                 // The hull is all the way out of the far aperture, so the aperture is finished with.
-                shockwave(level, riftCentre, random, Math.max(4.0D, packet.radius() * 0.7D), (int) (180 * scale));
+                shockwave(level, riftCentre, random, Math.max(4.0D, packet.radius() * 0.7D),
+                        (int) (180 * scale), theme);
                 RiftEffectManager.collapse(riftCentre);
-                WarpScreenShake.add(1.0F);
+                WarpScreenShake.add(1.0F * shakeScale);
             }
             case FAILED -> {
                 for (int i = 0; i < 30 * scale; i++) {
@@ -198,6 +220,29 @@ public final class WarpEffects {
                 }
                 level.playLocalSound(driveOrigin.x, driveOrigin.y, driveOrigin.z, AWSounds.WARP_FAILED.get(),
                         SoundSource.BLOCKS, 0.9F * volume(), 0.7F, false);
+            }
+            case SCATTER -> {
+                // Outward burst of sparks — the opposite of the converging sparks during
+                // stabilisation, selling the "something went sideways" feel.
+                int count = (int) Math.max(1, 30 * scale);
+                for (int i = 0; i < count; i++) {
+                    double angle = random.nextDouble() * Math.PI * 2.0D;
+                    double pitch = (random.nextDouble() - 0.5D) * Math.PI;
+                    double x = Math.cos(angle) * Math.cos(pitch);
+                    double y = Math.sin(pitch);
+                    double z = Math.sin(angle) * Math.cos(pitch);
+                    level.addParticle(AWParticles.RIFT_SPARK.get(),
+                            driveOrigin.x + x * 0.5D, driveOrigin.y + y * 0.5D, driveOrigin.z + z * 0.5D,
+                            x * 0.15D, y * 0.15D, z * 0.15D);
+                    if (random.nextFloat() < 0.2F) {
+                        level.addParticle(ParticleTypes.ELECTRIC_SPARK,
+                                driveOrigin.x + x * 0.5D, driveOrigin.y + y * 0.5D, driveOrigin.z + z * 0.5D,
+                                jitter(random, 0.1D), jitter(random, 0.1D), jitter(random, 0.1D));
+                    }
+                }
+                WarpScreenShake.add(0.3F * shakeScale);
+                level.playLocalSound(driveOrigin.x, driveOrigin.y, driveOrigin.z,
+                        AWSounds.WARP_SCATTER.get(), SoundSource.BLOCKS, 0.9F * volume(), 1.0F, false);
             }
         }
     }
@@ -246,18 +291,29 @@ public final class WarpEffects {
      * simply is not.
      */
     private static void aperture(ClientLevel level, Vec3 centre, Vec3 normal, RandomSource random,
-                                 double radius, int count) {
-        boolean distortion = AWConfig.RIFT_DISTORTION.get();
+                                 double radius, int count, RiftModulatorTheme theme) {
+        // The distortion disc is the standard look's own texture, not a theme - a Modulator dressing
+        // the rift in something else replaces it rather than layering underneath it.
+        boolean distortion = theme == RiftModulatorTheme.STANDARD && AWConfig.RIFT_DISTORTION.get();
+        ParticleOptions mote = distortion ? ParticleTypes.PORTAL : themeMote(theme);
+        // ARCANE crackles harder than the standard look; EMBER and STARLIGHT are both quieter takes on
+        // the same tear, so the electric arcs that sell "standard" would fight their own point.
+        // CLOCKWORK has none at all - a gear grinds, it does not spark.
+        float arcChance = switch (theme) {
+            case ARCANE -> 0.3F;
+            case EMBER, STARLIGHT, CLOCKWORK -> 0.0F;
+            default -> 0.15F;
+        };
         Vector3f[] basis = planeOf(normal);
         for (int i = 0; i < count; i++) {
             double angle = random.nextDouble() * Math.PI * 2.0D;
             double r = radius * Math.sqrt(random.nextDouble());
             Vec3 offset = inPlane(basis, angle, r);
             Vec3 inward = offset.scale(-0.15D / Math.max(0.001D, r));
-            level.addParticle(distortion ? ParticleTypes.PORTAL : AWParticles.RIFT_SPARK.get(),
+            level.addParticle(mote,
                     centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
                     inward.x, inward.y, inward.z);
-            if (random.nextFloat() < 0.15F) {
+            if (arcChance > 0.0F && random.nextFloat() < arcChance) {
                 level.addParticle(ParticleTypes.ELECTRIC_SPARK,
                         centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
                         jitter(random, 0.1D), jitter(random, 0.1D), jitter(random, 0.1D));
@@ -336,16 +392,21 @@ public final class WarpEffects {
     }
 
     /** Exit burst: an outward shell plus a flash. */
-    private static void shockwave(ClientLevel level, Vec3 centre, RandomSource random, double radius, int count) {
+    private static void shockwave(ClientLevel level, Vec3 centre, RandomSource random, double radius,
+                                  int count, RiftModulatorTheme theme) {
+        ParticleOptions mote = themeMote(theme);
+        // EMBER drifts rather than shoots - it is meant to smoulder, not crack - and STARLIGHT keeps
+        // its usual sparser count from the caller rather than being thinned again here.
+        double speed = theme == RiftModulatorTheme.EMBER ? 0.03D : 0.08D;
         for (int i = 0; i < count; i++) {
             double angle = random.nextDouble() * Math.PI * 2.0D;
             double pitch = (random.nextDouble() - 0.5D) * Math.PI;
             double x = Math.cos(angle) * Math.cos(pitch);
             double y = Math.sin(pitch);
             double z = Math.sin(angle) * Math.cos(pitch);
-            level.addParticle(AWParticles.RIFT_SPARK.get(),
+            level.addParticle(mote,
                     centre.x + x * 0.5D, centre.y + y * 0.5D, centre.z + z * 0.5D,
-                    x * radius * 0.08D, y * radius * 0.08D, z * radius * 0.08D);
+                    x * radius * speed, y * radius * speed, z * radius * speed);
         }
         level.addParticle(ParticleTypes.FLASH, centre.x, centre.y, centre.z, 0.0D, 0.0D, 0.0D);
         level.playLocalSound(centre.x, centre.y, centre.z, AWSounds.WARP_EXIT.get(),

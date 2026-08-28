@@ -205,7 +205,7 @@ public final class MachineScenes {
         scene.idle(10);
 
         scene.overlay().showText(70)
-                .text("Astrolabe blocks are laid flat, in a three by three square")
+                .text("Astrolabe blocks are laid flat, in a square up to three by three")
                 .pointAt(above)
                 .placeNearTarget()
                 .attachKeyFrame();

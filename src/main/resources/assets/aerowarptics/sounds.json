@@ -144,5 +144,22 @@
         "type": "event"
       }
     ]
+  },
+  "warp_scatter": {
+    "subtitle": "aerowarptics.subtitle.warp_scatter",
+    "sounds": [
+      {
+        "name": "minecraft:entity.enderman.teleport",
+        "volume": 0.8,
+        "pitch": 1.8,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:block.conduit.deactivate",
+        "volume": 0.7,
+        "pitch": 1.1,
+        "type": "event"
+      }
+    ]
   }
 }

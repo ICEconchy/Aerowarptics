@@ -150,6 +150,11 @@ public final class Airship {
         return subLevel.logicalPose().transformPositionInverse(worldSpace);
     }
 
+    /** Rotates a direction out of world space into the airship's plot space - the inverse of {@link #toWorldDirection}. */
+    public Vector3d toShipDirection(Vector3dc worldSpace) {
+        return subLevel.logicalPose().transformNormalInverse(worldSpace, new Vector3d());
+    }
+
     /**
      * Physical mass Sable computes for the airship, or {@code 0} when the mass tracker has not been
      * built yet. Used directly by the warp cost formula.

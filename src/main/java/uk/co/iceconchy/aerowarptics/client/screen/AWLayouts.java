@@ -42,26 +42,36 @@ public final class AWLayouts {
     public static final int BAR = 6;
 
     public static final int CONSOLE_WIDTH = 300;
-    public static final int CONSOLE_HEIGHT = 218;
+    // One bar band, not two. There used to be a second reserved for the spin-up bar, which only means
+    // anything while a drive is stabilising - so for all but a few seconds of a drive's life the
+    // console carried thirty-two pixels of nothing between its charge bar and its buttons. The two
+    // bars now share the one band, which they can because they are never both worth showing: a drive
+    // is fully charged before it begins to stabilise, so the charge bar it replaces is reading 100%.
+    //
+    // The height is what the requirements panel actually needs rather than what was left over. That
+    // panel holds a title, a rule, six checked conditions, a second rule and the name of the course
+    // under it - ninety-two pixels - and the two reserved bar bands had squeezed it to eighty-six, so
+    // the course line was drawn below the panel's own bottom edge. Reclaiming the dead band pays for
+    // the six it was short by and still leaves the console shorter than it was.
+    public static final int CONSOLE_HEIGHT = 206;
 
     /**
      * The Rift Drive's console.
      *
      * @param readouts     the numbers: speed, stress, range, mass, charge, cooldown
      * @param requirements the checklist of what a jump still needs
-     * @param charge       the charge bar
-     * @param spin         the spin-up bar, shown only while the drive is winding up
+     * @param bar          the charge bar, or the spin-up bar while the drive is winding up
      */
-    public record Console(Rect header, Rect readouts, Rect requirements, Rect charge, Rect spin,
+    public record Console(Rect header, Rect readouts, Rect requirements, Rect bar,
                           Rect cancel, Rect heading) {
     }
 
     public static Console console() {
         Rect body = AWLayout.body(CONSOLE_WIDTH, CONSOLE_HEIGHT, true);
-        // Each bar band carries its own caption above the bar, which is what the sixteen is for: ten
+        // The bar band carries its own caption above the bar, which is what the sixteen is for: ten
         // for the line of text and six for the bar itself. Sized any tighter, the caption is drawn
         // over the bottom of the panel above it.
-        List<Rect> bands = AWLayout.rows(body, 0, BAR_BAND, BAR_BAND);
+        List<Rect> bands = AWLayout.rows(body, 0, BAR_BAND);
         List<Rect> panels = AWLayout.columns(bands.get(0), 0, 126);
         List<Rect> footer = AWLayout.buttons(AWLayout.footer(CONSOLE_WIDTH, CONSOLE_HEIGHT), 2);
         return new Console(
@@ -69,7 +79,6 @@ public final class AWLayouts {
                 panels.get(0),
                 panels.get(1),
                 bands.get(1),
-                bands.get(2),
                 footer.get(0),
                 footer.get(1));
     }
@@ -328,6 +337,54 @@ public final class AWLayouts {
                 pages.get(1),
                 new Rect(footer.x(), footer.y(), ARROW, footer.height()),
                 new Rect(footer.right() - ARROW, footer.y(), ARROW, footer.height()));
+    }
+
+    // -------------------------------------------------------------- modulator
+
+    // Wide enough that the detail panel can hold its two longest lines - "Rift Essence" against
+    // "500 / 500 mB", and "Drive" against a full tier name - each on one line with no ellipsis. At the
+    // old 240 the panel had 126px to work with and truncated both, which is not something a narrower
+    // window buys anything for: this screen has no list to scroll and no map to show, so the only
+    // thing width costs is width.
+    public static final int MODULATOR_WIDTH = 280;
+    // Taller than the swatches and detail panels strictly need, by exactly one BAR_BAND plus the
+    // gutter either side of it - the room the intensity slider below takes, added rather than carved
+    // out of them so this screen grew when the feature did instead of the two original panels
+    // quietly shrinking to make way for a third.
+    public static final int MODULATOR_HEIGHT = 220;
+
+    /** Side of one colour swatch in the Modulator's grid, and the gap between two of them. */
+    public static final int SWATCH = 16;
+    public static final int SWATCH_GAP = 2;
+    /** Swatches per row of the grid - sixteen dye colours, laid out four by four. */
+    public static final int SWATCH_COLUMNS = 4;
+    /** Side of the small colour chip in the legend under the grid. Half a swatch. */
+    public static final int CHIP = 8;
+
+    /**
+     * A Rift Modulator's panel.
+     *
+     * @param swatches  the sixteen dye-colour swatches - left click sets the core colour, right click
+     *                  sets the rim, so there is nothing here to lay out beyond the grid itself
+     * @param detail    essence held, and what the linked drive is doing
+     * @param intensity the captioned bar that sets how strongly this drive's rift reads
+     * @param theme     the button that cycles the rift's look and opening animation
+     */
+    public record Modulator(Rect header, Rect swatches, Rect detail, Rect intensity, Rect theme) {
+    }
+
+    public static Modulator modulator() {
+        Rect body = AWLayout.body(MODULATOR_WIDTH, MODULATOR_HEIGHT, true);
+        List<Rect> bands = AWLayout.rows(body, 0, BAR_BAND);
+        int swatchesWidth = SWATCH_COLUMNS * SWATCH + (SWATCH_COLUMNS - 1) * SWATCH_GAP + AWLayout.INSET * 2;
+        List<Rect> panels = AWLayout.columns(bands.get(0), swatchesWidth, 0);
+        List<Rect> footer = AWLayout.buttons(AWLayout.footer(MODULATOR_WIDTH, MODULATOR_HEIGHT), 1);
+        return new Modulator(
+                AWLayout.header(MODULATOR_WIDTH, MODULATOR_HEIGHT),
+                panels.get(0),
+                panels.get(1),
+                bands.get(1),
+                footer.get(0));
     }
 
     public static Probe probe() {

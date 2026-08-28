@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 
@@ -15,6 +16,16 @@ import net.neoforged.api.distmarker.OnlyIn;
  */
 @OnlyIn(Dist.CLIENT)
 public final class AWRenderTypes extends RenderStateShard {
+
+    /**
+     * A plain white sprite for the glow passes.
+     *
+     * <p>There is nothing to see in it, and that is the point - a rift's colour lives entirely in its
+     * vertices, so the sampler must contribute nothing. It exists because the render types below
+     * borrow the beacon beam's shader, and that shader samples a texture.
+     */
+    private static final ResourceLocation GLOW = ResourceLocation.fromNamespaceAndPath(
+            "aerowarptics", "textures/misc/rift_glow.png");
 
     /**
      * The surface of a rift: opaque, and it writes depth.
@@ -45,6 +56,15 @@ public final class AWRenderTypes extends RenderStateShard {
     /**
      * The fire burning on and around a rift: additive, and visible from both sides.
      *
+     * <p>Drawn through the <em>beacon beam</em> shader rather than a plain position-colour one, which
+     * looks like an odd choice until a shader pack is installed. Iris routes geometry to one of the
+     * pack's programs by the core shader it was drawn with, and untextured position-colour geometry
+     * lands in {@code gbuffers_basic} - a program some packs, Complementary among them, run full scene
+     * lighting and shadowing through. A rift is not a lit surface, so being lit as one turned a smooth
+     * additive glow into a fan of flat shaded triangles: every facet of the geometry visible, none of
+     * it blending. The beacon beam program is the one every pack agrees is emissive and unlit, because
+     * that is the only thing vanilla ever uses it for.
+     *
      * <p>Deliberately not {@link RenderType#lightning()}, which was the obvious thing to reach for and
      * is wrong here in three ways. It has no {@code NO_CULL}, so every quad is back-face culled from
      * one side - and an aperture is a hole in space that people stand on both sides of, so half the
@@ -54,13 +74,14 @@ public final class AWRenderTypes extends RenderStateShard {
      */
     public static final RenderType RIFT_FIRE = RenderType.create(
             "aerowarptics_rift_fire",
-            DefaultVertexFormat.POSITION_COLOR,
+            DefaultVertexFormat.BLOCK,
             VertexFormat.Mode.QUADS,
             2048,
             false,
             true,
             RenderType.CompositeState.builder()
-                    .setShaderState(POSITION_COLOR_SHADER)
+                    .setShaderState(RENDERTYPE_BEACON_BEAM_SHADER)
+                    .setTextureState(new TextureStateShard(GLOW, false, false))
                     .setTransparencyState(LIGHTNING_TRANSPARENCY)
                     .setCullState(NO_CULL)
                     .setDepthTestState(LEQUAL_DEPTH_TEST)
@@ -92,6 +113,8 @@ public final class AWRenderTypes extends RenderStateShard {
     /**
      * Broken space: translucent, unlit, and it does not write depth.
      *
+     * <p>On the beacon beam shader for the same reason the fire is - see {@link #RIFT_FIRE}.
+     *
      * <p>Deliberately not the membrane. A shard is a fragment catching light, not an occluder - drawn
      * opaque it would punch depth holes in the sky around the aperture and hide the very rift it came
      * off. Not writing depth also means the pieces blend into each other in any order, which matters
@@ -99,13 +122,14 @@ public final class AWRenderTypes extends RenderStateShard {
      */
     public static final RenderType RIFT_SHARD = RenderType.create(
             "aerowarptics_rift_shard",
-            DefaultVertexFormat.POSITION_COLOR,
+            DefaultVertexFormat.BLOCK,
             VertexFormat.Mode.QUADS,
             2048,
             false,
             true,
             RenderType.CompositeState.builder()
-                    .setShaderState(POSITION_COLOR_SHADER)
+                    .setShaderState(RENDERTYPE_BEACON_BEAM_SHADER)
+                    .setTextureState(new TextureStateShard(GLOW, false, false))
                     .setTransparencyState(TRANSLUCENT_TRANSPARENCY)
                     .setCullState(NO_CULL)
                     .setDepthTestState(LEQUAL_DEPTH_TEST)

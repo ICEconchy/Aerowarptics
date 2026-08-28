@@ -19,6 +19,11 @@ import uk.co.iceconchy.aerowarptics.registry.AWItems;
  *
  * <p>Components appear under a tag whether or not they have a scene of their own, which is how the
  * crafting parts get a place to be listed.
+ *
+ * <p>The Navigator's Handbook is listed in both and has no scene, deliberately. A Ponder scene shows a
+ * mechanism working and a book has no mechanism; a scene explaining the book that explains the mod
+ * would be a lesson about a table of contents. What it wants instead is to be somewhere the index
+ * will show it, so that holding [W] over it opens the chapters it is a paper copy of.
  */
 public final class AWPonderTags {
 
@@ -47,10 +52,14 @@ public final class AWPonderTags {
                 .register();
 
         MultiTagBuilder.Tag<ItemLike> warp = tags.addToTag(WARP_TRAVEL)
+                .add(AWItems.HANDBOOK.get())
+                .add(AWItems.RIFT_GOGGLES.get())
+                .add(AWItems.RIFT_BEACON.get())
                 .add(AWItems.WARP_ANCHOR.get())
                 .add(AWItems.ASTROLABE.get())
                 .add(AWItems.SPATIAL_SIPHON.get())
                 .add(AWItems.RIFT_PROBE.get())
+                .add(AWItems.RIFT_MODULATOR.get())
                 .add(AWItems.RIFT_ESSENCE_BUCKET.get())
                 .add(AWItems.RIFT_CORE.get())
                 .add(AWItems.RIFT_LENS.get())
@@ -67,6 +76,10 @@ public final class AWPonderTags {
         tags.addToTag(RIFT_GATES)
                 .add(AWItems.RIFT_GATE.get())
                 .add(AWItems.RIFT_GATE_FRAME.get())
-                .add(AWItems.RIFT_ESSENCE_BUCKET.get());
+                .add(AWItems.RIFT_ESSENCE_BUCKET.get())
+                // The goggles belong here too: a rift scar is a ruined gate, and a player who came
+                // to this chapter for doorways is the one most likely to walk into one.
+                .add(AWItems.RIFT_GOGGLES.get())
+                .add(AWItems.HANDBOOK.get());
     }
 }

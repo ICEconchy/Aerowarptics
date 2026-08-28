@@ -52,6 +52,7 @@ import uk.co.iceconchy.aerowarptics.util.AWLang;
 import uk.co.iceconchy.aerowarptics.warp.ArrivalTicket;
 import uk.co.iceconchy.aerowarptics.warp.CrossDimensionWarp;
 import uk.co.iceconchy.aerowarptics.warp.SafeArrival;
+import uk.co.iceconchy.aerowarptics.warp.ScatterOffset;
 import uk.co.iceconchy.aerowarptics.warp.SpinUp;
 import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
 import uk.co.iceconchy.aerowarptics.warp.CrewManifest;
@@ -185,8 +186,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     /**
      * Who is aboard for the journey, and what to do when somebody stops being aboard.
      *
-     * <p>Not persisted. A drive that comes back off disk mid-warp re-learns the manifest on its next
-     * tick from whoever is actually standing on the hull, which is the only answer worth having.
+     * <p>Persisted alongside the flight so that an interrupted warp can recover its passengers
+     * after a restart. Without this, a passenger who came off the hull inside the fold would be
+     * left wherever the crossing happened to leave them.
      */
     private final WarpPassengers passengers = new WarpPassengers();
 
@@ -611,6 +613,35 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         return WarpFailure.NONE;
     }
 
+    /**
+     * Sets a course to a bare position and fires it in the same breath.
+     *
+     * <p>The one place in this mod where choosing and launching are a single action, because a Rift
+     * Beacon is not a console - there is nothing to look at between deciding and committing, and a
+     * beacon that only armed a course would need the pilot to go back aboard and pull a lever, which
+     * is the entire thing it exists to avoid.
+     *
+     * <p>What it is <em>not</em> is a way around any of the machine's own conditions. It goes through
+     * {@link #startWarp} exactly as a redstone edge does, so speed, charge, drive state, range,
+     * affordability, the one-warp-per-hull lock and the search for somewhere the ship actually fits
+     * are all asked and answered the same way. The only thing the beacon replaces is <em>who is
+     * allowed to ask</em>, and it replaces it with a grant taken earlier - see
+     * {@link uk.co.iceconchy.aerowarptics.beacon.RiftBeaconBinding}.
+     *
+     * @param author the player whose beacon this is, credited with the warp and told how it went
+     */
+    public WarpFailure summonTo(ServerPlayer author, BlockPos fix, String label) {
+        if (!(level instanceof ServerLevel)) {
+            return WarpFailure.DRIVE_BUSY;
+        }
+        WarpCourse course = WarpCourse.toFix(fix, label);
+        // Armed before it is fired rather than after, so a refusal leaves the drive holding the
+        // course that was refused. A pilot who was told "not enough charge" can then walk aboard,
+        // wait, and pull a lever, instead of having to go back and aim the thing again.
+        armCourse(course, author.getUUID());
+        return startWarp(course, author);
+    }
+
     /** Player-initiated cancellation. Only legal before the rift actually opens. */
     public WarpFailure cancelWarp(ServerPlayer player) {
         WarpFailure permission = WarpValidator.validatePlayer(player, this);
@@ -713,12 +744,56 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         }
 
         Vector3d bow = WarpFlight.worldBow(airship, shipSpaceBow());
-        WarpFlight planned = WarpFlight.plan(airship, destination, targetBlock, bow,
+
+        // An unstable exit scatters the arrival from the intended target. The offset is horizontal
+        // only — the hull arrives at the correct altitude but displaced laterally. The arrival
+        // search still proves the scattered spot clear, so a hull can never materialise inside
+        // terrain. If the scattered position has no safe arrival, the warp falls back to the
+        // original target rather than aborting: the ship always arrives somewhere.
+        BlockPos flightTarget = targetBlock;
+        boolean scattered = false;
+        double scatterRoll = serverLevel.getRandom().nextDouble();
+        if (ScatterOffset.isScattered(tier.instability(), scatterRoll)) {
+            double angle = serverLevel.getRandom().nextDouble() * Math.PI * 2.0D;
+            double magnitude = serverLevel.getRandom().nextDouble();
+            Vector3d scatterVec = ScatterOffset.offset(
+                    committedDistance, angle, magnitude);
+            if (scatterVec.lengthSquared() > 0.0D) {
+                flightTarget = BlockPos.containing(
+                        targetBlock.getX() + scatterVec.x,
+                        targetBlock.getY(),
+                        targetBlock.getZ() + scatterVec.z);
+                scattered = true;
+            }
+        }
+
+        WarpFlight planned = WarpFlight.plan(airship, destination, flightTarget, bow,
                 tier.warpTicks(), tier.arriveTicks());
+
+        // If the scattered position has no safe arrival, try the original target. A scatter that
+        // lands in open sky settles there; one that lands in a mountainside simply does not happen,
+        // rather than aborting a warp that was otherwise committed.
+        if (planned == null && scattered) {
+            scattered = false;
+            flightTarget = targetBlock;
+            planned = WarpFlight.plan(airship, destination, targetBlock, bow,
+                    tier.warpTicks(), tier.arriveTicks());
+        }
+
         if (planned == null) {
             abort(WarpFailure.NO_SAFE_ARRIVAL);
             return;
         }
+
+        // Notify via sound and effects when scatter was applied. The crew sees and hears the ship
+        // shudder — far more atmospheric than a chat message, and a clear signal that the Singularity
+        // did not put them where it was asked to.
+        if (scattered) {
+            playSound(AWSounds.WARP_SCATTER.get(), 1.0F, 1.0F);
+            broadcastEffect(ClientboundWarpEffectPacket.Stage.SCATTER);
+            WarpTrace.scatter(worldPosition, targetBlock, flightTarget, committedDistance);
+        }
+
         flight = planned;
         airship.warpData().rememberOrigin(airship.position(), airship.orientation());
         sequenceTicks = 0;
@@ -778,7 +853,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
                 // camera crosses the aperture partway through the passage, and without this they
                 // would watch the world go dark and then carry on flying through it for a second.
                 send(airship.crew(), ClientboundCorridorPacket.enter(
-                        current.transitTicks() + tier.warpTicks(), tierColour()));
+                        current.transitTicks() + tier.warpTicks(), effectiveColour(), effectiveIntensity()));
             }
             case ENTER_CORRIDOR -> {
                 // Nothing moves here any more. The hull is deep inside the entry aperture's throat
@@ -791,7 +866,8 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
                 broadcastEffect(ClientboundWarpEffectPacket.Stage.CORRIDOR);
                 // The crew's wash is already running - it started when the bow went in. Re-arm it to
                 // cover the corridor, rather than starting it, so it does not flicker at the seam.
-                send(airship.crew(), ClientboundCorridorPacket.enter(tier.warpTicks(), tierColour()));
+                send(airship.crew(), ClientboundCorridorPacket.enter(
+                        tier.warpTicks(), effectiveColour(), effectiveIntensity()));
                 // Opened now, not on arrival: anyone at the destination gets a few seconds of warning
                 // before a hull comes through it.
                 broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_OPEN, current.exitRift(),
@@ -828,7 +904,8 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
                 current.leftCorridor();
                 // Still behind the far aperture and still inside the fold, so the wash carries on
                 // until the hull is properly out the other side.
-                send(crew, ClientboundCorridorPacket.enter(current.transitTicks(), tierColour()));
+                send(crew, ClientboundCorridorPacket.enter(
+                        current.transitTicks(), effectiveColour(), effectiveIntensity()));
                 broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_TRANSIT, current.exitRift(),
                         current.transitTicks());
                 onLeftCorridor(airship);
@@ -1158,6 +1235,17 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         return destinationAnchor;
     }
 
+    /**
+     * What to call the committed destination.
+     *
+     * <p>A fix has no anchor to ask for its name, and an anchor can be renamed while a ship is on its
+     * way, so the label the pilot chose is carried along with the course rather than looked up.
+     */
+    @Nullable
+    public String destinationLabel() {
+        return destinationLabel != null && !destinationLabel.isEmpty() ? destinationLabel : null;
+    }
+
     public int cooldownTicks() {
         return cooldownTicks;
     }
@@ -1323,6 +1411,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         }
         if (flight != null && !clientPacket) {
             tag.put("Flight", flight.save(registries));
+            // Seats are saved alongside the flight so that an interrupted warp can recover its
+            // passengers after a restart. Without this, the recovery path has nobody to put back.
+            tag.put("PassengerSeats", passengers.save());
         }
         if (clientPacket && flight != null) {
             tag.putString("FlightStage", flight.stage().name());
@@ -1361,6 +1452,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         destinationLabel = tag.getString("DestinationLabel");
         initiator = tag.hasUUID("Initiator") ? tag.getUUID("Initiator") : null;
         flight = tag.contains("Flight") ? WarpFlight.load(tag.getCompound("Flight")) : null;
+        if (!clientPacket) {
+            passengers.load(tag.contains("PassengerSeats") ? tag.getCompound("PassengerSeats") : null);
+        }
         if (clientPacket) {
             clientFlightStage = tag.contains("FlightStage") ? tag.getString("FlightStage") : "";
             clientFlightProgress = tag.getFloat("FlightProgress");
@@ -1405,6 +1499,80 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         return TIER_COLOURS[Math.max(0, Math.min(TIER_COLOURS.length - 1, tier.index()))];
     }
 
+    // ------------------------------------------------------------- rift modulator
+
+    /**
+     * The Modulator this drive is dressed by, resolved at most once a tick.
+     *
+     * <p>Checked both ways rather than merely found: two drives either side of one Modulator would
+     * otherwise both find it and both believe they were the one it answered to, which is exactly the
+     * ambiguity {@link uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity#linkedDrive()}
+     * resolves by picking one - so this drive only trusts the module if the module agrees.
+     */
+    @Nullable
+    private uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity cachedModulator;
+    private long cachedModulatorTick = Long.MIN_VALUE;
+
+    @Nullable
+    private uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity findModulator() {
+        if (level == null) {
+            return null;
+        }
+        long now = level.getGameTime();
+        if (cachedModulatorTick == now) {
+            return cachedModulator != null && !cachedModulator.isRemoved() ? cachedModulator : null;
+        }
+        cachedModulatorTick = now;
+        cachedModulator = resolveModulator();
+        return cachedModulator;
+    }
+
+    @Nullable
+    private uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity resolveModulator() {
+        if (level == null) {
+            return null;
+        }
+        for (Direction direction : Direction.values()) {
+            if (level.getBlockEntity(worldPosition.relative(direction))
+                    instanceof uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity modulator
+                    && modulator.linkedDrive() == this) {
+                return modulator;
+            }
+        }
+        return null;
+    }
+
+    /** The rift's colour: a linked, fuelled Modulator's choice, or the tier's own colour. */
+    private int effectiveColour() {
+        uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity modulator = findModulator();
+        int override = modulator == null ? -1 : modulator.activeColour();
+        return override >= 0 ? override : tierColour();
+    }
+
+    /**
+     * The rift's rim colour: a Modulator's second swatch, or {@link #effectiveColour()} again - which
+     * draws exactly as a flat single colour always has, since the face blends between the two.
+     */
+    private int effectiveAccentColour() {
+        uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity modulator = findModulator();
+        int override = modulator == null ? -1 : modulator.activeAccentColour();
+        return override >= 0 ? override : effectiveColour();
+    }
+
+    /** The rift's look and opening animation, as a {@code RiftModulatorTheme} ordinal: a Modulator's choice, or STANDARD. */
+    private int effectiveTheme() {
+        uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity modulator = findModulator();
+        int override = modulator == null ? -1 : modulator.activeThemeOrdinal();
+        return override >= 0 ? override
+                : uk.co.iceconchy.aerowarptics.modulator.RiftModulatorTheme.STANDARD.ordinal();
+    }
+
+    /** How strongly the rift's flourish reads: a Modulator's choice, or 1.0 - unchanged from today. */
+    private float effectiveIntensity() {
+        uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity modulator = findModulator();
+        return modulator == null ? 1.0F : modulator.activeIntensity();
+    }
+
     /**
      * Sends a payload to a set of players by name.
      *
@@ -1427,7 +1595,8 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
                 ? Vec3.atCenterOf(worldPosition)
                 : airship.toWorld(Vec3.atCenterOf(worldPosition));
         AWNetwork.sendToTracking(serverLevel, origin, ClientboundWarpEffectPacket.at(
-                worldPosition, stage, tier.index(), airship == null ? null : airship.uuid(), origin));
+                worldPosition, stage, tier.index(), airship == null ? null : airship.uuid(), origin,
+                effectiveColour(), effectiveAccentColour(), effectiveTheme(), effectiveIntensity()));
     }
 
     /**
@@ -1455,7 +1624,8 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         Vec3 centre = new Vec3(rift.centre().x, rift.centre().y, rift.centre().z);
         AWNetwork.sendToTracking(serverLevel, centre, ClientboundWarpEffectPacket.rift(
                 worldPosition, stage, tier.index(), airship == null ? null : airship.uuid(), rift,
-                duration, throat));
+                duration, throat, effectiveColour(), effectiveAccentColour(), effectiveTheme(),
+                effectiveIntensity()));
     }
 
     @Override
