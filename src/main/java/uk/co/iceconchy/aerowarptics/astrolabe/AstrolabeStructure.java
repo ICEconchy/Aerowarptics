@@ -134,6 +134,27 @@ public final class AstrolabeStructure {
     }
 
     /**
+     * The step from a cell to its table's origin.
+     *
+     * <p>A cell remembers which table it belongs to by its origin, and that pointer has to survive an
+     * airship assembling: Sable relocates the whole hull into the plot grid, so every cell's world
+     * coordinates change at once. Stored as an absolute position the pointer would still name the
+     * block's <em>old</em> world spot, and after assembly no cell would recognise itself as the origin
+     * - the table would go dark and unresponsive on the deck. Stored as the step from a cell to its
+     * origin it is invariant under that move: cell and origin travel together, so the step between them
+     * never changes. Kept here as arithmetic over positions, with {@link #originFromStep}, so the round
+     * trip can be tested without a running game.
+     */
+    public static BlockPos originStep(BlockPos cell, BlockPos origin) {
+        return origin.subtract(cell);
+    }
+
+    /** The origin a cell points at, rebuilt from the {@link #originStep} stored against it. */
+    public static BlockPos originFromStep(BlockPos cell, BlockPos step) {
+        return cell.offset(step.getX(), step.getY(), step.getZ());
+    }
+
+    /**
      * Every position that could be a cell of a table containing this one.
      *
      * <p>The neighbourhood to re-examine when a block appears or disappears: a table containing a

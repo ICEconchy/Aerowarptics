@@ -206,6 +206,36 @@ class AstrolabeStructureTest {
         }
     }
 
+    /**
+     * A cell's pointer to its origin survives the hull relocating into the plot grid.
+     *
+     * <p>The bug this guards: an Astrolabe formed on the ground and then assembled onto an airship
+     * went invisible and unresponsive on the deck. Sable moves every cell into the plot grid at once,
+     * so a pointer written as an absolute position named the block's old world spot and no cell
+     * recognised itself as the origin. Written as the step to the origin it is invariant under that
+     * rigid move, which is what this checks: translate every cell by the same arbitrary vector and each
+     * one still reconstructs the translated origin.
+     */
+    @Test
+    void anOriginPointerSurvivesTheWholeTableBeingRelocated() {
+        BlockPos origin = new BlockPos(40, 71, -12);
+        // A plot-grid style relocation: a large, arbitrary offset applied to the whole structure.
+        BlockPos move = new BlockPos(20481003, 59, 20489207);
+        for (int size = 1; size <= AstrolabeStructure.MAX_SIZE; size++) {
+            for (BlockPos cell : AstrolabeStructure.cells(origin, size)) {
+                BlockPos step = AstrolabeStructure.originStep(cell, origin);
+                // On the ground the step reconstructs the very same origin...
+                assertEquals(origin, AstrolabeStructure.originFromStep(cell, step),
+                        "step lost the origin for cell " + cell);
+                // ...and after the whole table is carried off it reconstructs the moved origin, with
+                // no cell left pointing back at where the table used to stand.
+                assertEquals(origin.offset(move.getX(), move.getY(), move.getZ()),
+                        AstrolabeStructure.originFromStep(cell.offset(move.getX(), move.getY(), move.getZ()), step),
+                        "step did not follow the relocation for cell " + cell);
+            }
+        }
+    }
+
     /** Candidates are offered largest first, so the greedy search cannot settle for a small table. */
     @Test
     void candidatesAreOfferedLargestFirst()  {

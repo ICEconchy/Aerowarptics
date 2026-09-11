@@ -128,6 +128,32 @@ public final class AWLayout {
         return Math.max(0, Math.min(centred, screenSize - windowSize));
     }
 
+    /**
+     * How much a window of this size has to shrink to fit on the screen, never above 1.
+     *
+     * <p>{@link #anchor} keeps a too-large window's top-left corner reachable, which is enough when
+     * only the far edge overhangs. A window <em>taller</em> than the screen is a different problem:
+     * whichever corner it is pinned to, it loses its bottom edge - and the bottom edge is where the
+     * buttons are. The Astrolabe's "warp cost" and the Probe's "scan" button both live there. Scaling
+     * the whole window down instead loses nothing.
+     *
+     * <p>This is not a rare-GUI-scale corner: Minecraft's "Auto" scale guarantees the virtual screen
+     * is at least 320x240 but promises no more, so an ordinary 1920x1080 desktop lands on a 480x270
+     * virtual screen - and a 292px chart is off the bottom of it as a matter of routine.
+     *
+     * @return the largest factor at or below 1 that fits the window in both axes
+     */
+    public static float fitScale(int screenWidth, int screenHeight, int windowWidth, int windowHeight) {
+        float scale = 1.0F;
+        if (windowWidth > screenWidth && windowWidth > 0) {
+            scale = Math.min(scale, screenWidth / (float) windowWidth);
+        }
+        if (windowHeight > screenHeight && windowHeight > 0) {
+            scale = Math.min(scale, screenHeight / (float) windowHeight);
+        }
+        return scale;
+    }
+
     /** The interior of a window of this size: everything the frame does not take. */
     public static Rect interior(int windowWidth, int windowHeight) {
         return new Rect(0, 0, windowWidth - FRAME, windowHeight - FRAME);

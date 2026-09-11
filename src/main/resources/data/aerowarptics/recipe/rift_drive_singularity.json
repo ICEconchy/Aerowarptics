@@ -11,7 +11,7 @@
       "item": "aerowarptics:stabiliser_ring"
     },
     "P": {
-      "item": "aeronautics:pearlescent_levitite"
+      "item": "aerowarptics:pearlescent_warp_crystal"
     },
     "T": {
       "item": "create:railway_casing"
@@ -20,7 +20,7 @@
       "item": "create:brass_casing"
     },
     "H": {
-      "item": "create:shadow_steel"
+      "item": "minecraft:echo_shard"
     },
     "L": {
       "item": "aerowarptics:rift_lens"

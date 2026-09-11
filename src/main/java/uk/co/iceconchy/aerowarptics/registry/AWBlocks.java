@@ -1,5 +1,8 @@
 package uk.co.iceconchy.aerowarptics.registry;
 
+import net.minecraft.util.valueproviders.UniformInt;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.DropExperienceBlock;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
@@ -167,6 +170,21 @@ public final class AWBlocks {
                     .strength(2.5F, 6.0F)
                     .sound(SoundType.COPPER)
                     .noOcclusion()
+                    .requiresCorrectToolForDrops()));
+
+    /**
+     * Warp Crystal Ore: the one block in the crystal line, and the only way the raw material occurs in
+     * the world. It is not placed by worldgen in the ordinary way - a {@link uk.co.iceconchy.aerowarptics.fissure.RiftFissureBlockEntity Rift Fissure}
+     * slowly crystallises the natural stone around it into this, so the ore is always found clustered
+     * near a tear rather than salted through the ground. Mined for {@code raw_warp_crystal}; the warp
+     * crystals themselves are items now, refined through Create machinery rather than placed as blocks.
+     */
+    public static final DeferredBlock<Block> WARP_CRYSTAL_ORE = BLOCKS.register("warp_crystal_ore",
+            () -> new DropExperienceBlock(UniformInt.of(2, 5), BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_PURPLE)
+                    .strength(3.0F, 3.0F)
+                    .sound(SoundType.AMETHYST)
+                    .lightLevel(state -> 4)
                     .requiresCorrectToolForDrops()));
 
     public static final DeferredBlock<WarpAnchorBlock> WARP_ANCHOR = BLOCKS.register("warp_anchor",

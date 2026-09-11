@@ -1,9 +1,12 @@
 package uk.co.iceconchy.aerowarptics.airship;
 
+import com.simibubi.create.content.contraptions.ControlledContraptionEntity;
+import com.simibubi.create.content.contraptions.bearing.MechanicalBearingBlockEntity;
 import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.api.SubLevelHelper;
 import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
 import dev.ryanhcode.sable.api.physics.mass.MassData;
+import dev.ryanhcode.sable.companion.math.BoundingBox3d;
 import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
 import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
@@ -13,6 +16,7 @@ import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
 import dev.ryanhcode.sable.sublevel.plot.PlotChunkHolder;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -80,6 +84,53 @@ public final class Airship {
         return new Airship(subLevel);
     }
 
+    /**
+     * Whether a block entity's block has gone out from under it.
+     *
+     * <p>Sable does not tear a plot down one block at a time. When a plot is released its chunks are
+     * wiped wholesale, which leaves {@code void_air} where the blocks were - but the block entities
+     * are still in the chunk's ticking list, and each of them gets at least one more tick with a
+     * {@code worldPosition} pointing at nothing. Anything that touches the level from that tick then
+     * asks Sable to change a block in a plot that no longer has a holder, and Sable throws
+     * {@code UnsupportedOperationException: Cannot change blocks in nonexistent plot holder} - which
+     * takes the server thread with it.
+     *
+     * <p>Most machines in this mod never reach that, because they resolve their {@link Airship} at
+     * the top of their tick and {@link #isActive()} already answers no. This is for the ones with no
+     * airship to ask about: a block entity that is a feature of the <em>world</em> and only
+     * incidentally ended up inside a plot, which has nothing to resolve and so nothing to bail on.
+     *
+     * <p>Comparing the live block against the block entity's own cached state is the same test
+     * {@code RiftDriveBlockEntity.remove} uses to tell a break from an unload, and it is the cheapest
+     * honest one: it needs no Sable lookup, and it is equally true of a block mined out from under a
+     * block entity on solid ground.
+     */
+    public static boolean orphaned(BlockEntity blockEntity) {
+        Level level = blockEntity.getLevel();
+        if (level == null) {
+            return true;
+        }
+        if (blockEntity.isRemoved()) {
+            return true;
+        }
+        return level.getBlockState(blockEntity.getBlockPos()).getBlock()
+                != blockEntity.getBlockState().getBlock();
+    }
+
+    /**
+     * The airship an entity is currently standing on or riding, or {@code null} for one on solid
+     * ground.
+     *
+     * <p>Follows a rider up to whatever it is sitting in, the same rule {@link #crew()} uses, so a
+     * player in a seat on the deck still resolves to the ship. Used by the dry-run command to find the
+     * vessel a pilot is aboard without them having to name it.
+     */
+    @Nullable
+    public static Airship aboard(Entity entity) {
+        SubLevel subLevel = Sable.HELPER.getTrackingOrVehicleSubLevel(entity);
+        return subLevel instanceof ServerSubLevel server && !server.isRemoved() ? new Airship(server) : null;
+    }
+
     // -------------------------------------------------------------- identity
 
     public ServerSubLevel subLevel() {
@@ -127,6 +178,61 @@ public final class Airship {
     /** Plot-space (ship-space) block bounds of the airship's structure. */
     public BoundingBox3ic shipBounds() {
         return subLevel.getPlot().getBoundingBox();
+    }
+
+    /**
+     * The lowest and highest chunk of the plot's <em>allocation</em>, or {@code null} when the plot
+     * is not loaded.
+     *
+     * <p><strong>This is not the hull.</strong> Sable reserves a fixed square of the plot grid for a
+     * sub-level - {@code LevelPlot.logSize} chunks a side - and hands back that whole square here
+     * however few blocks the ship actually has in it. Sizing anything per-chunk off this is
+     * therefore work proportional to the reservation rather than to the vessel, which is identical
+     * for a raft and for a battleship. Residency learned that the hard way: claiming every chunk in
+     * here force-loaded the entire reservation on a drive's first tick and hung the server for over a
+     * minute. Use {@link #hullChunkMin()}/{@link #hullChunkMax()} for "what does this ship occupy".
+     */
+    @Nullable
+    public ChunkPos plotChunkMin() {
+        LevelPlot plot = subLevel.getPlot();
+        return plot == null ? null : plot.getChunkMin();
+    }
+
+    /**
+     * The lowest and highest chunk the airship's <em>blocks</em> occupy, in the level's own chunk
+     * space, or {@code null} when the plot is not loaded.
+     *
+     * <p>Taken from the plot's own bounding box, which Sable keeps to the blocks that are really
+     * there, so this grows with the vessel instead of with its reservation. Plot-space block
+     * coordinates are coordinates in the parent level's chunk space already - that is what makes a
+     * block aboard a ship read as a number in the millions - so shifting them down by four gives
+     * chunk positions directly, with no transform.
+     */
+    @Nullable
+    public ChunkPos hullChunkMin() {
+        LevelPlot plot = subLevel.getPlot();
+        if (plot == null) {
+            return null;
+        }
+        BoundingBox3ic bounds = plot.getBoundingBox();
+        return bounds == null ? null : new ChunkPos(bounds.minX() >> 4, bounds.minZ() >> 4);
+    }
+
+    /** The far corner of {@link #hullChunkMin()}. */
+    @Nullable
+    public ChunkPos hullChunkMax() {
+        LevelPlot plot = subLevel.getPlot();
+        if (plot == null) {
+            return null;
+        }
+        BoundingBox3ic bounds = plot.getBoundingBox();
+        return bounds == null ? null : new ChunkPos(bounds.maxX() >> 4, bounds.maxZ() >> 4);
+    }
+
+    @Nullable
+    public ChunkPos plotChunkMax() {
+        LevelPlot plot = subLevel.getPlot();
+        return plot == null ? null : plot.getChunkMax();
     }
 
     /** Converts a position inside the airship's plot into world space. */
@@ -180,6 +286,125 @@ public final class Airship {
     /** World-space centre of the airship's bounding box. */
     public Vector3d centre(Vector3d dest) {
         return worldBounds().center(dest);
+    }
+
+    // -------------------------------------------------------------- assembly
+
+    /**
+     * World-space bounds of the whole physically-connected assembly, not just the hull's own plot.
+     *
+     * <p>{@link #worldBounds()} is one sub-level's box, and a vessel is routinely more than that.
+     * Sable joins child sub-levels to a hull with physics constraints, and every bearing on the deck
+     * spins a Create contraption that lives as its own entity <em>outside</em> the plot - a propeller
+     * on an Aeronautics propeller bearing being the case that bites. Neither reaches
+     * {@link #worldBounds()}, so a warp corridor or a launch-clearance volume sized from it alone
+     * leaves the propellers to clip whatever the bare hull just cleared.
+     *
+     * <p>This unions all of it: the connected chain of sub-levels
+     * ({@link SubLevelHelper#getConnectedChain}) and every bearing-mounted contraption's own world box.
+     * Create keeps that box wide enough to enclose the spinning sweep, which is exactly the volume
+     * that has to stay clear. A contraption box that lands implausibly far from the hull - a stale or
+     * wrong-framed entity - is dropped rather than trusted, so it can never balloon the corridor.
+     */
+    public BoundingBox3d assemblyBounds() {
+        BoundingBox3dc hull = subLevel.boundingBox();
+        double[] box = {hull.minX(), hull.minY(), hull.minZ(), hull.maxX(), hull.maxY(), hull.maxZ()};
+        for (SubLevel connected : SubLevelHelper.getConnectedChain(subLevel)) {
+            BoundingBox3dc b = connected.boundingBox();
+            include(box, b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ());
+        }
+        for (AABB contraption : contraptionBounds()) {
+            include(box, contraption.minX, contraption.minY, contraption.minZ,
+                    contraption.maxX, contraption.maxY, contraption.maxZ);
+        }
+        return new BoundingBox3d(box[0], box[1], box[2], box[3], box[4], box[5]);
+    }
+
+    /**
+     * The same assembly expressed in this airship's own plot (ship) space, for the arrival search,
+     * which rotates a ship-space footprint into the orientation the hull will arrive with.
+     *
+     * <p>The hull's own contribution stays the tight plot box {@link #shipBounds()} gives; the
+     * connected sub-levels and bearing contraptions are folded in by their world corners, run back
+     * through the current pose into ship space. Returns {@code null} only when the hull has no plot,
+     * the one case the arrival search already treats as "nowhere to measure".
+     */
+    @Nullable
+    public BoundingBox3d assemblyShipBounds() {
+        BoundingBox3ic plot = shipBounds();
+        if (plot == null) {
+            return null;
+        }
+        double[] box = {plot.minX(), plot.minY(), plot.minZ(),
+                plot.maxX() + 1.0D, plot.maxY() + 1.0D, plot.maxZ() + 1.0D};
+        for (SubLevel connected : SubLevelHelper.getConnectedChain(subLevel)) {
+            if (connected == subLevel) {
+                continue; // the hull itself, already the tight plot box above
+            }
+            BoundingBox3dc b = connected.boundingBox();
+            includeCornersInShip(box, b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ());
+        }
+        for (AABB c : contraptionBounds()) {
+            includeCornersInShip(box, c.minX, c.minY, c.minZ, c.maxX, c.maxY, c.maxZ);
+        }
+        return new BoundingBox3d(box[0], box[1], box[2], box[3], box[4], box[5]);
+    }
+
+    /**
+     * The world boxes of every bearing-mounted contraption on the hull - a propeller spun by a
+     * propeller bearing, a windmill on a mechanical bearing - that is close enough to the hull to be
+     * believed. Empty when nothing is mounted or nothing is currently assembled.
+     */
+    private List<AABB> contraptionBounds() {
+        BoundingBox3dc hull = subLevel.boundingBox();
+        Vector3d hullCentre = hull.center(new Vector3d());
+        // A contraption box is believed only within reach of the hull: its centre no further out
+        // than the hull's own diagonal plus a fixed slack. This rejects an entity read in a
+        // different coordinate frame, which would otherwise union in as a corridor the size of the world.
+        double reach = new Vector3d(hull.width(), hull.height(), hull.length()).length() + 64.0D;
+        double reachSq = reach * reach;
+
+        List<AABB> found = new ArrayList<>();
+        for (MechanicalBearingBlockEntity bearing : machines(MechanicalBearingBlockEntity.class)) {
+            ControlledContraptionEntity moved = bearing.getMovedContraption();
+            if (moved == null || moved.isRemoved()) {
+                continue;
+            }
+            AABB box = moved.getBoundingBox();
+            if (!isFinite(box)
+                    || box.getCenter().distanceToSqr(hullCentre.x, hullCentre.y, hullCentre.z) > reachSq) {
+                continue;
+            }
+            found.add(box);
+        }
+        return found;
+    }
+
+    private static void include(double[] box, double minX, double minY, double minZ,
+                                double maxX, double maxY, double maxZ) {
+        box[0] = Math.min(box[0], minX);
+        box[1] = Math.min(box[1], minY);
+        box[2] = Math.min(box[2], minZ);
+        box[3] = Math.max(box[3], maxX);
+        box[4] = Math.max(box[4], maxY);
+        box[5] = Math.max(box[5], maxZ);
+    }
+
+    /** Fold a world-space box into a ship-space accumulator by transforming its eight corners. */
+    private void includeCornersInShip(double[] box, double minX, double minY, double minZ,
+                                      double maxX, double maxY, double maxZ) {
+        for (int corner = 0; corner < 8; corner++) {
+            double wx = (corner & 1) == 0 ? minX : maxX;
+            double wy = (corner & 2) == 0 ? minY : maxY;
+            double wz = (corner & 4) == 0 ? minZ : maxZ;
+            Vec3 ship = toShip(new Vec3(wx, wy, wz));
+            include(box, ship.x, ship.y, ship.z, ship.x, ship.y, ship.z);
+        }
+    }
+
+    private static boolean isFinite(AABB box) {
+        return Double.isFinite(box.minX) && Double.isFinite(box.minY) && Double.isFinite(box.minZ)
+                && Double.isFinite(box.maxX) && Double.isFinite(box.maxY) && Double.isFinite(box.maxZ);
     }
 
     // -------------------------------------------------------------- physics
@@ -305,9 +530,39 @@ public final class Airship {
         if (pipeline == null || subLevel.isRemoved()) {
             return;
         }
+        // Clamp at source. A frame slip in the emerge command, a solver glitch or momentum that
+        // stacked would otherwise be handed to the pipeline verbatim and integrated into a hull
+        // launched across the world - the "yeet". The ceiling sits far above any legitimate passage
+        // speed, so a real warp never touches it; anything that does was never going to be flight.
+        Vector3dc commanded = clampSpeed(blocksPerTick, maxCommandedSpeed());
         pipeline.resetVelocity(subLevel);
-        pipeline.addLinearAndAngularVelocity(subLevel, toPhysicsVelocity(blocksPerTick), ZERO);
+        pipeline.addLinearAndAngularVelocity(subLevel, toPhysicsVelocity(commanded), ZERO);
         pipeline.wakeUp(subLevel);
+    }
+
+    /**
+     * A commanded velocity with its speed capped, keeping its direction.
+     *
+     * <p>Pure, so the cap can be tested without a physics pipeline: a speed at or below the ceiling is
+     * returned unchanged, one above it is scaled back to exactly the ceiling along the same bearing,
+     * and a zero or non-finite command is left alone rather than turned into a division by zero.
+     */
+    public static Vector3d clampSpeed(Vector3dc blocksPerTick, double ceiling) {
+        double speed = blocksPerTick.length();
+        if (!Double.isFinite(speed) || speed <= ceiling || speed <= 0.0D) {
+            return new Vector3d(blocksPerTick);
+        }
+        return new Vector3d(blocksPerTick).mul(ceiling / speed);
+    }
+
+    /** The configured velocity ceiling, falling back to a safe default when the config is not loaded. */
+    public static double maxCommandedSpeed() {
+        try {
+            return uk.co.iceconchy.aerowarptics.AWConfig.MAX_COMMANDED_SPEED.get();
+        } catch (IllegalStateException e) {
+            // Config not loaded yet - happens in unit tests.
+            return 48.0D;
+        }
     }
 
     /**

@@ -560,6 +560,12 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
 
     @Override
     public void tick() {
+        // Before super.tick(), not after: Create runs initialize(), lazyTick() and every
+        // behaviour from there, and those touch the level too. Nothing runs on a block that is
+        // no longer there - see Airship.orphaned.
+        if (Airship.orphaned(this)) {
+            return;
+        }
         super.tick();
         if (level == null) {
             return;
@@ -856,7 +862,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                 continue;
             }
 
-            AABB bounds = vehicle.worldBounds().toMojang();
+            AABB bounds = vehicle.assemblyBounds().toMojang();
             if (!shape.admits(shape.extentAcross(bounds), bounds.getYsize())
                     || !far.shape().admits(far.shape().extentAcross(bounds), bounds.getYsize())) {
                 refuse(level, vehicle, origin, localCentre, nearAirship);

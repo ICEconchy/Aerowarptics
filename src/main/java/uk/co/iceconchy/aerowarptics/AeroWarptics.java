@@ -21,6 +21,7 @@ import uk.co.iceconchy.aerowarptics.registry.AWItems;
 import uk.co.iceconchy.aerowarptics.registry.AWParticles;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.registry.AWStress;
+import uk.co.iceconchy.aerowarptics.warp.AirshipResidency;
 
 /**
  * Create: Aeronautics warp-travel addon.
@@ -48,6 +49,7 @@ public class AeroWarptics {
         AWCreativeTab.register(modEventBus);
         AWCriteria.register(modEventBus);
 
+        modEventBus.addListener(AirshipResidency::onRegisterControllers);
         modEventBus.addListener(AWNetwork::register);
         modEventBus.addListener(AWDisplaySources::onRegister);
         modEventBus.addListener(AWDisplaySources::onCommonSetup);

@@ -190,6 +190,75 @@ public final class WarpTrace {
                 pos(drivePos), num(offset), num(distance), pos(intended), pos(actual));
     }
 
+    /**
+     * The single clearest signature of a yeet: what the drive asked for against what the hull is
+     * actually doing.
+     *
+     * <p>A healthy tick has the reported speed tracking the commanded one within a small margin. A
+     * penetration ejection or a frame slip shows up as the reported figure diverging - the hull moving
+     * far faster than anything was told to move it - and until this was traced it was invisible.
+     */
+    public static String velocitySummary(Vector3dc commanded, Vector3dc reported, double ceiling) {
+        double asked = commanded.length();
+        double got = reported.length();
+        String flag = got > ceiling ? " OVER-CEILING"
+                : got > asked * 2.0D + 1.0D ? " DIVERGED"
+                : asked >= ceiling ? " CLAMPED" : "";
+        return String.format(Locale.ROOT, "commanded=%s |c|=%s reported=%s |r|=%s ceiling=%s%s",
+                vec(commanded), num(asked), vec(reported), num(got), num(ceiling), flag);
+    }
+
+    /** Every flight tick's commanded-versus-reported velocity, the yeet detector. */
+    public static void flightTick(WarpFlight.Stage stage, Vector3dc commanded, Vector3dc reported,
+                                  double ceiling) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp]   tick {} {}", stage, velocitySummary(commanded, reported, ceiling));
+    }
+
+    /**
+     * How big the client-visible move at a teleport was against the jump threshold, and how many
+     * players were told to expect it.
+     *
+     * <p>A move under the threshold is one the fold-crossed collapse would not fire on, and a notice
+     * that reached nobody is a collapse that will not happen - both silent, both traced here.
+     */
+    public static String crossingSummary(double moved, double jumpThreshold, int recipients) {
+        boolean jump = moved >= jumpThreshold;
+        return String.format(Locale.ROOT, "move=%sb threshold=%sb %s notice->%d players",
+                num(moved), num(jumpThreshold), jump ? "JUMP" : "under-threshold", recipients);
+    }
+
+    /** The fold-crossed notice, sized against the jump threshold and counted by recipients. */
+    public static void crossingNotice(double moved, double jumpThreshold, int recipients) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp]   crossing {}", crossingSummary(moved, jumpThreshold, recipients));
+    }
+
+    /**
+     * The loaded state of a landing at the moment a hull arrives on it.
+     *
+     * <p>The report that decides whether phase 3 needs a forceload, a follow ticket, or a commit-time
+     * refusal: whether the chunks are loaded, whether the warp's own ticket is still holding them, and
+     * whether anything else will keep them loaded once that ticket lapses.
+     */
+    public static String arrivalSummary(boolean loaded, boolean held, boolean durable) {
+        return String.format(Locale.ROOT, "loaded=%s held=%s durable=%s%s",
+                loaded, held, durable, durable ? "" : " WILL-UNLOAD");
+    }
+
+    /** The landing's residency, traced at arrival. */
+    public static void arrival(BlockPos drivePos, boolean loaded, boolean held, boolean durable) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] arrival at {} {}",
+                pos(drivePos), arrivalSummary(loaded, held, durable));
+    }
+
     // ---------------------------------------------------------------- format
 
     private static String vec(Vector3dc v) {

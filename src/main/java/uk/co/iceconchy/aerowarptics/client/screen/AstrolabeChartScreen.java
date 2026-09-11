@@ -1,6 +1,5 @@
 package uk.co.iceconchy.aerowarptics.client.screen;
 
-import net.createmod.catnip.gui.AbstractSimiScreen;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -31,7 +30,7 @@ import java.util.UUID;
  * table is the chart room and the jump is fired from the drive.
  */
 @OnlyIn(Dist.CLIENT)
-public class AstrolabeChartScreen extends AbstractSimiScreen {
+public class AstrolabeChartScreen extends AWWindowScreen {
 
     private static final int REFRESH_INTERVAL = 40;
 
@@ -121,8 +120,7 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
     protected void init() {
         setWindowSize(AWLayouts.CHART_WIDTH, AWLayouts.CHART_HEIGHT);
         super.init();
-        guiLeft = AWLayout.anchor(width, AWLayouts.CHART_WIDTH, guiLeft);
-        guiTop = AWLayout.anchor(height, AWLayouts.CHART_HEIGHT, guiTop);
+        placeWindow(AWLayouts.CHART_WIDTH, AWLayouts.CHART_HEIGHT);
         clearWidgets();
     }
 
@@ -189,6 +187,9 @@ public class AstrolabeChartScreen extends AbstractSimiScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // Into window coordinates, so a click lands where the picture is when the window is scaled down.
+        mouseX = unscaleX(mouseX);
+        mouseY = unscaleY(mouseY);
         int index = rowAt(mouseX, mouseY);
         if (index >= 0 && index < data.quotes().size()) {
             WarpQuote quote = data.quotes().get(index);

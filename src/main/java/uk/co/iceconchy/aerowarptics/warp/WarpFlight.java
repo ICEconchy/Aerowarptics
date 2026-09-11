@@ -104,6 +104,10 @@ public final class WarpFlight {
     private final double transitRun;
     /** The hull's own extent along the bearing, which sets when the bow reaches the plane. */
     private final double hullSpan;
+    /** The hull's radius the apertures were scaled from, kept so the aperture margin can be re-derived. */
+    private final double hullRadius;
+    /** How far the corridor run carries the hull, on top of the passage. Zero holds it still. */
+    private final double corridorDrift;
     private final int transitTicks;
     private final int corridorTicks;
     private final int emergeTicks;
@@ -111,10 +115,13 @@ public final class WarpFlight {
 
     private Stage stage = Stage.APPROACH;
     private int stageTicks;
+    /** The velocity commanded on the most recent tick, kept so the trace can compare it to reality. */
+    private final Vector3d lastCommanded = new Vector3d();
 
     private WarpFlight(Rift entry, Rift exit,
                        Vector3d arrivalOrigin, Quaterniond arrivalOrientation, Vector3d emergeStart,
-                       double transitRun, double hullSpan, int transitTicks,
+                       double transitRun, double hullSpan, double hullRadius, double corridorDrift,
+                       int transitTicks,
                        int corridorTicks, int emergeTicks, int approachLimitTicks) {
         this.entry = entry;
         this.exit = exit;
@@ -123,6 +130,8 @@ public final class WarpFlight {
         this.emergeStart = emergeStart;
         this.transitRun = transitRun;
         this.hullSpan = hullSpan;
+        this.hullRadius = hullRadius;
+        this.corridorDrift = corridorDrift;
         this.transitTicks = transitTicks;
         this.corridorTicks = corridorTicks;
         this.emergeTicks = emergeTicks;
@@ -148,9 +157,13 @@ public final class WarpFlight {
                                   Vector3dc bowDirection, int corridorTicks, int emergeTicks) {
         Quaterniond orientation = new Quaterniond(airship.orientation());
         BoundingBox3dc hull = airship.worldBounds();
+        // Rifts are placed against the true hull centre, but the corridor and aperture are sized to
+        // the whole assembly - propellers on bearings included - so nothing mounted clips the terrain
+        // the bare hull would have cleared.
+        BoundingBox3dc assembly = airship.assemblyBounds();
 
-        double hullLength = Math.max(hull.width(), hull.length());
-        double hullRadius = Math.max(4.0D, Math.sqrt(hull.width() * hull.width() + hull.height() * hull.height()) * 0.5D);
+        double hullLength = Math.max(assembly.width(), assembly.length());
+        double hullRadius = Math.max(4.0D, Math.sqrt(assembly.width() * assembly.width() + assembly.height() * assembly.height()) * 0.5D);
         double riftRadius = hullRadius * AWConfig.RIFT_RADIUS_FACTOR.get();
 
         Vector3d heading = new Vector3d(bowDirection);
@@ -168,8 +181,12 @@ public final class WarpFlight {
         double settle = passage * emergeRun * 0.5D;
         double emergeDistance = Math.max(8.0D,
                 Math.max(hullLength * AWConfig.EMERGE_DISTANCE_FACTOR.get(), transitRun + settle));
+        // The exit aperture is wider than the hull, so the run-out has to be proven clear to the
+        // aperture's radius, not just the hull's box - a block that clears the hull can still foul
+        // the opening it flies out through. This is the margin that widens the arrival test.
+        double apertureMargin = SafeArrival.apertureMargin(riftRadius, hullRadius);
         SafeArrival.Result arrival = SafeArrival.find(airship, destination, anchorPos, orientation,
-                heading, emergeDistance);
+                heading, emergeDistance, apertureMargin);
         if (arrival == null) {
             return null;
         }
@@ -196,8 +213,42 @@ public final class WarpFlight {
         Rift exit = new Rift(exitCentre, new Vector3d(heading), riftRadius);
 
         return new WarpFlight(entry, exit, arrivalOrigin, orientation,
-                emergeStart, transitRun, hullLength, transitTicks, Math.max(1, corridorTicks), emergeRun,
+                emergeStart, transitRun, hullLength, hullRadius, corridorDrift(), transitTicks,
+                Math.max(1, corridorTicks), emergeRun,
                 Math.max(20, AWConfig.APPROACH_LIMIT_TICKS.get()));
+    }
+
+    /**
+     * The two departure-corridor dimensions the clearance check needs, worked out without an arrival.
+     *
+     * @param corridorReach how far ahead of the bow the hull actually flies, from the plane on
+     * @param apertureMargin how far past the hull the entry aperture reaches on every side
+     */
+    public record DepartureShape(double corridorReach, double apertureMargin) {
+    }
+
+    /**
+     * The departure corridor's length and width for a hull and drive tier, with no destination in
+     * hand.
+     *
+     * <p>Mirrors the head of {@link #plan}: the same hull span, aperture radius and corridor length a
+     * planned flight would produce, but derived from the hull and the tier's corridor ticks alone. A
+     * clearance can therefore be measured - and drawn - for a drive that has no course set, which is
+     * exactly the case a pilot wants to check before committing to one.
+     */
+    public static DepartureShape departureShape(Airship airship, int corridorTicks) {
+        // The whole assembly, not the bare plot: a corridor drawn for a hull that ignores its own
+        // propellers is the over-tight case this exists to expose.
+        BoundingBox3dc hull = airship.assemblyBounds();
+        double hullLength = Math.max(hull.width(), hull.length());
+        double hullRadius = Math.max(4.0D,
+                Math.sqrt(hull.width() * hull.width() + hull.height() * hull.height()) * 0.5D);
+        double riftRadius = hullRadius * AWConfig.RIFT_RADIUS_FACTOR.get();
+        double transitRun = hullLength + TRANSIT_MARGIN;
+        // Mirrors corridorReach(): the passage, plus whatever drift is configured. Kept in lockstep
+        // on purpose - a clearance drawn from a different reach than the flight uses is a lie.
+        double corridorReach = transitRun + corridorDrift();
+        return new DepartureShape(corridorReach, SafeArrival.apertureMargin(riftRadius, hullRadius));
     }
 
     /**
@@ -293,6 +344,52 @@ public final class WarpFlight {
     }
 
     /**
+     * How far ahead of its current pose the hull actually flies in real world space before the single
+     * teleport carries it across - the run in, the passage, and the corridor run, which is flown
+     * inside the entry throat rather than anywhere else. This is the length of the departure path that
+     * must be proven clear (phase 1) and kept chunk-resident (phase 3).
+     */
+    public double corridorReach() {
+        return transitRun + corridorDrift;
+    }
+
+    /**
+     * The configured corridor drift: how far the corridor run carries the hull once the aperture has
+     * swallowed it, zero by default.
+     *
+     * <p>The corridor used to run for its whole duration at passage speed, so the reach grew as
+     * {@code hullLength x (1 + corridorTicks / transitTicks)} - two and a half ship-lengths of real
+     * world space on a long hull, every block of which had to be proven clear, kept chunk-resident
+     * and hidden behind a deeper throat. None of it was observable: the hull is inside the throat for
+     * the entire phase. Holding still costs nothing and the corridor still lasts exactly as long.
+     */
+    public static double corridorDrift() {
+        try {
+            return Math.max(0.0D, AWConfig.CORRIDOR_DRIFT.get());
+        } catch (IllegalStateException e) {
+            return 0.0D; // config not loaded - unit tests
+        }
+    }
+
+    /** Blocks per tick during the corridor run: the drift spread evenly over the phase. */
+    public double corridorSpeed() {
+        return corridorDrift / Math.max(1, corridorTicks);
+    }
+
+    /** How far the hull coasts from the exit aperture to its resting place, along the bearing. */
+    public double emergeRunOut() {
+        return arrivalOrigin.distance(emergeStart);
+    }
+
+    /**
+     * How far past the hull's own footprint the apertures reach, so the departure and arrival
+     * clearance checks prove the aperture opening and throat clear, not just the hull's box.
+     */
+    public double apertureMargin() {
+        return SafeArrival.apertureMargin(entry.radius(), hullRadius);
+    }
+
+    /**
      * How deep the entry aperture's throat has to run to keep a hull out of sight inside it.
      *
      * <p>A flat aperture only hides what is directly behind it, so a hull halfway through one is
@@ -304,7 +401,7 @@ public final class WarpFlight {
      * a thousand blocks up, so it is as long as the passage plus everything flown after it.
      */
     public double entryThroatDepth() {
-        return throatFor(transitRun + corridorTicks * transitSpeed());
+        return throatFor(corridorReach());
     }
 
     /** The far aperture's throat, which only has to hide the hull while it flies back out. */
@@ -332,6 +429,23 @@ public final class WarpFlight {
 
     public int emergeTicks() {
         return emergeTicks;
+    }
+
+    /** The velocity the flight commanded on its most recent tick, in blocks per tick. */
+    public Vector3dc lastCommanded() {
+        return lastCommanded;
+    }
+
+    /**
+     * Commands the hull's velocity and remembers what was asked for.
+     *
+     * <p>Every stage goes through here rather than calling {@link Airship#driveVelocity} directly, so
+     * the commanded figure is captured for the trace that catches a yeet - the reported velocity
+     * diverging from the commanded one is the clearest sign the solver ejected the hull.
+     */
+    private void command(Airship airship, Vector3dc blocksPerTick) {
+        lastCommanded.set(blocksPerTick);
+        airship.driveVelocity(blocksPerTick);
     }
 
     /** 0..1 progress through the current stage, for effects. */
@@ -392,7 +506,7 @@ public final class WarpFlight {
         double target = approachSpeed(toPlane, AWConfig.APPROACH_SPEED.get(), transitSpeed());
         // Ease off the mooring too, so the departure is not a jolt either.
         double ramp = Math.min(1.0D, stageTicks / 10.0D);
-        airship.driveVelocity(entry.normal().mul(target * ramp, new Vector3d()));
+        command(airship, entry.normal().mul(target * ramp, new Vector3d()));
         return Step.CONTINUE;
     }
 
@@ -424,7 +538,7 @@ public final class WarpFlight {
         if (stageTicks >= transitTicks) {
             return Step.ENTER_CORRIDOR;
         }
-        airship.driveVelocity(entry.normal().mul(transitRun / transitTicks, new Vector3d()));
+        command(airship, entry.normal().mul(transitRun / transitTicks, new Vector3d()));
         return Step.CONTINUE;
     }
 
@@ -441,7 +555,10 @@ public final class WarpFlight {
         if (stageTicks >= corridorTicks) {
             return Step.EXIT_CORRIDOR;
         }
-        airship.driveVelocity(entry.normal().mul(transitSpeed(), new Vector3d()));
+        // At the default drift of zero this commands a standstill, which is still a command: the
+        // velocity is re-set every tick, so gravity, lift and the ship's own thrust stay overridden
+        // exactly as they are in every other stage.
+        command(airship, entry.normal().mul(corridorSpeed(), new Vector3d()));
         return Step.CONTINUE;
     }
 
@@ -450,7 +567,7 @@ public final class WarpFlight {
         if (stageTicks >= transitTicks) {
             return Step.EMERGED;
         }
-        airship.driveVelocity(exit.normal().mul(transitRun / transitTicks, new Vector3d()));
+        command(airship, exit.normal().mul(transitRun / transitTicks, new Vector3d()));
         return Step.CONTINUE;
     }
 
@@ -463,7 +580,7 @@ public final class WarpFlight {
         // Aiming at the hull's actual position rather than a precomputed run keeps this honest if
         // physics nudged the ship on its way out of the aperture.
         Vector3d remaining = arrivalOrigin.sub(airship.position(), new Vector3d());
-        airship.driveVelocity(remaining.mul(emergeFraction(emergeTicks - stageTicks)));
+        command(airship, remaining.mul(emergeFraction(emergeTicks - stageTicks)));
         return Step.CONTINUE;
     }
 
@@ -538,6 +655,8 @@ public final class WarpFlight {
         tag.putDouble("OrientW", arrivalOrientation.w);
         tag.putDouble("TransitRun", transitRun);
         tag.putDouble("HullSpan", hullSpan);
+        tag.putDouble("HullRadius", hullRadius);
+        tag.putDouble("CorridorDrift", corridorDrift);
         tag.putInt("TransitTicks", transitTicks);
         tag.putInt("CorridorTicks", corridorTicks);
         tag.putInt("EmergeTicks", emergeTicks);
@@ -559,6 +678,8 @@ public final class WarpFlight {
                 readVec(tag, "EmergeStart"),
                 tag.getDouble("TransitRun"),
                 tag.getDouble("HullSpan"),
+                tag.getDouble("HullRadius"),
+                tag.getDouble("CorridorDrift"),
                 Math.max(1, tag.getInt("TransitTicks")),
                 tag.getInt("CorridorTicks"),
                 tag.getInt("EmergeTicks"),

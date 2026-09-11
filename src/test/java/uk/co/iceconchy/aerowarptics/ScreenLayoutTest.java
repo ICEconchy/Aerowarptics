@@ -295,6 +295,24 @@ class ScreenLayoutTest {
     }
 
     /**
+     * The chart's detail panel has room for everything it draws.
+     *
+     * <p>Same blind spot as the console's panels: nothing else here can see what a panel puts inside
+     * itself, which is how this one came to be 52px for 69px of content and drew the course-status pill
+     * below its own bottom edge - hanging off the foot of the screen. The numbers are the ones
+     * {@code AstrolabeChartScreen.renderDetails} lays out with: a two-pixel inset, a title and the rule
+     * under it, three label-and-value readouts, and the pill a gutter below them.
+     */
+    @Test
+    void theChartDetailPanelHoldsWhatItDraws() {
+        // inset, title-and-rule, three readouts, then the pill two pixels below with its own height.
+        int content = AWLayout.INSET + 15 + 3 * AWLayout.LINE + 2 + 11;
+        assertTrue(AWLayouts.chart().detail().height() >= content,
+                "the chart's detail panel is " + AWLayouts.chart().detail().height() + "px for "
+                        + content + "px of content - the course-status pill would be drawn below it");
+    }
+
+    /**
      * The preview panel is exactly the size of the picture that goes in it.
      *
      * <p>{@code AWLayouts} writes the number out so it can stay free of Minecraft; this is what stops
@@ -401,6 +419,40 @@ class ScreenLayoutTest {
             int[] size = size(screen);
             assertTrue(size[0] <= 320, screen + " is " + size[0] + "px wide, wider than Auto scale guarantees");
         }
+    }
+
+    /**
+     * The chart and the probe are taller than the 240px floor Auto scale guarantees, so they scale to
+     * fit rather than hang their bottom edge - buttons and all - off the screen the way anchoring
+     * alone would. This is the check that they actually come back on once scaled.
+     */
+    @Test
+    void tallScreensScaleOntoTheAutoScaleFloor() {
+        for (String screen : List.of("chart", "probe", "book")) {
+            int[] size = size(screen);
+            float scale = AWLayout.fitScale(320, 240, size[0], size[1]);
+            assertTrue(scale < 1.0F, screen + " is not tall enough to need scaling at 320x240");
+            assertTrue(Math.round(size[1] * scale) <= 240,
+                    screen + " still overhangs 240px after scaling to " + scale);
+            assertTrue(Math.round(size[0] * scale) <= 320,
+                    screen + " still overhangs 320px after scaling to " + scale);
+        }
+    }
+
+    /**
+     * A window that already fits is never touched, so the scaled render path stays off for every
+     * ordinary case; one taller than the screen shrinks by exactly the height ratio; nothing is ever
+     * scaled up.
+     */
+    @Test
+    void fitScaleShrinksOnlyWhatOverhangs() {
+        assertEquals(1.0F, AWLayout.fitScale(480, 270, 320, 236),
+                "a window that fits was scaled anyway");
+        assertEquals(1.0F, AWLayout.fitScale(320, 240, 320, 240),
+                "a window exactly filling the screen was scaled");
+        assertEquals(240.0F / 292.0F, AWLayout.fitScale(480, 240, 320, 292), 1.0e-6F);
+        assertEquals(1.0F, AWLayout.fitScale(1000, 800, 320, 292),
+                "a window with room to spare was scaled up");
     }
 
     /**

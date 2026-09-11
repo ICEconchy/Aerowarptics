@@ -1,0 +1,19 @@
+{
+  "type": "create:crushing",
+  "ingredients": [
+    {
+      "item": "aerowarptics:raw_warp_crystal"
+    }
+  ],
+  "processing_time": 250,
+  "results": [
+    {
+      "id": "aerowarptics:warp_dust",
+      "count": 2
+    },
+    {
+      "chance": 0.25,
+      "id": "aerowarptics:warp_dust"
+    }
+  ]
+}

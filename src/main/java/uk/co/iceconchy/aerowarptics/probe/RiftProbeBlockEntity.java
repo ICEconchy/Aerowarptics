@@ -290,6 +290,12 @@ public class RiftProbeBlockEntity extends SmartBlockEntity implements IHaveGoggl
 
     @Override
     public void tick() {
+        // Before super.tick(), not after: Create runs initialize(), lazyTick() and every
+        // behaviour from there, and those touch the level too. Nothing runs on a block that is
+        // no longer there - see Airship.orphaned.
+        if (Airship.orphaned(this)) {
+            return;
+        }
         super.tick();
         if (level == null || level.isClientSide || state != ProbeState.REACHING) {
             return;

@@ -158,6 +158,14 @@ public final class AWClientHooks {
         }
     }
 
+    /** Show this player the departure clearance a drive just measured for them. */
+    public static void showClearance(
+            uk.co.iceconchy.aerowarptics.network.ClientboundClearancePacket packet) {
+        if (client()) {
+            ClientRuntime.showClearance(packet);
+        }
+    }
+
     /** Ambient warp visuals, driven from the drive's own client tick. */
     public static void tickDriveEffects(RiftDriveBlockEntity drive) {
         if (client()) {
@@ -191,6 +199,15 @@ public final class AWClientHooks {
                                       net.minecraft.util.RandomSource random) {
         if (client()) {
             ClientRuntime.animateFissure(level, pos, random);
+        }
+    }
+
+    /** Essence being drawn into a Spatial Siphon, from the siphon's own client tick while it fills. */
+    public static void animateSiphonDraw(net.minecraft.world.level.Level level,
+                                         net.minecraft.core.BlockPos pos,
+                                         net.minecraft.util.RandomSource random) {
+        if (client()) {
+            ClientRuntime.animateSiphonDraw(level, pos, random);
         }
     }
 

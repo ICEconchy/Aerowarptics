@@ -299,13 +299,22 @@
           ]
         },
         {
+          "name": "tower",
+          "pivot": [
+            0,
+            4,
+            0
+          ],
+          "parent": "base"
+        },
+        {
           "name": "pillar",
           "pivot": [
             0,
             4,
             0
           ],
-          "parent": "base",
+          "parent": "tower",
           "cubes": [
             {
               "origin": [
@@ -364,7 +373,7 @@
             11,
             0
           ],
-          "parent": "base",
+          "parent": "tower",
           "cubes": [
             {
               "origin": [
@@ -439,7 +448,7 @@
             11,
             0
           ],
-          "parent": "base",
+          "parent": "tower",
           "cubes": [
             {
               "origin": [
@@ -514,7 +523,7 @@
             11,
             0
           ],
-          "parent": "base",
+          "parent": "tower",
           "cubes": [
             {
               "origin": [

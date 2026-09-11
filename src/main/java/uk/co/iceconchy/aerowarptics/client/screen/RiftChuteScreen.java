@@ -229,8 +229,16 @@ public class RiftChuteScreen extends AbstractSimiScreen {
         List<RiftChute> chutes = data.bindable();
 
         if (chutes.isEmpty()) {
-            graphics.drawString(font, AWLang.translate("gui.rift_chute.no_chutes").component(),
-                    left + 4, top + 4, AWScreenStyle.LABEL, false);
+            // Wrapped to the list's own width, not drawn as one line: "No other chutes in this world"
+            // is wider than this panel, and left to run it spills across the gutter into the detail
+            // panel beside it.
+            int wrap = list.width() - 6;
+            int y = top + 4;
+            for (net.minecraft.util.FormattedCharSequence piece : font.split(
+                    AWLang.translate("gui.rift_chute.no_chutes").component(), wrap)) {
+                graphics.drawString(font, piece, left + 4, y, AWScreenStyle.LABEL, false);
+                y += 10;
+            }
             return;
         }
 

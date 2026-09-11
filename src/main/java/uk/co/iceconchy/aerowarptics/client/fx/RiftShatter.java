@@ -61,7 +61,17 @@ public final class RiftShatter {
         /** Rim first, working in towards the centre. */
         INWARD,
         /** No order at all. Stars do not go out in sequence. */
-        SCATTER
+        SCATTER,
+        /**
+         * No stagger at all: every piece goes on the same tick.
+         *
+         * <p>The odd one out, and deliberately so. Every other sequencing spends part of the shatter
+         * budget deciding who goes first, which is what makes an opening read as something coming
+         * apart. A jump to lightspeed is not something coming apart - it happens to the whole pane at
+         * once, and any stagger at all would give it away as a lot of small events rather than one
+         * large one.
+         */
+        SIMULTANEOUS
     }
 
     /**
@@ -100,7 +110,52 @@ public final class RiftShatter {
          * Drifts outward on a slow spiral, shrinking to a point and twinkling on the way. Nothing is
          * thrown and nothing tumbles; the pane comes apart the way a cloud does.
          */
-        DRIFT
+        DRIFT,
+        /**
+         * Never detaches. The piece stays anchored at its inner edge while its outer edge races away,
+         * so a cell stops being a tile and becomes a radial line - the pane is not broken, it is
+         * smeared. What sells a jump to lightspeed is that the shape of the aperture survives the
+         * motion; a field of stretched streaks is still recognisably the circle it started as.
+         */
+        STREAK,
+        /**
+         * Dragged round the aperture's centre by an amount that falls off with radius: the middle
+         * whips round, the rim barely moves. Nothing is thrown and nothing is consumed - the pane is
+         * still all there, wound into a vortex. Differential rotation is the only motion in this list
+         * that reads as the <em>space</em> bending rather than as an object breaking.
+         */
+        SHEAR,
+        /**
+         * Torn into the middle and stretched thin on the way - gravity rather than fracture. Each
+         * piece's inner edge runs in faster than its outer one, so cells draw out along the radius
+         * towards the hole, and they shudder as they go. Distinct from {@link #SHEAR}, which turns the
+         * pane without taking any of it anywhere, and from {@link #DRIFT}, which spirals outward.
+         */
+        IMPLODE,
+        /**
+         * Scaled along one fixed axis of the aperture rather than moved: the circle draws out into a
+         * longer and longer ellipse, then releases. Nothing rotates, nothing travels outward radially,
+         * and every piece stretches by the same factor, so the pane deforms as one object.
+         */
+        ELONGATE,
+        /**
+         * Pieces snap onto a crossing grid - alternate cells slide along the aperture's two axes, so
+         * what was a radial fracture resolves into bands running over and under one another. The joke
+         * only lands if the bands are crisp, so nothing here wanders or spins.
+         */
+        PLAID,
+        /**
+         * Travels in hard steps rather than continuously, fading out and back in at each one. The
+         * piece is never between two places; it is at one of five, and the eye reads the gaps as the
+         * thing failing to arrive properly rather than as something moving quickly.
+         */
+        STUTTER,
+        /**
+         * Picks one of the others per piece, from the piece's own seed, and picks again for the next
+         * rift. The only motion here that is not a description of a movement but of a refusal to
+         * settle on one - which is the whole of the joke, and the reason it must be last.
+         */
+        IMPROBABLE
     }
 
     /**
@@ -167,10 +222,59 @@ public final class RiftShatter {
                 Sequencing.SCATTER, Motion.DRIFT, 0.25F, 0.35F, 0.30F, 0.0F, 0.35F, 0.15F, true, 0.85F);
 
         /**
+         * Hyperspace: many fine cuts, cut precisely, every one of them letting go on the same tick
+         * and stretching rather than detaching.
+         *
+         * <p>Twenty-eight cracks and only two rings, the opposite shape to everything above it. A
+         * streak needs to be long and thin: plenty of cells round the rim so the smear reads as a
+         * bundle of lines, and hardly any across the radius so each line runs most of the way out
+         * rather than being chopped into a stack of dashes.
+         */
+        public static final Pattern STREAKS = new Pattern(28, 2, false, 1.0F,
+                Sequencing.SIMULTANEOUS, Motion.STREAK, 1.6F, 1.2F, 0.0F, 0.0F, 0.0F, 0.0F, true, 0.45F);
+
+        /**
+         * A fold: precise cells, many rings, wound round the middle and left there.
+         *
+         * <p>Five rings where most patterns have three or four, because this is the one pattern whose
+         * whole effect is a <em>difference</em> across the radius. Too few rings and the shear has
+         * nothing to interpolate between, so the pane turns as one plate and the bend disappears.
+         */
+        public static final Pattern FOLD = new Pattern(14, 5, false, 0.85F,
+                Sequencing.RADIAL, Motion.SHEAR, 0.0F, 0.0F, 0.0F, 0.0F, 2.6F, 0.0F, true, 0.7F);
+
+        /** A clean lens: even cells that stretch as one body along a single axis and let go. */
+        public static final Pattern LENS = new Pattern(12, 3, false, 1.0F,
+                Sequencing.RADIAL, Motion.ELONGATE, 0.15F, 0.5F, 0.0F, 0.0F, 0.0F, 0.0F, true, 0.5F);
+
+        /** A weave: an even grid, snapping into crossing bands all at once. */
+        public static final Pattern TARTAN = new Pattern(16, 4, false, 1.0F,
+                Sequencing.SIMULTANEOUS, Motion.PLAID, 0.9F, 0.6F, 0.2F, 0.0F, 0.0F, 0.0F, true, 0.6F);
+
+        /**
+         * A gravity well: jagged, uneven cells, bunched towards the rim, torn in towards the middle
+         * from the edge first.
+         *
+         * <p>Its sequencing and life are exactly those of the liquid pane it replaced - only its shape
+         * and where its pieces go changed - so the opening takes as long as it always did.
+         */
+        public static final Pattern GRAVITY = new Pattern(13, 4, true, 1.3F,
+                Sequencing.INWARD, Motion.IMPLODE, 0.55F, 0.45F, 0.25F, 0.0F, 0.30F, 0.40F, false, 0.9F);
+
+        /** A rift arriving badly: eight even teeth, stepping round, none of them quite committing. */
+        public static final Pattern STAGGER = new Pattern(8, 3, false, 1.0F,
+                Sequencing.RATCHET, Motion.STUTTER, 0.35F, 0.40F, 0.15F, 0.0F, 0.20F, 0.10F, true, 0.75F);
+
+        /** No pattern worth the name: wide spreads on every knob, and a motion that rerolls per piece. */
+        public static final Pattern CHAOS = new Pattern(9, 3, true, 1.0F,
+                Sequencing.SCATTER, Motion.IMPROBABLE, 0.30F, 0.50F, 0.60F, 0.0F, 0.50F, 0.90F, false, 0.8F);
+
+        /**
          * Every pattern this mod has, so a test can enumerate them and a new one cannot be added
          * without the invariants below being held to it.
          */
-        public static final java.util.List<Pattern> ALL = java.util.List.of(GLASS, GEARS, RUNES, EMBERS, MOTES);
+        public static final java.util.List<Pattern> ALL = java.util.List.of(GLASS, GEARS, RUNES, EMBERS, MOTES,
+                STREAKS, FOLD, LENS, TARTAN, GRAVITY, STAGGER, CHAOS);
     }
 
     /**
@@ -192,6 +296,13 @@ public final class RiftShatter {
             case ARCANE -> Pattern.RUNES;
             case EMBER -> Pattern.EMBERS;
             case STARLIGHT -> Pattern.MOTES;
+            case STARBLOCKS -> Pattern.STREAKS;
+            case BEDROCK -> Pattern.FOLD;
+            case BOLDLY_GONE -> Pattern.LENS;
+            case LUDICROUS -> Pattern.TARTAN;
+            case EVENTFUL_HORIZON -> Pattern.GRAVITY;
+            case VWORP -> Pattern.STAGGER;
+            case IMPROBABILITY -> Pattern.CHAOS;
         };
     }
 
@@ -374,6 +485,7 @@ public final class RiftShatter {
                     case INWARD -> (1.0F - mid) * BREAK_SPREAD;
                     case SCATTER -> noise(seed, n + 4) * BREAK_SPREAD;
                     case RADIAL -> mid * BREAK_SPREAD;
+                    case SIMULTANEOUS -> 0.0F;
                 };
                 float outward = pattern.outwardBase() + pattern.outwardMidScale() * mid
                         + pattern.outwardVariance() * noise(seed, n);

@@ -5,6 +5,7 @@ import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor;
 import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
+import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -17,6 +18,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -49,7 +51,9 @@ import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
+import uk.co.iceconchy.aerowarptics.warp.AirshipResidency;
 import uk.co.iceconchy.aerowarptics.warp.ArrivalTicket;
+import uk.co.iceconchy.aerowarptics.warp.LaunchClearance;
 import uk.co.iceconchy.aerowarptics.warp.CrossDimensionWarp;
 import uk.co.iceconchy.aerowarptics.warp.SafeArrival;
 import uk.co.iceconchy.aerowarptics.warp.ScatterOffset;
@@ -64,8 +68,11 @@ import uk.co.iceconchy.aerowarptics.warp.WarpTrace;
 import uk.co.iceconchy.aerowarptics.warp.WarpValidator;
 
 import java.util.EnumMap;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -122,6 +129,22 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     private int sequenceTicks;
     private int cooldownTicks;
     private int errorTicks;
+
+    /**
+     * Counts down to the next renewal of the claim that keeps this drive's airship loaded. Starts at
+     * zero so a freshly loaded drive asserts residency on its first server tick rather than waiting a
+     * whole interval. See {@link #renewResidency()}.
+     */
+    private int residencyTimer;
+
+    /**
+     * The chunks this drive is currently force-loading, by {@link ChunkPos#asLong}. Persisted so that
+     * after a restart the drive knows exactly what it claimed and can release it on removal or diff it
+     * on the next renewal - NeoForge reinstates the forced chunks themselves, but only this set records
+     * that they were ours.
+     */
+    private final Set<Long> forcedChunks = new HashSet<>();
+
     private WarpFailure lastFailure = WarpFailure.NONE;
     @Nullable
     private UUID destinationAnchor;
@@ -259,6 +282,12 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
 
     @Override
     public void tick() {
+        // Before super.tick(), not after: Create runs initialize(), lazyTick() and every
+        // behaviour from there, and those touch the level too. Nothing runs on a block that is
+        // no longer there - see Airship.orphaned.
+        if (Airship.orphaned(this)) {
+            return;
+        }
         super.tick();
         if (level == null) {
             return;
@@ -279,6 +308,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             recoverFromInterruption();
         }
 
+        renewResidency();
         tickRedstone();
         tickCharge();
         tickStateMachine();
@@ -395,6 +425,126 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         } else if (state == RiftDriveState.IDLE || state == RiftDriveState.CHARGING) {
             releaseStaleClaim();
         }
+    }
+
+    /**
+     * Keeps this drive's airship - and any ground it warped onto - loaded for as long as the drive is
+     * there to hold it, across server restarts included.
+     *
+     * <p>An airship that jumps into empty wilderness has no player and no chunk loader to keep it
+     * resident. Once the flight's arrival claim lapsed, the world under the hull used to unload and
+     * Sable would remove the sub-level: the ship was simply lost, which is what the old
+     * {@code requireLoadedArrival} refusal existed to prevent by forbidding the jump. Rather than
+     * forbid it, the drive holds its own landing - and it does so with {@link AirshipResidency}'s
+     * persistent forced chunks, so the claim is written to disk and reinstated on reboot instead of
+     * evaporating with the server.
+     *
+     * <p>Each renewal recomputes the chunks the ship wants held - its plot chunk and the ground under
+     * its hull - and reconciles that against what the drive already forces: claiming what is newly
+     * wanted, letting go of what has moved out from under it. Run on the
+     * {@link ArrivalTicket#RESIDENCY_RENEW_INTERVAL} cadence, which while a ship cruises trails its
+     * true position, but that gap is covered by the pilot's own view tickets; the forced claim only
+     * has to be right where the ship comes to rest, which is where it matters for a restart.
+     */
+    private void renewResidency() {
+        if (--residencyTimer > 0 || !(level instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        residencyTimer = ArrivalTicket.RESIDENCY_RENEW_INTERVAL;
+
+        Airship airship = airship();
+        if (!AWConfig.KEEP_AIRSHIPS_LOADED.get() || airship == null || !airship.isActive()) {
+            // The policy is off, or there is no ship under us to hold: let go of anything we still claim.
+            releaseResidency();
+            return;
+        }
+
+        Set<Long> desired = new HashSet<>();
+        // Every chunk the ship's plot actually occupies, not a fixed patch around the drive. A large
+        // hull spans far more than the drive's own corner, and holding only that let the far ends of
+        // the plot unload the moment the arrival ticket lapsed - Sable then removed the sub-level and
+        // the ship was gone, while the crew, being ordinary entities, arrived regardless. One chunk of
+        // margin covers a plot whose bounds sit flush against a chunk edge.
+        addPlotResidency(desired, airship);
+        // The real-world ground the hull is floating over, sized from the hull's own span so a large
+        // ship holds enough for what sits under it. The diagonal of the ship-space footprint is a
+        // rotation-proof bound on how far the hull reaches from its centre.
+        BoundingBox3ic bounds = airship.shipBounds();
+        double span = bounds == null ? 0.0D : Math.hypot(bounds.width(), bounds.length());
+        Vector3d centre = airship.centre(new Vector3d());
+        addResidencyRegion(desired, new ChunkPos(Mth.floor(centre.x) >> 4, Mth.floor(centre.z) >> 4),
+                ArrivalTicket.radiusFor(span));
+
+        applyResidency(serverLevel, desired);
+    }
+
+    /** Adds every chunk within {@code radius} of {@code centre} (inclusive) to {@code out}. */
+    private static void addResidencyRegion(Set<Long> out, ChunkPos centre, int radius) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                out.add(ChunkPos.asLong(centre.x + dx, centre.z + dz));
+            }
+        }
+    }
+
+    /**
+     * Adds every chunk the ship's plot occupies, plus a one-chunk margin, to {@code out}.
+     *
+     * <p>Sized from the plot's true global chunk extent rather than a radius around the drive, so the
+     * whole hull is held however large it is. Falls back to the drive's own chunk when the plot cannot
+     * report its bounds, which keeps the machine itself resident even in that unexpected case.
+     */
+    private void addPlotResidency(Set<Long> out, Airship airship) {
+        // The hull's own chunks, not the plot's reservation. Sable hands a sub-level a fixed square of
+        // the plot grid whatever size the ship is, so claiming the reservation was work proportional
+        // to nothing at all: placing a drive on any vessel force-loaded the whole square on its first
+        // tick - residencyTimer starts at zero - and hung the server for over a minute, identically
+        // for a raft and for a battleship. That "regardless of size" is the tell.
+        ChunkPos min = airship.hullChunkMin();
+        ChunkPos max = airship.hullChunkMax();
+        if (min == null || max == null) {
+            addResidencyRegion(out, new ChunkPos(worldPosition), 1);
+            return;
+        }
+        out.addAll(ArrivalTicket.plotResidencyChunks(min, max, 1));
+    }
+
+    /** Reconciles the forced-chunk claim to exactly {@code desired}: force the new, release the gone. */
+    private void applyResidency(ServerLevel serverLevel, Set<Long> desired) {
+        for (long chunk : desired) {
+            if (!forcedChunks.contains(chunk)) {
+                AirshipResidency.set(serverLevel, worldPosition, chunk, true, ticks(chunk));
+            }
+        }
+        for (long chunk : forcedChunks) {
+            if (!desired.contains(chunk)) {
+                AirshipResidency.set(serverLevel, worldPosition, chunk, false, ticks(chunk));
+            }
+        }
+        forcedChunks.clear();
+        forcedChunks.addAll(desired);
+    }
+
+    /**
+     * Whether a claimed chunk needs to tick. Only the drive's own does - see {@link AirshipResidency}.
+     *
+     * <p>Derived from the drive's position rather than remembered, so a release computes the same
+     * answer the claim did. NeoForge keeps ticking and non-ticking claims in separate sets, and a
+     * mismatch here would silently leave the chunk forced for good.
+     */
+    private boolean ticks(long chunk) {
+        return chunk == ChunkPos.asLong(worldPosition.getX() >> 4, worldPosition.getZ() >> 4);
+    }
+
+    /** Drops every chunk this drive was force-loading. Needs a live server level to do the unforcing. */
+    private void releaseResidency() {
+        if (forcedChunks.isEmpty() || !(level instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        for (long chunk : forcedChunks) {
+            AirshipResidency.set(serverLevel, worldPosition, chunk, false, ticks(chunk));
+        }
+        forcedChunks.clear();
     }
 
     /**
@@ -785,6 +935,48 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             return;
         }
 
+        // The departure path gets the same scrutiny the arrival always had. The hull is about to be
+        // flown at the entry rift, through it, and down the corridor - all in real world space over
+        // the mooring - and terrain anywhere along that run is flown straight into, which is exactly
+        // what makes Sable's solver eject the hull. Refuse at the mooring, with the bearing named, so
+        // the pilot can come about; never mid-corridor.
+        // The bow guard, always. The hull's own path through open air on its way to the aperture,
+        // and only a block actually seen there refuses - the case that genuinely ejects a ship.
+        // Bounded by the hull and a fixed lead, so it costs a flying city no more than a skiff.
+        if (LaunchClearance.guard(airship, serverLevel, bow)
+                == uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance.OBSTRUCTED) {
+            abort(WarpFailure.NO_CLEAR_LAUNCH);
+            return;
+        }
+
+        // The whole-corridor proof is now opt-in. As a gate it scaled with the hull until the
+        // largest ships were refused every time with nothing in their way, which is worth far more
+        // than it protected: past the bow, the pilot is flying the ship.
+        if (AWConfig.REQUIRE_CLEAR_LAUNCH.get()) {
+            uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance corridor =
+                    LaunchClearance.clearance(airship, serverLevel, bow, planned);
+            if (corridor != uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance.CLEAR) {
+                // Both refuse, but the pilot is told which: a blocked corridor means come about, an
+                // unproven one means the check could not finish and is not about the bearing at all.
+                abort(corridor == uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance.UNPROVEN
+                        ? WarpFailure.LAUNCH_UNPROVEN : WarpFailure.NO_CLEAR_LAUNCH);
+                return;
+            }
+        }
+
+        // A ship must arrive where the ground will stay under it. The arrival ticket holds the landing
+        // for the flight and then lets go; historically, if nothing else kept it loaded, the world
+        // unloaded and Sable removed the hull - the ship was simply lost. That only refuses a warp
+        // when the drive is NOT keeping its own landing resident: with keepAirshipsLoaded on (the
+        // default), the drive holds the ground it lands on, so refusing would be wrong even where an
+        // old config still has requireLoadedArrival set. The refusal is the fallback for a server that
+        // has turned the drive's own residency off and wants unattended landings forbidden instead.
+        if (!AWConfig.KEEP_AIRSHIPS_LOADED.get() && AWConfig.REQUIRE_LOADED_ARRIVAL.get()
+                && !ArrivalTicket.isLandingDurable(destination, planned.arrivalOrigin())) {
+            abort(WarpFailure.ARRIVAL_NOT_LOADED);
+            return;
+        }
+
         // Notify via sound and effects when scatter was applied. The crew sees and hears the ship
         // shudder — far more atmospheric than a chat message, and a clear signal that the Singularity
         // did not put them where it was asked to.
@@ -803,7 +995,13 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         // meant to be flying out of the aperture.
         // Who is aboard, promised to arrive with the hull whatever becomes of this machine.
         CrewManifest.board(airship);
-        ArrivalTicket.hold(destination, planned.arrivalOrigin(), planned.hullSpan());
+        // Sized from the whole arrival footprint - hull, run-out and aperture width - so no part of a
+        // long arrival ever sits in a chunk the ticket did not claim.
+        ArrivalTicket.hold(destination, planned.arrivalOrigin(),
+                ArrivalTicket.arrivalSpan(planned.hullSpan(), planned.emergeRunOut(), planned.apertureMargin()));
+        // The corridor the hull is about to fly down, held resident so the launch-clearance proof
+        // stays true for the whole flight rather than only at the instant it was taken.
+        ArrivalTicket.holdCorridor(serverLevel, airship.position(), bow, LaunchClearance.launchReach(planned));
         // And the drive's own chunk, so the machine running the sequence cannot be unloaded out from
         // under it partway through - which ends the flight silently and strands whoever was aboard.
         ArrivalTicket.holdDrive(serverLevel, worldPosition);
@@ -815,6 +1013,181 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_OPEN, planned.entryRift(),
                 AWConfig.APPROACH_LIMIT_TICKS.get() + planned.transitTicks() + tier.warpTicks(),
                 planned.entryThroatDepth());
+    }
+
+    /**
+     * Runs the whole pre-flight - plan, departure clearance, arrival durability - against the standing
+     * course and reports the verdict, moving nothing.
+     *
+     * <p>The reproduction harness behind {@code /aerowarptics warp dryrun}. Every check the real
+     * {@link #beginWarp} makes before the rift opens is made here read-only, so a warp that would be
+     * refused can be understood at the mooring: which of the departure path, the arrival search or the
+     * landing's residency is the one saying no, with the numbers behind it.
+     */
+    public List<Component> dryRun() {
+        if (!(level instanceof ServerLevel serverLevel)) {
+            return List.of(Component.literal("dry run: not on a server"));
+        }
+        Airship airship = airship();
+        if (airship == null || !airship.isActive()) {
+            return List.of(Component.literal("dry run: this drive is not aboard an assembled airship"));
+        }
+        WarpCourse course = standingCourse;
+        if (course == null) {
+            return List.of(Component.literal("dry run: no course is set - aim this drive at an Astrolabe first"));
+        }
+
+        ServerLevel destination;
+        BlockPos targetBlock;
+        if (course.isAnchor()) {
+            WarpAnchor anchor = WarpAnchorRegistry.get(serverLevel).byId(course.anchorId());
+            if (anchor == null) {
+                return List.of(Component.literal("dry run: the course anchor is gone"));
+            }
+            destination = serverLevel.getServer().getLevel(anchor.dimension());
+            targetBlock = anchor.pos();
+        } else {
+            destination = serverLevel;
+            targetBlock = course.fix();
+        }
+        if (destination == null || !SafeArrival.isDestinationLoadable(destination, targetBlock)) {
+            return List.of(Component.literal("dry run: the destination chunk will not load"));
+        }
+
+        List<Component> report = new ArrayList<>();
+        report.add(Component.literal("dry run to " + course.label() + " " + targetBlock.toShortString()));
+
+        Vector3d bow = WarpFlight.worldBow(airship, shipSpaceBow());
+        WarpFlight planned = WarpFlight.plan(airship, destination, targetBlock, bow,
+                tier.warpTicks(), tier.arriveTicks());
+        if (planned == null) {
+            report.add(Component.literal("  arrival: NO SAFE ARRIVAL - nowhere clear near the target"));
+            report.add(Component.literal("  verdict: WOULD REFUSE (no_safe_arrival)"));
+            return report;
+        }
+
+        uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance corridor =
+                LaunchClearance.clearance(airship, serverLevel, bow, planned);
+        boolean launchClear = corridor == uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance.CLEAR;
+        boolean unproven = corridor == uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance.UNPROVEN;
+        // Mirrors beginWarp: an obstructed corridor only refuses while the check is required. With
+        // requireClearLaunch off the warp is flown into the terrain anyway, so a fouled corridor is
+        // reported but does not change the verdict.
+        boolean requireClearLaunch = AWConfig.REQUIRE_CLEAR_LAUNCH.get();
+        boolean durable = ArrivalTicket.isLandingDurable(destination, planned.arrivalOrigin());
+        // The refusal can only bite when the drive is NOT keeping its own landing loaded; with
+        // keepAirshipsLoaded on, an undurable landing is held by the drive rather than refused.
+        boolean refuseUndurable = !AWConfig.KEEP_AIRSHIPS_LOADED.get()
+                && AWConfig.REQUIRE_LOADED_ARRIVAL.get();
+
+        // The guard is the gate; the corridor below it is advisory unless requireClearLaunch is on.
+        uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance guard =
+                LaunchClearance.guard(airship, serverLevel, bow);
+        boolean guardBlocked =
+                guard == uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance.OBSTRUCTED;
+        report.add(Component.literal(String.format(java.util.Locale.ROOT,
+                "  bow guard: reach %.1fb, bare hull -> %s",
+                LaunchClearance.guardReach(), guardBlocked ? "BLOCKED" : "CLEAR")));
+        if (guardBlocked) {
+            net.minecraft.core.BlockPos hit =
+                    LaunchClearance.guardObstruction(airship, serverLevel, bow);
+            report.add(Component.literal(hit != null
+                    ? "    collision at " + hit.toShortString() + " - come about"
+                    : "    fouled, but no single block to name"));
+        }
+
+        report.add(Component.literal(String.format(java.util.Locale.ROOT,
+                "  corridor: reach %.1fb, aperture margin %.1fb -> %s",
+                LaunchClearance.launchReach(planned), planned.apertureMargin(),
+                launchClear ? "CLEAR"
+                        : unproven ? "UNPROVEN"
+                        : requireClearLaunch ? "BLOCKED" : "BLOCKED (advisory - not a gate)")));
+        if (unproven) {
+            // Not a bearing problem, so do not send the pilot hunting for a block. Either chunks
+            // were missing or the budget ran out, both of which are about the check rather than
+            // the corridor.
+            report.add(Component.literal(String.format(java.util.Locale.ROOT,
+                    "    unproven: ran out of budget (%d block reads) or chunks were missing - "
+                            + "not an obstruction", SafeArrival.budgetFor(airship))));
+        } else if (!launchClear) {
+            // Name where the corridor is fouled, so the pilot knows which way to come about.
+            net.minecraft.core.BlockPos collision =
+                    LaunchClearance.firstObstruction(airship, serverLevel, bow, planned);
+            report.add(Component.literal(collision != null
+                    ? "    collision at " + collision.toShortString()
+                    : "    collision: fouled, but no single block to name"));
+        }
+        report.add(Component.literal(String.format(java.util.Locale.ROOT,
+                "  arrival: run-out %.1fb, landing %s%s",
+                planned.emergeRunOut(), durable ? "durable" : "will unload",
+                refuseUndurable ? "" : durable ? "" : " (drive keeps it loaded)")));
+
+        WarpFailure verdict = guardBlocked ? WarpFailure.NO_CLEAR_LAUNCH
+                : requireClearLaunch && !launchClear
+                ? (unproven ? WarpFailure.LAUNCH_UNPROVEN : WarpFailure.NO_CLEAR_LAUNCH)
+                : refuseUndurable && !durable ? WarpFailure.ARRIVAL_NOT_LOADED
+                : WarpFailure.NONE;
+        report.add(Component.literal("  verdict: " + (verdict.isFailure()
+                ? "WOULD REFUSE (" + verdict.getSerializedName() + ")" : "WOULD PROCEED")));
+        return report;
+    }
+
+    /**
+     * The two departure volumes and the blocks fouling them, for the clearance visualiser.
+     *
+     * <p>Both are lists because the corridor is marched along the bow as a chain of hull-sized
+     * segments rather than boxed by one enclosing volume. Drawing the enclosing box would show a
+     * corridor far wider than the one actually tested on any diagonal heading - the overlay has to
+     * show what the check reads, or it is worse than no overlay.
+     *
+     * @param core   the bare hull sweep, no padding - what the ship physically flies through
+     * @param padded the segments actually tested, widened by the aperture margin and clearance
+     * @param hits   the solid blocks standing in those segments, capped for display
+     */
+    public record ClearanceView(java.util.List<dev.ryanhcode.sable.companion.math.BoundingBox3d> core,
+                                java.util.List<dev.ryanhcode.sable.companion.math.BoundingBox3d> padded,
+                                java.util.List<net.minecraft.core.BlockPos> hits) {
+    }
+
+    /**
+     * Measures the departure corridor and finds what stands in it, moving nothing - the data behind
+     * {@code /aerowarptics warp clearance}.
+     *
+     * <p>Needs no standing course: the corridor's shape comes from the hull and this drive's tier, so
+     * a pilot can see the clearance before choosing where to go. Returns both the bare hull sweep and
+     * the padded volume the check actually tests, because the gap between them is exactly the
+     * over-sensitivity that has been complained about - showing them apart is what makes it legible.
+     *
+     * @return the view, or {@code null} when this drive is not aboard a live airship
+     */
+    public ClearanceView clearanceVisual() {
+        if (!(level instanceof ServerLevel server)) {
+            return null;
+        }
+        Airship airship = airship();
+        if (airship == null || !airship.isActive()) {
+            return null;
+        }
+        Vector3d bow = WarpFlight.worldBow(airship, shipSpaceBow());
+        WarpFlight.DepartureShape shape = WarpFlight.departureShape(airship, tier.warpTicks());
+        double reach = shape.corridorReach() + AWConfig.RIFT_LEAD_DISTANCE.get();
+        double margin = shape.apertureMargin();
+        double clearance = AWConfig.ARRIVAL_CLEARANCE.get();
+        // The assembly, so the wireframe outlines what actually flies - propellers on bearings and
+        // all - rather than the bare plot the corridor used to be sized from.
+        dev.ryanhcode.sable.companion.math.BoundingBox3dc hull = airship.assemblyBounds();
+        java.util.List<dev.ryanhcode.sable.companion.math.BoundingBox3d> padded =
+                LaunchClearance.departureSegments(hull, bow, reach, clearance, margin);
+        java.util.List<dev.ryanhcode.sable.companion.math.BoundingBox3d> core =
+                LaunchClearance.departureSegments(hull, bow, reach, 0.0D, 0.0D);
+        java.util.List<net.minecraft.core.BlockPos> hits = new java.util.ArrayList<>();
+        for (dev.ryanhcode.sable.companion.math.BoundingBox3d segment : padded) {
+            if (hits.size() >= 512) {
+                break;
+            }
+            hits.addAll(SafeArrival.obstructions(server, segment, 512 - hits.size()));
+        }
+        return new ClearanceView(core, padded, hits);
     }
 
     /**
@@ -838,6 +1211,20 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         passengers.hold(airship, current.stage());
         CrewManifest.refresh(airship);
 
+        // Belt-and-braces for the yeet. Phases that prove the path clear should mean this never fires,
+        // so reaching it is itself the signal that one of them missed something: a penetration
+        // ejection, a frame slip in the emerge command, or momentum that stacked. Catch the runaway
+        // from the previous tick before another velocity is commanded on top of it, and put the hull
+        // back rather than let it travel - abort restores the origin for any stage that has moved.
+        double ceiling = Airship.maxCommandedSpeed();
+        Vector3d reported = airship.velocity();
+        if (reported.length() > ceiling) {
+            WarpTrace.flightTick(current.stage(), current.lastCommanded(), reported, ceiling);
+            abort(WarpFailure.RELOCATION_FAILED);
+            return;
+        }
+
+        WarpFlight.Stage tickedStage = current.stage();
         switch (current.tick(airship)) {
             case CONTINUE -> {
             }
@@ -899,6 +1286,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
                 // crew through the deck and leaving the ship undrawn. Everyone who can see either end
                 // is told, because everyone who can see it has the same wrong idea about it.
                 announceCrossing(airship, departure, current.emergenceOrigin(), crew);
+                WarpTrace.crossingNotice(
+                        new Vector3d(current.emergenceOrigin()).distance(departure),
+                        ClientboundFoldCrossedPacket.JUMP_BLOCKS, crew.size());
                 // Only now is the entry aperture finished with; the hull was inside it until this tick.
                 broadcastRift(ClientboundWarpEffectPacket.Stage.RIFT_CLOSE, current.entryRift(), 0);
                 current.leftCorridor();
@@ -922,6 +1312,38 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
                 completeWarp();
             }
         }
+
+        // The yeet detector: what was asked for this tick against what the hull actually did. Skipped
+        // when the tick ended the flight (completed or aborted), because there is nothing left to fly.
+        if (flight == current) {
+            WarpTrace.flightTick(tickedStage, current.lastCommanded(), airship.velocity(), ceiling);
+            // While the hull is still coming out of the far aperture, keep re-arming the fold-crossed
+            // collapse for anyone who began tracking it after the crossing. The one-shot notice at the
+            // teleport reaches only those tracking either end at that instant; a client that starts
+            // watching a few ticks later never received it, and without it interpolates the jump and
+            // blows up its collision bounds - the very ghosting the notice exists to prevent. Bounded
+            // to the breach, a handful of ticks, so it is not a standing broadcast.
+            if (current.stage() == WarpFlight.Stage.BREACH) {
+                resendCrossing(airship);
+            }
+        }
+    }
+
+    /**
+     * Re-sends the fold-crossed notice to everyone who can currently see the hull.
+     *
+     * <p>Server-side belt-and-braces for a late-tracking client (B2): the notice carries only a ship
+     * id, so re-sending it is harmless to a client that already collapsed - it simply re-arms a watch
+     * that finds no delta left to collapse - and decisive for one that started tracking mid-window.
+     */
+    private void resendCrossing(Airship airship) {
+        if (!(level instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        ClientboundFoldCrossedPacket notice = new ClientboundFoldCrossedPacket(airship.uuid());
+        send(airship.crew(), notice);
+        Vector3dc at = airship.position();
+        AWNetwork.sendToTracking(serverLevel, new Vec3(at.x(), at.y(), at.z()), notice);
     }
 
     /**
@@ -979,6 +1401,16 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             return;
         }
 
+        // What state the landing is actually in as the hull settles onto it: whether its chunks are
+        // loaded, and whether anything other than the warp's own lapsing ticket will keep them so.
+        // This is the trace that tells a server admin why a ship arrived and then vanished.
+        if (level instanceof ServerLevel arrivalLevel && flight != null) {
+            Vector3dc arrival = flight.arrivalOrigin();
+            boolean loaded = arrivalLevel.isLoaded(BlockPos.containing(arrival.x(), arrival.y(), arrival.z()));
+            boolean durable = ArrivalTicket.isLandingDurable(arrivalLevel, arrival);
+            WarpTrace.arrival(worldPosition, loaded, loaded, durable);
+        }
+
         if (level instanceof ServerLevel serverLevel && destinationAnchor != null) {
             WarpAnchor anchor = WarpAnchorRegistry.get(serverLevel).byId(destinationAnchor);
             if (anchor != null) {
@@ -1009,6 +1441,10 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         committedDistance = 0.0D;
         sequenceTicks = 0;
         cooldownTicks = tier.cooldownTicks();
+        // Re-assert the loading claim now, at the settled position, rather than waiting out the
+        // renewal interval: the flight's arrival claim was sized and centred on the plan, and this
+        // pins it to where the hull actually came to rest.
+        residencyTimer = 0;
         transition(RiftDriveState.COOLDOWN);
         playSound(AWSounds.DRIVE_COOLDOWN.get(), 0.8F, 1.0F);
     }
@@ -1320,8 +1756,18 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
 
     @Override
     public void remove() {
-        if (level != null && !level.isClientSide && state.isSequenceRunning()) {
-            abort(WarpFailure.INTERRUPTED);
+        if (level != null && !level.isClientSide) {
+            if (state.isSequenceRunning()) {
+                abort(WarpFailure.INTERRUPTED);
+            }
+            // Let go of the ground this drive was keeping loaded - but only on a genuine removal. On a
+            // break the world block is already gone (air) where the cached state still names the drive;
+            // on a chunk unload or a server shutdown the block is still ours and the persisted claim
+            // must survive to disk, or the ship would fail to load back in. Distinguishing the two is
+            // exactly that blockstate mismatch.
+            if (level.getBlockState(worldPosition).getBlock() != getBlockState().getBlock()) {
+                releaseResidency();
+            }
         }
         super.remove();
     }
@@ -1415,6 +1861,17 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             // passengers after a restart. Without this, the recovery path has nobody to put back.
             tag.put("PassengerSeats", passengers.save());
         }
+        if (!clientPacket && !forcedChunks.isEmpty()) {
+            // Which chunks this drive is force-loading, so that after a restart it can release them on
+            // removal and diff them on renewal. NeoForge reinstates the forced chunks; this records
+            // that they were ours to let go of.
+            long[] forced = new long[forcedChunks.size()];
+            int i = 0;
+            for (long chunk : forcedChunks) {
+                forced[i++] = chunk;
+            }
+            tag.putLongArray("ForcedChunks", forced);
+        }
         if (clientPacket && flight != null) {
             tag.putString("FlightStage", flight.stage().name());
             tag.putFloat("FlightProgress", flight.stageProgress());
@@ -1454,6 +1911,10 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         flight = tag.contains("Flight") ? WarpFlight.load(tag.getCompound("Flight")) : null;
         if (!clientPacket) {
             passengers.load(tag.contains("PassengerSeats") ? tag.getCompound("PassengerSeats") : null);
+            forcedChunks.clear();
+            for (long chunk : tag.getLongArray("ForcedChunks")) {
+                forcedChunks.add(chunk);
+            }
         }
         if (clientPacket) {
             clientFlightStage = tag.contains("FlightStage") ? tag.getString("FlightStage") : "";

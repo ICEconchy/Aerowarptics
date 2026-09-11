@@ -68,6 +68,30 @@ public final class AWItems {
     public static final DeferredItem<Item> SINGULARITY_CORE =
             ITEMS.registerSimpleItem("singularity_core", new Item.Properties());
 
+    /** Raw stock chipped from Warp Crystal Ore, before any refining. */
+    public static final DeferredItem<Item> RAW_WARP_CRYSTAL =
+            ITEMS.registerSimpleItem("raw_warp_crystal", new Item.Properties());
+
+    /** Crushed warp matter: the common feedstock, from crushed raw stock or mixed from amethyst. */
+    public static final DeferredItem<Item> WARP_DUST =
+            ITEMS.registerSimpleItem("warp_dust", new Item.Properties());
+
+    /** Warp dust fused over soul fire, a step from being pressed into a finished crystal. */
+    public static final DeferredItem<Item> WARP_SHARD =
+            ITEMS.registerSimpleItem("warp_shard", new Item.Properties());
+
+    /** Mid-tier crafting stock, pressed from a shard. The drives are built on it. */
+    public static final DeferredItem<Item> WARP_CRYSTAL =
+            ITEMS.registerSimpleItem("warp_crystal", new Item.Properties());
+
+    /** The refined, radiant crystal the top tier is built from. */
+    public static final DeferredItem<Item> PEARLESCENT_WARP_CRYSTAL =
+            ITEMS.registerSimpleItem("pearlescent_warp_crystal", new Item.Properties());
+
+    /** The ore that yields raw warp crystal, as an item. */
+    public static final DeferredItem<BlockItem> WARP_CRYSTAL_ORE =
+            ITEMS.registerSimpleBlockItem("warp_crystal_ore", AWBlocks.WARP_CRYSTAL_ORE);
+
     /**
      * The machines whose item form is drawn from their own GeckoLib model.
      *

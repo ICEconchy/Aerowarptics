@@ -62,7 +62,39 @@ public enum WarpFailure implements StringRepresentable {
      */
     BEACON_UNBOUND("beacon_unbound"),
     /** A Rift Beacon's drive is no longer where it was bound, or its plot is not loaded. */
-    BEACON_DRIVE_MISSING("beacon_drive_missing");
+    BEACON_DRIVE_MISSING("beacon_drive_missing"),
+
+    /**
+     * The departure path is blocked: the entry aperture, the run at it, or the corridor run flown
+     * behind it would fly the hull into terrain. Refused at the mooring, before the rift opens, so
+     * the pilot can turn the ship - the bearing is named in the message.
+     *
+     * <p>Appended for the same reason the two above it were: reasons cross the wire by ordinal.
+     */
+    NO_CLEAR_LAUNCH("no_clear_launch"),
+    /**
+     * The landing zone will not stay loaded on its own once the flight's chunk ticket lapses, and
+     * {@code arrival.requireLoadedArrival} refuses rather than risk the ship being unloaded and
+     * removed where nobody is watching.
+     *
+     * <p>Off by default now: {@code arrival.keepAirshipsLoaded} has the drive hold its own landing
+     * resident instead, so a warp into empty wilderness is kept rather than forbidden. This is
+     * reached only when an admin has turned that off and this policy on.
+     */
+    ARRIVAL_NOT_LOADED("arrival_not_loaded"),
+
+    /**
+     * The departure corridor could not be <em>proved</em> clear - chunks missing, or the check ran
+     * out of its block budget - as opposed to being found blocked.
+     *
+     * <p>Refused exactly as {@link #NO_CLEAR_LAUNCH} is, because an unproven corridor is not a safe
+     * one, but told apart from it so the two stop looking identical to a pilot. They used to
+     * collapse into the same refusal, which is how a large ship over open water came to report a
+     * blocked launch with no block anywhere near it.
+     *
+     * <p>Appended rather than filed beside the other launch reason: these cross the wire by ordinal.
+     */
+    LAUNCH_UNPROVEN("launch_unproven");
 
     private final String name;
 

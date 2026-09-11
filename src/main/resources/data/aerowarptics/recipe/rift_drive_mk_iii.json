@@ -11,13 +11,13 @@
       "item": "aerowarptics:rift_lens"
     },
     "V": {
-      "item": "aeronautics:levitite"
+      "item": "aerowarptics:warp_crystal"
     },
     "B": {
       "item": "create:brass_casing"
     },
     "R": {
-      "item": "create:refined_radiance"
+      "item": "minecraft:end_crystal"
     }
   },
   "pattern": [

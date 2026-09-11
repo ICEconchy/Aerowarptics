@@ -40,6 +40,9 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
     private ClientboundModulatorPanelPacket data;
     private Button themeButton;
 
+    /** The themed flourish thrown up when the theme is changed - cogs for clockwork, runes for arcane. */
+    private final ThemeMotes motes = new ThemeMotes();
+
     private boolean draggingIntensity;
     /** What the slider is showing while it is being dragged, before the server has agreed. */
     private float pendingIntensity;
@@ -88,9 +91,19 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
     // ------------------------------------------------------------------ input
 
     private void cycleTheme() {
-        RiftModulatorTheme next = currentTheme().next();
+        // Shift reverses the cycle. With a dozen themes on one button, going one past the one you
+        // wanted otherwise means eleven more clicks to come back round to it.
+        boolean back = hasShiftDown();
+        RiftModulatorTheme next = back ? currentTheme().previous() : currentTheme().next();
         PacketDistributor.sendToServer(ServerboundModulatorPacket.setTheme(data.modulatorPos(), next));
-        playClick(1.1F);
+        // Throw the flourish for the theme being switched *to*, from the top edge of the button that
+        // sets it, so the motes rise up the panel from where the click landed. The server has not
+        // echoed the change back yet, but the button already shows the new name, so the burst matching
+        // it is the honest thing to draw.
+        AWLayout.Rect theme = LAYOUT.theme();
+        motes.burst(next, theme.centreX(), theme.y());
+        // Pitched down going back, so the direction is audible as well as visible.
+        playClick(back ? 0.9F : 1.1F);
     }
 
     private void playClick(float pitch) {
@@ -346,6 +359,29 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
         int knob = guiLeft + track.x() + Math.round(track.width() * AWAnim.clamp(fraction));
         graphics.fill(knob - 2, guiTop + track.y() - 2, knob + 2, guiTop + track.y() + track.height() + 2,
                 AWScreenStyle.ACCENT);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        motes.tick();
+    }
+
+    /**
+     * The themed motes are drawn in the foreground, over the panels and the button, so a burst reads as
+     * rising out of the screen rather than being painted behind it. They are clipped to the window's
+     * interior so a mote that flies wide fades against the frame instead of spilling onto the dimmed
+     * game behind it.
+     */
+    @Override
+    protected void renderWindowForeground(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
+        super.renderWindowForeground(graphics, mouseX, mouseY, partialTicks);
+        AWLayout.Rect interior = AWLayout.interior(AWLayouts.MODULATOR_WIDTH, AWLayouts.MODULATOR_HEIGHT);
+        graphics.enableScissor(guiLeft + interior.x(), guiTop + interior.y(),
+                guiLeft + interior.right(), guiTop + interior.bottom());
+        motes.render((left, top, right, bottom, argb) ->
+                graphics.fill(left + guiLeft, top + guiTop, right + guiLeft, bottom + guiTop, argb), partialTicks);
+        graphics.disableScissor();
     }
 
     @Override

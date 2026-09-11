@@ -39,6 +39,12 @@ public final class AWCreativeTab {
                         output.accept(AWItems.RIFT_LENS.get());
                         output.accept(AWItems.STABILISER_RING.get());
                         output.accept(AWItems.SINGULARITY_CORE.get());
+                        output.accept(AWItems.WARP_CRYSTAL_ORE.get());
+                        output.accept(AWItems.RAW_WARP_CRYSTAL.get());
+                        output.accept(AWItems.WARP_DUST.get());
+                        output.accept(AWItems.WARP_SHARD.get());
+                        output.accept(AWItems.WARP_CRYSTAL.get());
+                        output.accept(AWItems.PEARLESCENT_WARP_CRYSTAL.get());
                     })
                     .build());
 

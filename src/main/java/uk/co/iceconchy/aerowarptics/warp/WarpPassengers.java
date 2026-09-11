@@ -201,14 +201,19 @@ public final class WarpPassengers {
      * its mooring on one that was called off - so this is the moment a passenger who came off inside
      * the fold gets to arrive with the ship rather than at the coordinates of a hole in space.
      *
-     * <p>Everyone who is aboard has their fall reset. The hull has been under server control for the
-     * whole journey, so no part of that fall was theirs, and arriving should not hurt.
+     * <p>Everyone who is aboard has their fall reset and their borrowed momentum taken back. The drive
+     * commanded the hull's velocity for the whole journey and Sable carried the crew along at it, so
+     * none of that motion is theirs to keep - and left on them it is not harmless. The hull's own
+     * velocity is zeroed as the sequence ends, but a passenger standing on the deck holds the speed it
+     * was doing independently, and the instant the ship stops under them that becomes a shove out across
+     * the destination they never asked for. {@link #calm} zeroes it and resets the fall in one go, which
+     * is why it stands in for the bare fall reset this used to do.
      */
     public void settle(Airship airship) {
         Set<UUID> aboard = new HashSet<>();
         for (Entity entity : manifest(airship)) {
             aboard.add(entity.getUUID());
-            entity.fallDistance = 0.0F;
+            calm(entity);
         }
         for (Map.Entry<UUID, Vec3> seat : seats.entrySet()) {
             if (aboard.contains(seat.getKey())) {

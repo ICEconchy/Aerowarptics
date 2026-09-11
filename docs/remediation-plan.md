@@ -198,6 +198,22 @@ question becomes why the `WARP_DRIVE` ticket did not hold it. Different fix, so 
 the stage machine continues from the same point. Then a manual large-hull warp with
 `debug.traceWarps` on, confirming the trace runs to `EMERGE` with no `INTERRUPTED` line.
 
+**Acceptance criteria carried over from the warp-stability plan (its phase 6, folded in here).**
+The stability plan does not duplicate this item; it adds these to it, because the drop-and-recover
+window is a genuine multi-actor desync (its failure class A3) and this is where it is closed:
+
+1. **One position after recovery.** Once recovery finishes, the hull, every client and every crew
+   member agree on a single position — either the origin (restored) or the destination (completed),
+   never a third place. Assert this single-position invariant in whatever harness this item gains.
+2. **`forgetOrigin` only past the point of no return.** `forgetOrigin`
+   (`drive/RiftDriveBlockEntity.java`) must be reached only once the crossing is committed, so a
+   recovery can always choose origin-or-destination unambiguously. It already sits immediately after
+   the `relocate` at `EXIT_CORRIDOR`; keep that ordering when the persistence contract changes.
+3. **The corridor stays resident across the reload.** The corridor/launch ticket added by the
+   stability plan's phase 3 (`ArrivalTicket.holdCorridor`, alongside `holdDrive`) covers the reload
+   window, so the hull is not unloaded mid-recovery. Re-claim it on resume together with the arrival
+   ticket in step 4 above.
+
 **Risk.** Highest of anything here. It changes the warp state machine's persistence contract, and a
 half-restored flight is worse than an aborted one — hence keeping the loud-failure path in step 3.
 

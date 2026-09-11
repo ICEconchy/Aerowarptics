@@ -1,6 +1,5 @@
 package uk.co.iceconchy.aerowarptics.client.screen;
 
-import net.createmod.catnip.gui.AbstractSimiScreen;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -38,7 +37,7 @@ import java.util.List;
  * running game: paint, motion and clicks.
  */
 @OnlyIn(Dist.CLIENT)
-public class HandbookScreen extends AbstractSimiScreen {
+public class HandbookScreen extends AWWindowScreen {
 
     private static final AWLayouts.Book LAYOUT = AWLayouts.book();
 
@@ -92,8 +91,7 @@ public class HandbookScreen extends AbstractSimiScreen {
     protected void init() {
         setWindowSize(AWLayouts.BOOK_WIDTH, AWLayouts.BOOK_HEIGHT);
         super.init();
-        guiLeft = AWLayout.anchor(width, AWLayouts.BOOK_WIDTH, guiLeft);
-        guiTop = AWLayout.anchor(height, AWLayouts.BOOK_HEIGHT, guiTop);
+        placeWindow(AWLayouts.BOOK_WIDTH, AWLayouts.BOOK_HEIGHT);
     }
 
     // ------------------------------------------------------------------ paging
@@ -148,6 +146,10 @@ public class HandbookScreen extends AbstractSimiScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // Into window coordinates, so a corner arrow or a contents line is hit where it is drawn when
+        // the book is scaled down to fit. An identity when it fits.
+        mouseX = unscaleX(mouseX);
+        mouseY = unscaleY(mouseY);
         double x = mouseX - guiLeft;
         double y = mouseY - guiTop;
 
@@ -379,7 +381,7 @@ public class HandbookScreen extends AbstractSimiScreen {
         int leafLeft = onRight ? spineX : spineX - width;
         drawLeafShadow(graphics, leafLeft, top, width, page.height(), onRight);
 
-        graphics.enableScissor(leafLeft, top, leafLeft + width, top + page.height());
+        enableScaledScissor(graphics, leafLeft, top, leafLeft + width, top + page.height());
         graphics.pose().pushPose();
         graphics.pose().translate(spineX, 0.0F, 0.0F);
         graphics.pose().scale(half, 1.0F, 1.0F);
@@ -479,7 +481,7 @@ public class HandbookScreen extends AbstractSimiScreen {
         float wipe = AWAnim.easeOut(AWAnim.clamp(reveal * 1.6F));
         int shown = Math.round(height * wipe);
         if (shown > 0) {
-            graphics.enableScissor(left, top, left + width, top + shown);
+            enableScaledScissor(graphics, left, top, left + width, top + shown);
             GuideDiagrams.draw(on(graphics), diagram, left, top, width, height, ticks);
             graphics.disableScissor();
         }

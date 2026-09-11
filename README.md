@@ -70,8 +70,7 @@ rift and the sheen on the inner cage, and in nothing else.
 
 **Dressing the rift.** A **Rift Modulator** bolted against any face of a drive lets its pilot override
 that tier palette: a core colour and a rim colour, each chosen from a swatch of sixteen - left click
-sets the core, right click sets the rim - one of five themes (standard, ember, starlight, arcane,
-clockwork), and how strongly the whole thing reads, from a quarter to double strength. Applied wherever
+sets the core, right click sets the rim - one of twelve themes, and how strongly the whole thing reads, from a quarter to double strength. Applied wherever
 the drive's colour would otherwise show, from the aperture through the corridor wash to the exit
 shockwave; the face itself blends core to rim rather than drawing one flat tint, so an unconfigured
 Modulator - core and rim left equal - looks exactly like an undecorated drive. It costs a
@@ -88,13 +87,20 @@ last one matters more than it sounds. Cells this small, seen for a second, all l
 so **motion is the tell**, and a first pass at this which cut a gear-shaped fracture and then threw the
 pieces away like glass just looked like glass cut into ten pieces.
 
-| Theme | Standing around the rift | How it opens | How the pane goes |
-| --- | --- | --- | --- |
-| Standard | nothing | struck: cracks race out from an impact | thrown clear, tumbling face-over-edge |
-| Clockwork | a toothed ring gear, three counter-rotating satellites meshing outside it, and a clock face with hands across the aperture | a mechanism winding up under load | ten iris blades sweep aside around the centre, never leaving the plane |
-| Arcane | twenty-four written glyphs circling the rim, each flickering on its own clock, and a seven-pointed figure inscribed on the face | a circle drawn, charged, and discharged inward | ignites where it stands, rim to centre, and burns out |
-| Ember | eighteen fangs biting inward over the rim and breathing, and seven eyes blinking on their own timers whose slit pupils follow you | a burn front spreading outward, fangs sharpening into place | chars, curls, lifts and darkens like burning paper |
-| Starlight | three orbits tilted out of the aperture's plane, carrying ring bands and four planets | stars arriving one at a time out of nothing | disperses on a slow spiral, twinkling |
+| Theme | Standing around the rift | How it opens | How the pane goes | Inside the bore |
+| --- | --- | --- | --- | --- |
+| Standard | nothing | struck: cracks race out from an impact | thrown clear, tumbling face-over-edge | the plain lit tube |
+| Clockwork | a toothed ring gear, three counter-rotating satellites meshing outside it, and a clock face with hands across the aperture | a mechanism winding up under load | ten iris blades sweep aside around the centre, never leaving the plane | the plain lit tube |
+| Arcane | twenty-four written glyphs circling the rim, each flickering on its own clock, and a seven-pointed figure inscribed on the face | a circle drawn, charged, and discharged inward | ignites where it stands, rim to centre, and burns out | the plain lit tube |
+| Ember | eighteen fangs biting inward over the rim and breathing, and seven eyes blinking on their own timers whose slit pupils follow you | a burn front spreading outward, fangs sharpening into place | chars, curls, lifts and darkens like burning paper | the plain lit tube |
+| Starlight | three orbits tilted out of the aperture's plane, carrying ring bands and four planets | stars arriving one at a time out of nothing | disperses on a slow spiral, twinkling | the plain lit tube |
+| Starblocks | a swirl of mottled blue and white arms turning in on the middle, starlines converging on it from every side | a still starfield drawing out into long white lines that meet at a vanishing point | pinned at its inner edge while its outer edge races away - smeared, not broken | a mottled blue-and-white helix turning round the crew, and starlines rushing past on every side |
+| Bedrock | three segmented rings outside the rim, still turning; a gold event-horizon halo hugging the rim; light bent round it in stretched arcs; dark ripples rolling outward | the ship's rings spinning up, alternate ones counter-turning, while the halo tightens into being in the middle | wound round a black middle, hardest at the centre and gold at the rim - the frame bending, not the pieces moving | a black tube with faint gold ripples rolling past, and the halo waiting at the far end |
+| Boldly Gone | a three-shell spatial bubble drawn out along the heading, stars streaking past it and a bright point at each end; at the moment it engages, a white flash and a blue ring blown outward from the rim | the lens stretching along one axis while stars streak past it as forward lines | stretched along one axis, white the instant it engages and cooling to warp blue | warp-field hoops, each warped out of round, rolling past, and long bright forward lines |
+| Ludicrous Speed | a glowing tartan across the face in an uneven eleven-thread sett, warp and weft sliding at different rates, with bands of its colours round the rim | white starlines accelerating and fattening into blinding bands of colour, which then weave - warp first, then weft | snaps onto a crossing grid in the sett's own colours, warp and weft parting at different rates | the whole wall woven: warp running its length, weft hoops rolling past |
+| Eventful Horizon | the drive's three gimbal rings, now enormous, turning violently round the hole on three axes, over a polar grid of spacetime twisted into the middle and jolted to a new shape every two ticks | a spiked core spinning up inside three rings on three axes | torn into the middle and pulled thin, shuddering - arc-light to red to black | the wall's spacetime grid bent and buckling, jolting between shapes |
+| Vworp | soft spiral currents of orange and blue turning fast; a clock dial turning backwards round the rim; a police box tumbling end over end at the centre | the vortex winding in from the rim while the box fails to materialise in the middle, over and over | travels in five hard steps, alternate teeth orange and blue | the time vortex: wide currents wound round the tube, clock dials rolling past, and the box tumbling towards the crew from far down it |
+| Improbability | one of a sperm whale, a bowl of petunias, a knitted doll, a cube, a cup of tea or a star - and the same thing in two more universes, faintly | the same, rerolled every seven ticks | each piece picks one of the other motions from its own seed | three of those forms hanging in the tube ahead, each on its own reroll |
 
 Two details are worth calling out. Starlight's orbits are **genuine circles in three dimensions**, not
 ellipses drawn flat, so a planet passes in front of the hole on one side and behind it on the other -
@@ -103,6 +109,25 @@ depth-tested. Nothing arranges that; it falls out of drawing the orbit honestly.
 of it is drawn in **the colours the pilot picked, untinted**: themes separate themselves by shape and
 motion and never by overriding a chosen hue, which is the point of having a sixteen-swatch picker at
 all. A hell portal in pale blue is entirely possible.
+
+That holds for the five originals, and deliberately not for the seven after them. **The borrowed
+themes bring their own colours** - see `ThemeLook` - because each is trying to look like something the
+player has already seen, and most of what makes hyperspace recognisable is that it is blue and white.
+The palette is applied when the rift is created, so the face, the bore, the fire, the glass and the
+lightning all agree; the Modulator's intensity still applies to them, its swatch does not.
+Improbability rolls a fresh palette from each rift's own position, so the two ends of one jump are
+never the same colour.
+
+Most of those seven also draw somewhere the originals never do: **inside the bore**. The crew fly
+through the throat for the length of a warp, and that tube is where hyperspace, a warp bubble and the
+time vortex actually happen - so each borrowed theme dresses its inside, just within the solid wall,
+where nobody outside can see it. There is still nothing painted over the screen; `WarpCorridorOverlay`
+explains why there never will be.
+
+The seven themes after Starlight are **open nods to jumps from elsewhere**, named just off-target on
+purpose. They borrow nothing but a look: each is still a palette, a fracture shape, a mote, a
+sound, some furniture and a dressed bore, and the warp underneath is the same warp the mod has always run. Nothing about a Modulator
+has ever been able to change how a jump behaves, and that has not changed to accommodate them.
 
 None of this can weaken the thing an aperture is for. It is all additive glow that writes no depth, so
 it can only ever add light to what is already on screen - it cannot punch a hole in the opaque membrane

@@ -24,7 +24,7 @@ import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 public final class AWNetwork {
 
     /** Bumped when a payload's shape changes. */
-    private static final String VERSION = "8";
+    private static final String VERSION = "10";
 
     private AWNetwork() {
     }
@@ -92,6 +92,9 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundCorridorPacket.TYPE,
                 ClientboundCorridorPacket.STREAM_CODEC,
                 ClientboundCorridorPacket::handle);
+        registrar.playToClient(ClientboundClearancePacket.TYPE,
+                ClientboundClearancePacket.STREAM_CODEC,
+                ClientboundClearancePacket::handle);
         registrar.playToClient(ClientboundRiftBeaconPacket.TYPE,
                 ClientboundRiftBeaconPacket.STREAM_CODEC,
                 ClientboundRiftBeaconPacket::handle);

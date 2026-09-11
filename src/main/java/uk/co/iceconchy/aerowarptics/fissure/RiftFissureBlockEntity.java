@@ -10,11 +10,14 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.state.BlockState;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.advancement.AWCriteria;
+import uk.co.iceconchy.aerowarptics.airship.Airship;
 import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
+import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
@@ -60,6 +63,9 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
     /** What the client was last told, so a slow drain does not send a packet twenty times a second. */
     private int syncedReservoir = -1;
 
+    /** How many blocks of Warp Crystal Ore this fissure has crystallised so far, capped by config. */
+    private int seeded;
+
     public RiftFissureBlockEntity(BlockPos pos, BlockState state) {
         super(AWBlockEntities.RIFT_FISSURE.get(), pos, state);
     }
@@ -104,6 +110,17 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
 
     @Override
     public void tick() {
+        // A fissure is a feature of the world, not a machine, so unlike every other block entity here
+        // it has no airship to resolve and therefore nothing that would otherwise tell it to stop. It
+        // can still end up inside a plot - a hull assembled around a tear takes the tear with it - and
+        // when that plot is released the blocks are wiped to void_air while the block entities get one
+        // more tick each. Everything below touches the level: the sync announces a block change, the
+        // ore seeding sets one, and close() removes one. All three throw out of Sable if the plot has
+        // gone, and it is the server thread they throw on. This is the crash that made
+        // Airship.orphaned exist; it goes before super.tick() for the reason given there.
+        if (Airship.orphaned(this)) {
+            return;
+        }
         super.tick();
         if (level == null) {
             return;
@@ -130,6 +147,8 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
             }
             return;
         }
+
+        maybeSeedOre();
 
         if (--scanTimer <= 0) {
             scanTimer = SCAN_INTERVAL;
@@ -184,6 +203,42 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
             }
         }
         return moved;
+    }
+
+    /**
+     * Now and then, crystallises one nearby block of natural stone into Warp Crystal Ore.
+     *
+     * <p>This is the world's only source of the raw material, and it grows outward from the tear
+     * rather than being scattered through the ground by ordinary worldgen - so the ore is always found
+     * clustered around a fissure, which is the point. Only natural stone and deepslate (and their
+     * variants) are eligible, so nothing a player placed is ever turned to ore, and a per-fissure cap
+     * keeps a long-loaded tear from converting a whole cavern.
+     */
+    private void maybeSeedOre() {
+        if (level == null || !AWConfig.FISSURE_SEEDS_ORE.get() || seeded >= AWConfig.FISSURE_ORE_MAX.get()) {
+            return;
+        }
+        if (level.random.nextInt(Math.max(1, AWConfig.FISSURE_ORE_CHANCE.get())) != 0) {
+            return;
+        }
+        int radius = AWConfig.FISSURE_ORE_RADIUS.get();
+        int dx = level.random.nextInt(radius * 2 + 1) - radius;
+        int dy = level.random.nextInt(radius * 2 + 1) - radius;
+        int dz = level.random.nextInt(radius * 2 + 1) - radius;
+        if (dx == 0 && dy == 0 && dz == 0) {
+            return;
+        }
+        BlockPos target = worldPosition.offset(dx, dy, dz);
+        if (!level.isLoaded(target)) {
+            return;
+        }
+        BlockState existing = level.getBlockState(target);
+        if (!existing.is(BlockTags.STONE_ORE_REPLACEABLES) && !existing.is(BlockTags.DEEPSLATE_ORE_REPLACEABLES)) {
+            return;
+        }
+        level.setBlock(target, AWBlocks.WARP_CRYSTAL_ORE.get().defaultBlockState(), 3);
+        seeded++;
+        setChanged();
     }
 
     private List<BlockPos> sweepForSiphons() {
@@ -245,6 +300,7 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
         tag.putInt("Original", original);
         tag.putInt("SealTicks", sealTicks);
         tag.putBoolean("Drawing", drawing);
+        tag.putInt("Seeded", seeded);
     }
 
     @Override
@@ -256,6 +312,7 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
         original = tag.getInt("Original");
         sealTicks = tag.getInt("SealTicks");
         drawing = tag.getBoolean("Drawing");
+        seeded = tag.getInt("Seeded");
     }
 
     // --------------------------------------------------------------- goggles

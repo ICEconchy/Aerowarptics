@@ -1,6 +1,5 @@
 package uk.co.iceconchy.aerowarptics.client.screen;
 
-import net.createmod.catnip.gui.AbstractSimiScreen;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.core.BlockPos;
@@ -33,7 +32,7 @@ import uk.co.iceconchy.aerowarptics.util.AWLang;
  * and that is not something a client gets to do on its own say-so.
  */
 @OnlyIn(Dist.CLIENT)
-public class RiftProbeScreen extends AbstractSimiScreen {
+public class RiftProbeScreen extends AWWindowScreen {
 
     private static final int REFRESH_INTERVAL = 10;
 
@@ -132,8 +131,7 @@ public class RiftProbeScreen extends AbstractSimiScreen {
     protected void init() {
         setWindowSize(AWLayouts.PROBE_WIDTH, AWLayouts.PROBE_HEIGHT);
         super.init();
-        guiLeft = AWLayout.anchor(width, AWLayouts.PROBE_WIDTH, guiLeft);
-        guiTop = AWLayout.anchor(height, AWLayouts.PROBE_HEIGHT, guiTop);
+        placeWindow(AWLayouts.PROBE_WIDTH, AWLayouts.PROBE_HEIGHT);
         clearWidgets();
 
         soundButton = Button.builder(AWLang.translate("gui.rift_probe.sound").component(), b -> {
@@ -193,6 +191,10 @@ public class RiftProbeScreen extends AbstractSimiScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // Into window coordinates, so the dial and slider are hit where they are drawn when the window
+        // is scaled down to fit. An identity when it fits, which is the common case.
+        mouseX = unscaleX(mouseX);
+        mouseY = unscaleY(mouseY);
         Rect compass = LAYOUT.compass();
         if (!data.state().busy() && compass.contains(mouseX - guiLeft, mouseY - guiTop)) {
             ProbeBearing picked = bearingAt(mouseX, mouseY);
@@ -213,6 +215,8 @@ public class RiftProbeScreen extends AbstractSimiScreen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        mouseX = unscaleX(mouseX);
+        mouseY = unscaleY(mouseY);
         if (draggingRange) {
             dragRange(mouseX);
             return true;
@@ -222,6 +226,8 @@ public class RiftProbeScreen extends AbstractSimiScreen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        mouseX = unscaleX(mouseX);
+        mouseY = unscaleY(mouseY);
         if (draggingRange) {
             draggingRange = false;
             // Sent on release rather than on every pixel of the drag: the server clamps and echoes

@@ -293,7 +293,30 @@ class RiftShatterTest {
      */
     private static List<RiftShatter.Pattern> namedPatterns() {
         return List.of(RiftShatter.Pattern.GEARS, RiftShatter.Pattern.RUNES,
-                RiftShatter.Pattern.EMBERS, RiftShatter.Pattern.MOTES);
+                RiftShatter.Pattern.EMBERS, RiftShatter.Pattern.MOTES,
+                RiftShatter.Pattern.STREAKS, RiftShatter.Pattern.FOLD, RiftShatter.Pattern.LENS,
+                RiftShatter.Pattern.TARTAN, RiftShatter.Pattern.GRAVITY, RiftShatter.Pattern.STAGGER,
+                RiftShatter.Pattern.CHAOS);
+    }
+
+    /**
+     * The list above is every pattern except glass.
+     *
+     * <p>Written down rather than derived, because {@link #namedPatterns()} is what most of the
+     * invariants below actually run over - so a pattern added to {@code ALL} and forgotten here would
+     * quietly not be tested at all, which is the one failure this file could have that nothing else
+     * would catch.
+     */
+    @Test
+    void everyPatternExceptGlassIsUnderTest() {
+        assertEquals(allPatterns().size() - 1, namedPatterns().size(),
+                "a pattern was added to Pattern.ALL without being added to namedPatterns()");
+        for (RiftShatter.Pattern pattern : allPatterns()) {
+            if (pattern == RiftShatter.Pattern.GLASS) {
+                continue;
+            }
+            assertTrue(namedPatterns().contains(pattern), pattern + " is not under test");
+        }
     }
 
     /** Every pattern including glass, taken from the canonical list so this cannot go stale. */
@@ -407,7 +430,7 @@ class RiftShatterTest {
     }
 
     /**
-     * The three themes actually move differently.
+     * Every theme actually moves differently.
      *
      * <p>This is the regression this test file most wants to hold. The fracture shape alone is nearly
      * invisible at these sizes - cells this small, seen for a second, all look much alike - so a theme
@@ -443,6 +466,45 @@ class RiftShatterTest {
             assertTrue(claimed.add(pattern), theme + " breaks the same way as another theme");
         }
         assertEquals(RiftModulatorTheme.values().length, claimed.size());
+    }
+
+    /**
+     * A simultaneous pattern really does go all at once.
+     *
+     * <p>Worth pinning because it is the one sequencing whose correct behaviour is indistinguishable
+     * from a bug at a glance: every other one spreads its pieces out, so "all the delays are zero"
+     * looks exactly like a delay calculation that was never wired up. It is deliberate here, and a
+     * jump to lightspeed staggering by even a tick or two would stop reading as one event.
+     */
+    @Test
+    void aSimultaneousPatternHasNoStaggerAtAll() {
+        for (RiftShatter.Pattern pattern : allPatterns()) {
+            if (pattern.sequencing() != RiftShatter.Sequencing.SIMULTANEOUS) {
+                continue;
+            }
+            for (int seed : seeds()) {
+                for (RiftShatter.Shard shard : RiftShatter.fracture(seed, pattern)) {
+                    assertEquals(0.0F, shard.delay(),
+                            pattern + " staggered a piece that should have gone with the rest");
+                }
+            }
+        }
+    }
+
+    /**
+     * Every theme in the mod has a shape under test, reached from the theme rather than the pattern.
+     *
+     * <p>{@link #everyThemeBreaksItsOwnWay} already proves the map is injective. This proves it is
+     * <em>total</em> in the sense that matters: the pattern a theme lands on is one this file actually
+     * exercises, so adding a theme cannot smuggle in an untested fracture.
+     */
+    @Test
+    void everyThemesPatternIsUnderTest() {
+        for (RiftModulatorTheme theme : RiftModulatorTheme.values()) {
+            RiftShatter.Pattern pattern = RiftShatter.patternFor(theme);
+            assertTrue(pattern == RiftShatter.Pattern.GLASS || namedPatterns().contains(pattern),
+                    theme + " breaks along a pattern no test covers");
+        }
     }
 
     @Test

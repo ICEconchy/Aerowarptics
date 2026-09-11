@@ -11,6 +11,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
+import uk.co.iceconchy.aerowarptics.network.ClientboundFoldCrossedPacket;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -76,8 +77,12 @@ public final class FoldCrossings {
      * <p>An airship under way covers a couple of blocks a tick; the warp's own passage through the
      * corridor is under two. Anything past this is a discontinuity, and the only thing in this mod
      * that produces one is the crossing itself.
+     *
+     * <p>The value itself lives on {@link ClientboundFoldCrossedPacket}, the one place both sides can
+     * see it: this collapse runs on the client, the warp trace measures the same crossing on the
+     * server, and they must agree on where flight ends and a jump begins.
      */
-    private static final double JUMP_BLOCKS = 128.0D;
+    private static final double JUMP_BLOCKS = ClientboundFoldCrossedPacket.JUMP_BLOCKS;
 
     private static final Map<UUID, Integer> watching = new HashMap<>();
 
@@ -94,7 +99,7 @@ public final class FoldCrossings {
         watching.clear();
     }
 
-    static int watched() {
+    public static int watched() {
         return watching.size();
     }
 

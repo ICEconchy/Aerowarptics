@@ -1,0 +1,13 @@
+{
+  "type": "create:haunting",
+  "ingredients": [
+    {
+      "item": "aerowarptics:warp_dust"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:warp_shard"
+    }
+  ]
+}

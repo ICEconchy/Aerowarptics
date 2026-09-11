@@ -23,6 +23,7 @@ import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWFluids;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
@@ -109,6 +110,12 @@ public class SpatialSiphonBlockEntity extends SmartBlockEntity
     @Override
     public void tick() {
         super.tick();
+        // A steady stream of motes pulled in from the rift for as long as a draw is running. Emitted
+        // before the countdown ticks down so the last tick of a draw still shows, and only client-side
+        // where there is a level to spawn particles into.
+        if (drawTicks > 0 && level != null && level.isClientSide) {
+            AWClientHooks.animateSiphonDraw(level, worldPosition, level.getRandom());
+        }
         if (drawTicks > 0) {
             drawTicks--;
         }

@@ -163,8 +163,10 @@ final class ClientRuntime {
         if (toViewer.lengthSqr() < 1.0e-6D) {
             toViewer = new net.minecraft.world.phys.Vec3(0.0D, 0.0D, 1.0D);
         }
+        // No ground strike: a chute encompasses its own rift inside a cage, so a bolt straight down
+        // would only ever hit the block it is housed in. See RiftEffectManager.ActiveRift.groundStrikes.
         RiftEffectManager.hold(holder, centre, toViewer.normalize(),
-                CHUTE_RADIUS, CHUTE_RADIUS, CHUTE_COLOUR, CHUTE_OPEN_TICKS);
+                CHUTE_RADIUS, CHUTE_RADIUS, CHUTE_COLOUR, CHUTE_OPEN_TICKS, false);
         RiftEffectManager.aim(holder, toViewer.normalize());
     }
 
@@ -202,6 +204,10 @@ final class ClientRuntime {
 
     static void setInWarpCorridor(ClientboundCorridorPacket packet) {
         WarpCorridorOverlay.accept(packet);
+    }
+
+    static void showClearance(uk.co.iceconchy.aerowarptics.network.ClientboundClearancePacket packet) {
+        uk.co.iceconchy.aerowarptics.client.fx.ClearanceOverlay.show(packet);
     }
 
     static void tickDriveEffects(RiftDriveBlockEntity drive) {
@@ -254,8 +260,10 @@ final class ClientRuntime {
         // room with nothing to say which way it ought to lie, and a fixed plane would be edge-on and
         // invisible from half the places a player can stand.
         double radius = FISSURE_RADIUS * Math.max(0.05F, fissure.openness());
+        // A fissure is an open wound hanging over the ground it tore through, so it strikes it - unlike
+        // a chute above. See RiftEffectManager.ActiveRift.groundStrikes.
         RiftEffectManager.hold(holder, centre, toViewer.normalize(), radius, radius,
-                FISSURE_COLOUR, FISSURE_OPEN_TICKS);
+                FISSURE_COLOUR, FISSURE_OPEN_TICKS, true);
         RiftEffectManager.aim(holder, toViewer.normalize());
     }
 
@@ -278,6 +286,38 @@ final class ClientRuntime {
                     (random.nextDouble() - 0.5D) * 0.02D,
                     (random.nextDouble() - 0.5D) * 0.02D,
                     (random.nextDouble() - 0.5D) * 0.02D);
+        }
+    }
+
+    /**
+     * Motes of essence streaming into a Spatial Siphon while it is drawing.
+     *
+     * <p>Spawned out in the air around and above the funnel and given a velocity straight at its mouth,
+     * so they read as being pulled in from the rift rather than drifting. The spark's own friction and
+     * lack of gravity do the rest: it slows as it arrives, which is what makes the mouth look like it is
+     * swallowing them. Not gated on the goggles - the siphon is a solid machine anyone can see working,
+     * unlike the tear it feeds from.
+     */
+    static void animateSiphonDraw(net.minecraft.world.level.Level level,
+                                  net.minecraft.core.BlockPos pos,
+                                  net.minecraft.util.RandomSource random) {
+        // The funnel mouth sits just above the top of the vessel.
+        double mx = pos.getX() + 0.5D;
+        double my = pos.getY() + 1.0D;
+        double mz = pos.getZ() + 0.5D;
+        for (int mote = 0; mote < 2; mote++) {
+            double angle = random.nextDouble() * Math.PI * 2.0D;
+            double radius = 0.8D + random.nextDouble() * 0.7D;
+            double sx = mx + Math.cos(angle) * radius;
+            double sy = my + 0.2D + random.nextDouble() * 1.1D;
+            double sz = mz + Math.sin(angle) * radius;
+            double dx = mx - sx;
+            double dy = my - sy;
+            double dz = mz - sz;
+            double len = Math.max(1.0e-4D, Math.sqrt(dx * dx + dy * dy + dz * dz));
+            double speed = 0.09D + random.nextDouble() * 0.05D;
+            level.addParticle(uk.co.iceconchy.aerowarptics.registry.AWParticles.RIFT_SPARK.get(),
+                    sx, sy, sz, dx / len * speed, dy / len * speed, dz / len * speed);
         }
     }
 

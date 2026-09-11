@@ -22,6 +22,7 @@ import software.bernie.geckolib.animation.AnimationState;
 import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
+import uk.co.iceconchy.aerowarptics.airship.Airship;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 
@@ -107,6 +108,12 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
 
     @Override
     public void tick() {
+        // Before super.tick(), not after: Create runs initialize(), lazyTick() and every
+        // behaviour from there, and those touch the level too. Nothing runs on a block that is
+        // no longer there - see Airship.orphaned.
+        if (Airship.orphaned(this)) {
+            return;
+        }
         super.tick();
         if (arrivalFlash > 0 && !level.isClientSide) {
             arrivalFlash--;

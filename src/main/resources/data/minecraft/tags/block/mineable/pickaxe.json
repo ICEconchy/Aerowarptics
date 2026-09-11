@@ -10,6 +10,7 @@
     "aerowarptics:rift_gate",
     "aerowarptics:rift_gate_frame",
     "aerowarptics:spatial_siphon",
-    "aerowarptics:warp_anchor"
+    "aerowarptics:warp_anchor",
+    "aerowarptics:warp_crystal_ore"
   ]
 }

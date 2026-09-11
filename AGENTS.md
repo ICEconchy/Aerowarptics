@@ -16,7 +16,7 @@ temporary rift to a Warp Anchor somewhere else.
 | | |
 | --- | --- |
 | Mod id | `aerowarptics` |
-| Version | `1.3.0` (unreleased) |
+| Version | `1.3.1` (unreleased) |
 | Minecraft | 1.21.1 |
 | Loader | NeoForge 21.1.233 |
 | Java | 21 |
@@ -156,7 +156,7 @@ Change the script, re-run it, re-run the tests.
 
 ## Testing
 
-48 test classes, **453 tests, all passing**. The suite is the main safety net and is unusually load-
+59 test classes, **552 tests, all passing**. The suite is the main safety net and is unusually load-
 bearing here, because most failure modes in this mod are *silent* — a panel four pixels off, a
 translation key that renders raw, a recipe that quietly asks for four complete drives.
 
@@ -215,6 +215,24 @@ These have each cost a real bug. Breaking one usually produces something that dr
   constructor. A probe's fix has no anchor at the far end and never will.
 - **Redstone is the only way to launch.** Courses are set at an Astrolabe (where permission is
   checked); a rising edge on the drive replays that decision and never makes a new one.
+- **Rift glow is additive, so nothing drawn in it can be dark.** `RIFT_FIRE` adds light; a black
+  stroke there adds nothing and is simply absent. Darkness in a rift lives in exactly two places: the
+  opaque membrane (face and bore) and the translucent shard pass. A singularity is therefore a black
+  *face* from the palette with gold light round it, never a black disc in the glow. Glow colours are
+  also clamped at 1 in `glowVertex`: the buffer stores each channel as a byte, and before the clamp a
+  `lit` of 1.6 wrapped round to a dim colour instead of saturating.
+
+- **A block entity gets at least one tick after its block has gone.** Sable does not tear a plot
+  down a block at a time: releasing one wipes its chunks to `void_air` while the block entities stay
+  in the ticking list. Anything that touches the level from that tick — a `sendData`, a `setBlock`, a
+  `removeBlock` — asks Sable to change a block in a plot with no holder, and it throws
+  `UnsupportedOperationException: Cannot change blocks in nonexistent plot holder` **on the server
+  thread**. Every ticking block entity here therefore opens with `if (Airship.orphaned(this)) return;`
+  **before** `super.tick()` — before, because Create runs `initialize()`, `lazyTick()` and every
+  behaviour from inside `super.tick()`, and those touch the level too. Machines that resolve an
+  `Airship` first were already safe by accident, via `isActive()`; the Rift Fissure was not, because it
+  is a worldgen feature with no airship to ask about, and it is the one that crashed.
+
 - **Machines aboard a hull are read from the plot's own chunks**, not Sable's actor list — membership
   of that list depends on a block having *changed* since the plot was created, so a machine placed on
   an already-assembled hull may never appear in it.
@@ -264,7 +282,7 @@ the Probe's UI says "Scan ahead", not "Throw sounding", deliberately.
 
 ## Current state
 
-- **Nothing is committed.** Several sessions of work sit uncommitted on `main`.
+- **1.3.1 is committed and pushed** to `main`, unreleased. Anything newer is whatever `git status` shows.
 - Remote is `https://github.com/ICEconchy/Aerowarptics.git`.
 - Licence is still the MDK default (`All Rights Reserved`, no `LICENSE` file) — unresolved.
 - `Depends/` (13 third-party jars, ~105 MB) is **tracked in git** on a public remote. Unresolved.

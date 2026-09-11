@@ -26,6 +26,17 @@ public record ClientboundFoldCrossedPacket(UUID shipId) implements CustomPacketP
     public static final Type<ClientboundFoldCrossedPacket> TYPE =
             new Type<>(AeroWarptics.id("fold_crossed"));
 
+    /**
+     * A one-tick move beyond this many blocks cannot be flight - only a fold crossing.
+     *
+     * <p>The single source of truth for the jump threshold, kept here rather than in the client-only
+     * {@code FoldCrossings} so the server can measure a crossing against it too (the warp trace does).
+     * An airship under way covers a couple of blocks a tick and the corridor passage is under two, so
+     * anything past this is a discontinuity, and the only thing in this mod that produces one is the
+     * crossing itself.
+     */
+    public static final double JUMP_BLOCKS = 128.0D;
+
     public static final StreamCodec<RegistryFriendlyByteBuf, ClientboundFoldCrossedPacket> STREAM_CODEC =
             StreamCodec.of(ClientboundFoldCrossedPacket::encode, ClientboundFoldCrossedPacket::decode);
 

@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "aerowarptics:block/warp_crystal_ore"
+    }
+  }
+}

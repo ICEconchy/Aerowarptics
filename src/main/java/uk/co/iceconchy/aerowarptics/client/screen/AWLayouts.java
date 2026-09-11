@@ -89,7 +89,14 @@ public final class AWLayouts {
     // never promises more than that, and a great many ordinary window sizes land on exactly 320
     // wide. A window wider than that is not a rare-GUI-scale problem, it is a Tuesday.
     public static final int CHART_WIDTH = 320;
-    public static final int CHART_HEIGHT = 292;
+    // Tall enough that the detail panel - the flexible row at the foot of the right-hand column - holds
+    // everything it draws: a title, a rule, three readouts and the course-status pill under them. At
+    // the old 292 that panel was 52px for 69px of content, so the pill was drawn hanging below its own
+    // box, off the bottom of the screen. The survey is a fixed 129px square whatever the table size, so
+    // the height a chart needs does not vary - this is the one number that makes the pill fit, and
+    // ScreenLayoutTest measures the panel against that content so it cannot drift short again. Past the
+    // 240 floor Auto GUI scale guarantees, as the chart already was; AWWindowScreen scales it to fit.
+    public static final int CHART_HEIGHT = 312;
 
     /**
      * The Astrolabe's chart.

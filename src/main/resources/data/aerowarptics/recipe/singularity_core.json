@@ -2,13 +2,13 @@
   "type": "create:mechanical_crafting",
   "key": {
     "P": {
-      "item": "aeronautics:pearlescent_levitite"
+      "item": "aerowarptics:pearlescent_warp_crystal"
     },
     "R": {
-      "item": "create:refined_radiance"
+      "item": "minecraft:end_crystal"
     },
     "H": {
-      "item": "create:shadow_steel"
+      "item": "minecraft:echo_shard"
     },
     "C": {
       "item": "aerowarptics:rift_core"

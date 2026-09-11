@@ -1,5 +1,7 @@
 package uk.co.iceconchy.aerowarptics.warp;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
  * Whether anything solid stands inside a volume.
  *
@@ -57,6 +59,71 @@ public final class ObstructionScan {
     @FunctionalInterface
     public interface Solid {
         boolean at(int x, int y, int z);
+    }
+
+    /** A solid position a scan stopped on. */
+    public record Hit(int x, int y, int z) {
+    }
+
+    /**
+     * Like {@link #scan}, but hands back <em>where</em> the first solid block was rather than just
+     * that there was one. For reporting a collision to a pilot; the runtime clearance path uses
+     * {@link #scan} and only needs the verdict.
+     *
+     * @return the first solid position, walked in the same order {@link #scan} uses, or {@code null}
+     *         when nothing solid was found or the volume was too large to prove within the budget - a
+     *         null is "no coordinate to name", never "proven clear"
+     */
+    @Nullable
+    public static Hit firstSolid(int minX, int minY, int minZ,
+                                 int maxX, int maxY, int maxZ,
+                                 long budget, Solid solid) {
+        if (minX > maxX || minY > maxY || minZ > maxZ) {
+            return null;
+        }
+        if (budget <= 0L || volumeOf(minX, minY, minZ, maxX, maxY, maxZ) > budget) {
+            return null;
+        }
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    if (solid.at(x, y, z)) {
+                        return new Hit(x, y, z);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Up to {@code cap} solid positions in the volume, walked in the same order {@link #scan} uses.
+     *
+     * <p>The plural of {@link #firstSolid}: for a visualiser that wants every block a hull would hit,
+     * not just the first. The cap bounds the work and the result, so a wholly-solid volume returns the
+     * first {@code cap} positions rather than all of them. Unlike {@link #scan} it takes no budget - a
+     * caller collecting hits hands over one already-non-empty region at a time.
+     */
+    public static java.util.List<Hit> collectSolids(int minX, int minY, int minZ,
+                                                    int maxX, int maxY, int maxZ,
+                                                    int cap, Solid solid) {
+        java.util.List<Hit> hits = new java.util.ArrayList<>();
+        if (cap <= 0 || minX > maxX || minY > maxY || minZ > maxZ) {
+            return hits;
+        }
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    if (solid.at(x, y, z)) {
+                        hits.add(new Hit(x, y, z));
+                        if (hits.size() >= cap) {
+                            return hits;
+                        }
+                    }
+                }
+            }
+        }
+        return hits;
     }
 
     /**

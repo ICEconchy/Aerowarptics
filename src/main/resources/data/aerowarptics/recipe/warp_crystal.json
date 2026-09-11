@@ -1,0 +1,13 @@
+{
+  "type": "create:pressing",
+  "ingredients": [
+    {
+      "item": "aerowarptics:warp_shard"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:warp_crystal"
+    }
+  ]
+}

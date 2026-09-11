@@ -82,8 +82,15 @@ class RiftBeaconTest {
     @Test
     void theBeaconsReasonsWereAppendedRatherThanInserted() {
         WarpFailure[] all = WarpFailure.values();
-        assertEquals(WarpFailure.BEACON_DRIVE_MISSING, all[all.length - 1]);
-        assertEquals(WarpFailure.BEACON_UNBOUND, all[all.length - 2]);
+        // Each wave of new reasons was appended at the very end - the only safe place to add a
+        // wire-ordinal constant. Everything before them kept its ordinal; the older entries are
+        // simply no longer the last ones. LAUNCH_UNPROVEN is the most recent arrival, added when
+        // "could not prove the corridor clear" was split away from "the corridor is blocked".
+        assertEquals(WarpFailure.LAUNCH_UNPROVEN, all[all.length - 1]);
+        assertEquals(WarpFailure.ARRIVAL_NOT_LOADED, all[all.length - 2]);
+        assertEquals(WarpFailure.NO_CLEAR_LAUNCH, all[all.length - 3]);
+        assertEquals(WarpFailure.BEACON_DRIVE_MISSING, all[all.length - 4]);
+        assertEquals(WarpFailure.BEACON_UNBOUND, all[all.length - 5]);
         assertEquals(0, WarpFailure.NONE.ordinal(), "NONE must stay first");
     }
 

@@ -35,7 +35,12 @@ public final class AWConfig {
     public static final ModConfigSpec.IntValue SAFE_ARRIVAL_STEP;
     public static final ModConfigSpec.DoubleValue ARRIVAL_CLEARANCE;
     public static final ModConfigSpec.IntValue MAX_ARRIVAL_BLOCK_CHECKS;
+    public static final ModConfigSpec.DoubleValue ARRIVAL_BLOCK_CHECK_SCALE;
+    public static final ModConfigSpec.BooleanValue KEEP_AIRSHIPS_LOADED;
+    public static final ModConfigSpec.BooleanValue REQUIRE_LOADED_ARRIVAL;
 
+    public static final ModConfigSpec.BooleanValue REQUIRE_CLEAR_LAUNCH;
+    public static final ModConfigSpec.DoubleValue CORRIDOR_DRIFT;
     public static final ModConfigSpec.DoubleValue RIFT_LEAD_DISTANCE;
     public static final ModConfigSpec.DoubleValue RIFT_RADIUS_FACTOR;
     public static final ModConfigSpec.DoubleValue APPROACH_SPEED;
@@ -43,6 +48,7 @@ public final class AWConfig {
     public static final ModConfigSpec.IntValue RIFT_TRANSIT_TICKS;
     public static final ModConfigSpec.DoubleValue SPIN_MINIMUM_RATE;
     public static final ModConfigSpec.DoubleValue EMERGE_DISTANCE_FACTOR;
+    public static final ModConfigSpec.DoubleValue MAX_COMMANDED_SPEED;
 
     public static final ModConfigSpec.BooleanValue ALLOW_CROSS_DIMENSION_WARP;
     public static final ModConfigSpec.BooleanValue ALLOW_REDSTONE_INITIATION;
@@ -64,6 +70,10 @@ public final class AWConfig {
     public static final ModConfigSpec.IntValue FISSURE_RESERVOIR_MOST;
     public static final ModConfigSpec.IntValue FISSURE_DRAIN_RATE;
     public static final ModConfigSpec.IntValue FISSURE_SIPHON_RADIUS;
+    public static final ModConfigSpec.BooleanValue FISSURE_SEEDS_ORE;
+    public static final ModConfigSpec.IntValue FISSURE_ORE_CHANCE;
+    public static final ModConfigSpec.IntValue FISSURE_ORE_RADIUS;
+    public static final ModConfigSpec.IntValue FISSURE_ORE_MAX;
 
     public static final ModConfigSpec.IntValue GATE_DIAL_TICKS;
     public static final ModConfigSpec.IntValue MAX_GATES_PER_PLAYER;
@@ -170,6 +180,40 @@ public final class AWConfig {
                         "volume is refused rather than accepted. Lowering this does not make arrivals",
                         "cheaper, it makes them fail.")
                 .defineInRange("maxArrivalBlockChecks", 4_000_000, 4_096, 64_000_000);
+        ARRIVAL_BLOCK_CHECK_SCALE = SERVER_BUILDER
+                .comment("Block-check allowance per block of hull volume, which is what ties the budget",
+                        "to the ship rather than to a flat number.",
+                        "",
+                        "A large hull legitimately has to prove a large volume clear, and a fixed budget",
+                        "quietly turned that into a size limit: past a certain hull the check ran out",
+                        "before it finished, and an unproven volume is refused. Scaling the allowance",
+                        "with the hull means a big ship gets a big allowance, while a skiff still cannot",
+                        "run away with the server. maxArrivalBlockChecks remains the hard ceiling.",
+                        "",
+                        "Only sections that could actually hold something solid are ever read, so this",
+                        "is rarely approached: water, kelp and grass are dismissed a whole section at a",
+                        "time without reading a block.")
+                .defineInRange("arrivalBlockCheckScale", 8.0D, 0.25D, 256.0D);
+        KEEP_AIRSHIPS_LOADED = SERVER_BUILDER
+                .comment("Keep an assembled airship carrying a Rift Drive - and any ground it warps onto -",
+                        "loaded, so a ship can jump into unloaded wilderness and simply stay there. The",
+                        "drive force-loads its own plot chunk and the ground under its hull, and the claim",
+                        "is persisted with the world: an unattended ship parked in the wild is reloaded and",
+                        "still there after a server restart. This is what makes a warp to an unattended",
+                        "anchor safe rather than a way to lose a ship. The drive releases the claim when it",
+                        "is broken or its ship is taken apart. Turn it off to let drive-bearing ships unload",
+                        "like any other build - in which case consider turning requireLoadedArrival back on.",
+                        "Note: every drive-bearing ship becomes a persistent chunk loader while this is on.")
+                .define("keepAirshipsLoaded", true);
+        REQUIRE_LOADED_ARRIVAL = SERVER_BUILDER
+                .comment("Refuse a warp whose landing zone will not stay loaded on its own once the arrival",
+                        "ticket lapses - i.e. no player stands within view and no force-loaded region",
+                        "reaches it. This is the old, strict behaviour: it refuses the jump at the mooring",
+                        "rather than flying into wilderness. It is off by default because keepAirshipsLoaded",
+                        "now holds such a landing resident through the drive itself, so the ship is not lost.",
+                        "Only turn this on if you have also turned keepAirshipsLoaded off and want warps to",
+                        "unattended anchors forbidden rather than kept loaded.")
+                .define("requireLoadedArrival", false);
         SERVER_BUILDER.pop();
 
         SERVER_BUILDER.comment("The flight through the rift: the run at the entry aperture, the passage",
@@ -177,6 +221,42 @@ public final class AWConfig {
                         "entry aperture rather than anywhere else, so it needs no settings of its own -",
                         "how long it lasts comes from the drive's tier.")
                 .push("flight");
+        REQUIRE_CLEAR_LAUNCH = SERVER_BUILDER
+                .comment("Prove the WHOLE departure corridor clear before opening the rift, and refuse the",
+                        "warp at the mooring if anything stands anywhere in it.",
+                        "",
+                        "Off by default, because as a gate it scaled badly: the volume to prove grows with",
+                        "the hull, and past a certain size a ship could not be cleared at all - refused on",
+                        "every attempt, over open water, with no block anywhere near it. A check that says",
+                        "no to every large vessel is not protecting them from anything.",
+                        "",
+                        "What still runs unconditionally is the bow guard: the hull's own path through open",
+                        "air on its way to the aperture, tested at the bare hull with no padding. That is",
+                        "the case that actually ejects a ship - driving into a hillside directly ahead -",
+                        "and it costs the same for a flying city as for a skiff. Beyond the bow, the pilot",
+                        "is flying the ship.",
+                        "",
+                        "Turn this on for the old strict behaviour. It refuses more, including warps that",
+                        "would have been fine, and the refusals get more likely the larger the ship.",
+                        "/aerowarptics warp clearance draws what it tests either way.")
+                .define("requireClearLaunch", false);
+        CORRIDOR_DRIFT = SERVER_BUILDER
+                .comment("Blocks the hull travels during the corridor run, on top of the passage that",
+                        "swallowed it. Zero holds the ship still inside the throat for the duration.",
+                        "",
+                        "The corridor is a fold in space, not a distance: once the aperture has taken the",
+                        "hull bow to stern, every further block flown is real world space that has to be",
+                        "proven clear, kept chunk-resident, and hidden behind a correspondingly deeper",
+                        "throat. It used to run for the whole corridor phase at passage speed, which on a",
+                        "long hull meant flying two and a half ship-lengths through terrain nobody can",
+                        "see, purely so the ship's motion never changed. That is the single largest cost",
+                        "in a warp and it buys nothing: the hull is inside the throat throughout.",
+                        "",
+                        "Raise it if you want the crew to see movement out of the throat. The speed is",
+                        "this distance spread over the tier's corridor ticks, so the run stays smooth",
+                        "however long the tier holds the corridor open, and the cost no longer grows with",
+                        "the size of the ship.")
+                .defineInRange("corridorDrift", 0.0D, 0.0D, 512.0D);
         RIFT_LEAD_DISTANCE = SERVER_BUILDER
                 .comment("Blocks between the bow and the entry rift, on top of half the hull's length.")
                 .defineInRange("riftLeadDistance", 24.0D, 4.0D, 512.0D);
@@ -204,6 +284,17 @@ public final class AWConfig {
                 .comment("How far back from its resting place the airship appears, as a multiple of hull length.",
                         "The whole run-out is checked for obstructions before the warp is allowed to start.")
                 .defineInRange("emergeDistanceFactor", 1.25D, 0.0D, 8.0D);
+        MAX_COMMANDED_SPEED = SERVER_BUILDER
+                .comment("Hard ceiling, in blocks per tick, on any velocity the drive commands or the",
+                        "hull is allowed to report while a warp is being flown. A backstop, not a speed",
+                        "setting: it sits far above the fastest legitimate passage a top-tier drive",
+                        "flies at and far below the thousands-of-blocks-a-tick a physics ejection",
+                        "produces, so a solver glitch or a unit slip that would fling the hull across",
+                        "the world is clamped at source and, if the hull is somehow already moving that",
+                        "fast, the warp is aborted and the ship put back rather than launched. Raise it",
+                        "only if a legitimate passage is ever clamped, which would show in the warp",
+                        "trace; the default clears every shipped tier with room to spare.")
+                .defineInRange("maxCommandedSpeed", 48.0D, 4.0D, 4096.0D);
         SERVER_BUILDER.pop();
 
         SERVER_BUILDER.comment("Who may use drives and anchors.").push("permissions");
@@ -399,6 +490,24 @@ public final class AWConfig {
         FISSURE_SIPHON_RADIUS = SERVER_BUILDER
                 .comment("Blocks from the fissure a Spatial Siphon may stand and still draw from it.")
                 .defineInRange("siphonRadius", 6, 1, 32);
+        FISSURE_SEEDS_ORE = SERVER_BUILDER
+                .comment("Let a fissure slowly crystallise the natural stone around it into Warp Crystal",
+                        "Ore. This is the world source of the raw material - it is not salted through the",
+                        "ground by ordinary worldgen, it grows outward from a tear. Only natural stone,",
+                        "deepslate and their variants are converted, so player builds are left alone.")
+                .define("seedsWarpCrystalOre", true);
+        FISSURE_ORE_CHANCE = SERVER_BUILDER
+                .comment("Average ticks between one fissure seeding one block of ore: higher is rarer.",
+                        "A roll of 1-in-this is made each tick. At the default a fissure seeds a block",
+                        "every 45 seconds or so while it is loaded.")
+                .defineInRange("oreChance", 900, 1, 1_000_000);
+        FISSURE_ORE_RADIUS = SERVER_BUILDER
+                .comment("Blocks from the fissure that a seeded ore may appear within.")
+                .defineInRange("oreRadius", 5, 1, 32);
+        FISSURE_ORE_MAX = SERVER_BUILDER
+                .comment("Most ore blocks one fissure will ever seed, so a long-loaded tear does not",
+                        "turn a whole cavern to ore. Once reached, the fissure stops converting stone.")
+                .defineInRange("oreMax", 24, 0, 4_096);
         SERVER_BUILDER.pop();
 
         SERVER_BUILDER.comment("Diagnostics. Off by default and of no interest during normal play.")

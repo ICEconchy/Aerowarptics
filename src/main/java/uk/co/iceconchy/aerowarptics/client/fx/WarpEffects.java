@@ -142,6 +142,16 @@ public final class WarpEffects {
             case EMBER -> ParticleTypes.FLAME;
             case STARLIGHT -> ParticleTypes.END_ROD;
             case CLOCKWORK -> ParticleTypes.CRIT;
+            // The mod's own streak, which exists for the corridor and is exactly the right mote for a
+            // theme whose whole idea is that everything has been drawn out into lines.
+            case STARBLOCKS -> AWParticles.WARP_STREAK.get();
+            // Dark, and it falls away - the ripple a jump leaves where the ship was.
+            case BEDROCK -> ParticleTypes.SQUID_INK;
+            case BOLDLY_GONE -> ParticleTypes.GLOW; // soft and blue-white, with no crackle in it
+            case LUDICROUS -> ParticleTypes.NOTE; // vanilla's only mote that arrives in every colour
+            case EVENTFUL_HORIZON -> ParticleTypes.SOUL_FIRE_FLAME; // cold blue fire off the core
+            case VWORP -> ParticleTypes.ENCHANT;
+            case IMPROBABILITY -> ParticleTypes.TOTEM_OF_UNDYING; // confetti, essentially
             default -> AWParticles.RIFT_SPARK.get();
         };
     }
@@ -299,9 +309,16 @@ public final class WarpEffects {
         // ARCANE crackles harder than the standard look; EMBER and STARLIGHT are both quieter takes on
         // the same tear, so the electric arcs that sell "standard" would fight their own point.
         // CLOCKWORK has none at all - a gear grinds, it does not spark.
+        // Of the borrowed themes only three crackle, the same three that throw lightning - see
+        // ThemeLook.crackles: a gravity drive tearing a hole is violent, the vortex is full of it, and an
+        // improbable rift is allowed anything. The rest are each making a quieter claim than "this is
+        // tearing", and arcs would talk over all of them.
         float arcChance = switch (theme) {
             case ARCANE -> 0.3F;
-            case EMBER, STARLIGHT, CLOCKWORK -> 0.0F;
+            case IMPROBABILITY -> 0.4F;
+            case EVENTFUL_HORIZON -> 0.35F;
+            case VWORP -> 0.25F;
+            case EMBER, STARLIGHT, CLOCKWORK, STARBLOCKS, BEDROCK, BOLDLY_GONE, LUDICROUS -> 0.0F;
             default -> 0.15F;
         };
         Vector3f[] basis = planeOf(normal);
@@ -396,8 +413,18 @@ public final class WarpEffects {
                                   int count, RiftModulatorTheme theme) {
         ParticleOptions mote = themeMote(theme);
         // EMBER drifts rather than shoots - it is meant to smoulder, not crack - and STARLIGHT keeps
-        // its usual sparser count from the caller rather than being thinned again here.
-        double speed = theme == RiftModulatorTheme.EMBER ? 0.03D : 0.08D;
+        // its usual sparser count from the caller rather than being thinned again here. The exit is
+        // the one moment a theme gets to say how hard the arrival was: a jump to lightspeed snaps out, a
+        // warp drive's ring blows outward fast, a gravity drive's is thrown violently, and a fold leaves
+        // only a slow dark ripple where the ship was.
+        double speed = switch (theme) {
+            case EMBER -> 0.03D;
+            case BEDROCK -> 0.04D;
+            case EVENTFUL_HORIZON -> 0.16D;
+            case BOLDLY_GONE -> 0.18D;
+            case STARBLOCKS -> 0.20D;
+            default -> 0.08D;
+        };
         for (int i = 0; i < count; i++) {
             double angle = random.nextDouble() * Math.PI * 2.0D;
             double pitch = (random.nextDouble() - 0.5D) * Math.PI;

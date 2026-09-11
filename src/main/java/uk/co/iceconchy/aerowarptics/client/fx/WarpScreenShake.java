@@ -9,7 +9,7 @@ import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 
-import java.util.random.RandomGenerator;
+import java.util.Random;
 
 /**
  * Camera shake for rift formation and exit.
@@ -23,6 +23,13 @@ public final class WarpScreenShake {
 
     private static final float DECAY = 0.86F;
     private static final float MAX_DEGREES = 1.8F;
+
+    /**
+     * {@link Random} lives in {@code java.base}, so it is present on every runtime. The
+     * {@link java.util.random.RandomGenerator} SPI relies on the {@code jdk.random} provider module,
+     * which stripped-down JREs omit — resolving the default there throws and crashed the client.
+     */
+    private static final Random RANDOM = new Random();
 
     private static float magnitude;
 
@@ -52,10 +59,9 @@ public final class WarpScreenShake {
         if (magnitude <= 0.0F) {
             return;
         }
-        RandomGenerator random = RandomGenerator.getDefault();
         float amount = magnitude * MAX_DEGREES;
-        event.setPitch(event.getPitch() + Mth.clamp((float) random.nextGaussian() * amount, -amount, amount));
-        event.setYaw(event.getYaw() + Mth.clamp((float) random.nextGaussian() * amount, -amount, amount));
-        event.setRoll(event.getRoll() + Mth.clamp((float) random.nextGaussian() * amount * 0.5F, -amount, amount));
+        event.setPitch(event.getPitch() + Mth.clamp((float) RANDOM.nextGaussian() * amount, -amount, amount));
+        event.setYaw(event.getYaw() + Mth.clamp((float) RANDOM.nextGaussian() * amount, -amount, amount));
+        event.setRoll(event.getRoll() + Mth.clamp((float) RANDOM.nextGaussian() * amount * 0.5F, -amount, amount));
     }
 }

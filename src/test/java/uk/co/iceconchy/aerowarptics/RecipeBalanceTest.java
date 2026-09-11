@@ -64,11 +64,21 @@ class RecipeBalanceTest {
             Map.entry("create:railway_casing", 12.0D),
             Map.entry("create:electron_tube", 4.0D),
             Map.entry("create:precision_mechanism", 8.0D),
-            Map.entry("create:refined_radiance", 20.0D),
-            Map.entry("create:shadow_steel", 20.0D),
+            Map.entry("minecraft:end_crystal", 20.0D),
+            Map.entry("minecraft:echo_shard", 20.0D),
             Map.entry("aeronautics:end_stone_powder", 1.0D),
-            Map.entry("aeronautics:levitite", 2.0D),
-            Map.entry("aeronautics:pearlescent_levitite", 8.0D));
+            // Our own crystal stock stands in for Aeronautics' levitite/pearlescent levitite, which
+            // have no item form. The finished crystals are priced as base materials at the values the
+            // levitite they replace carried, so the drive ladder below is unchanged; their Create
+            // recipes are for obtainability, not for costing. The intermediates are priced too - not
+            // because anything on the ladder reaches them (it stops at warp_crystal), but so that
+            // everyIngredientIsSomethingWeCanPrice can value the crushing/haunting recipe outputs
+            // without recursing into the ore, which is dug rather than crafted.
+            Map.entry("aerowarptics:raw_warp_crystal", 1.5D),
+            Map.entry("aerowarptics:warp_dust", 1.0D),
+            Map.entry("aerowarptics:warp_shard", 1.5D),
+            Map.entry("aerowarptics:warp_crystal", 2.0D),
+            Map.entry("aerowarptics:pearlescent_warp_crystal", 8.0D));
 
     /** The drive ladder, in order. Each is expected to be built from the one before it. */
     private static final List<String> TIERS = List.of(
@@ -84,6 +94,8 @@ class RecipeBalanceTest {
             "aerowarptics:rift_lens",
             "aerowarptics:rift_core",
             "aerowarptics:stabiliser_ring",
+            "aerowarptics:warp_crystal",
+            "aerowarptics:pearlescent_warp_crystal",
             "aerowarptics:singularity_core",
             "aerowarptics:warp_anchor",
             "aerowarptics:astrolabe",

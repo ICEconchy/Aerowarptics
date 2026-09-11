@@ -3,6 +3,9 @@ package uk.co.iceconchy.aerowarptics;
 import org.junit.jupiter.api.Test;
 import uk.co.iceconchy.aerowarptics.client.FoldCrossings;
 
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -93,5 +96,37 @@ class FoldCrossingTest {
     void theWatchIsLongEnoughToOutlastTheRace() {
         assertTrue(FoldCrossings.watchTicks() >= 40,
                 "a watch of " + FoldCrossings.watchTicks() + " ticks may expire before the pose lands");
+    }
+
+    /**
+     * The collapse decision is the same whether or not a notice arrived.
+     *
+     * <p>The whole of phase 5's robustness: the notice is an optimisation, not a requirement. What
+     * makes a move a jump is its size, and nothing else - so a late-tracking client that never got the
+     * one-shot notice reaches the same verdict on the same discontinuity. The threshold is the sole
+     * criterion, and these are the two sides of it.
+     */
+    @Test
+    void whatCountsAsAJumpDoesNotDependOnANotice() {
+        assertFalse(FoldCrossings.isJump(64.0D), "flight is flight, notice or no notice");
+        assertTrue(FoldCrossings.isJump(4626.0D), "a crossing is a crossing, notice or no notice");
+    }
+
+    /**
+     * A watch does not survive a world change.
+     *
+     * <p>{@code clear()} is called on disconnect precisely so a watch cannot leak into a different
+     * world and collapse a hull that never jumped. Verified by breaking it: set a watch, clear, and
+     * the watch is gone.
+     */
+    @Test
+    void aWatchDoesNotSurviveAClear() {
+        FoldCrossings.clear();
+        assertEquals(0, FoldCrossings.watched());
+        FoldCrossings.expect(UUID.fromString("00000000-0000-0000-0000-0000000000aa"));
+        FoldCrossings.expect(UUID.fromString("00000000-0000-0000-0000-0000000000bb"));
+        assertEquals(2, FoldCrossings.watched(), "two ships should be watched");
+        FoldCrossings.clear();
+        assertEquals(0, FoldCrossings.watched(), "a clear must drop every watch");
     }
 }

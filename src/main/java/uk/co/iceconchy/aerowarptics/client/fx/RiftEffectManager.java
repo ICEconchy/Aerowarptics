@@ -145,6 +145,29 @@ public final class RiftEffectManager {
     /** How far a charring piece rises as it burns, as a fraction of the aperture's cover. */
     private static final float CHAR_LIFT = 0.55F;
 
+    /** How far an improbable piece that decides to drip sags, as a fraction of the aperture's cover. */
+    private static final double IMPROBABLE_DRIP = 0.42D;
+
+    /**
+     * How far the long axis of an elongating aperture draws out, as a multiple of the rim.
+     *
+     * <p>Well over one on purpose: the lens has to leave its own circle convincingly, or it reads as
+     * a rift that wobbled rather than one that stretched.
+     */
+    private static final float LENS_REACH = 2.2F;
+
+    /**
+     * Steps a stuttering piece travels in.
+     *
+     * <p>Five is the count that reads as failing to arrive. Fewer looks like a slideshow, and by about
+     * eight the gaps are shorter than the eye resolves and the whole thing goes back to being smooth
+     * motion with an odd flicker on it.
+     */
+    private static final int STUTTER_STEPS = 5;
+
+    /** How many ways an improbable piece can choose to leave. */
+    private static final int IMPROBABLE_WAYS = 5;
+
     /** Half-width of a crack where it leaves the impact, as a fraction of the aperture. */
     private static final float CRACK_ROOT = 0.030F;
     /** Half-width of a crack at its running tip. A fracture narrows as it travels. */
@@ -209,10 +232,16 @@ public final class RiftEffectManager {
         final int colour;
         /**
          * The rim's colour. Equal to {@link #colour} for every aperture except a Rift Drive's own,
-         * where a Modulator with a second swatch chosen makes the two differ - see {@link #drawFace}
-         * and {@link #drawFire}, the only two places this is read.
+         * where either a Modulator with a second swatch chosen or a borrowed theme's own palette makes
+         * the two differ - see {@link #drawFace}, {@link #drawFire} and the theme furniture.
          */
         final int accentColour;
+        /**
+         * Whether {@link #colour} and {@link #accentColour} are the theme's own rather than the
+         * pilot's - see {@link ThemeLook}. A few passes read the rim colour where they would otherwise
+         * burn white-hot, because a blue rift with a pink-white edge is not a blue rift.
+         */
+        final boolean canonical;
         final int openTicks;
         /** Not final: a collapse cuts the hold short at the moment it happens. See {@link #collapse}. */
         int holdTicks;
@@ -328,18 +357,36 @@ public final class RiftEffectManager {
         int keepAlive;
         /** Identity of the block holding this aperture open, or {@code 0} for a warp's own rift. */
         long holder;
+        /**
+         * Whether this rift throws a bolt down at the ground and marks whatever it hits.
+         *
+         * <p>True for the two rifts that are a hole hanging in open space with a world beneath them - a
+         * warp's own aperture, and a fissure's old wound - and false for a chute's. A chute is a rift
+         * <em>encompassed</em> by its own housing: the only thing a bolt straight down from it could
+         * ever strike is the block it is caged in, so it lights the rim and the bore like any other but
+         * never reaches for a ground it is already sitting on. The rim and corridor bolts are unaffected
+         * either way; this gates only {@link #drawGroundLightning}.
+         */
+        boolean groundStrikes = true;
 
         ActiveRift(Vec3 centre, Vec3 normal, double radius, int colour, int accentColour, float throat,
                    RiftModulatorTheme theme, int openTicks, int holdTicks, int closeTicks) {
             this.centre = centre;
             this.radius = radius;
-            this.colour = colour;
-            this.accentColour = accentColour;
+            // The seven borrowed themes wear their own colours rather than the pilot's - see ThemeLook.
+            // Settled here, ahead of everything else, because every pass reads colour and they all have
+            // to agree: a hyperspace tunnel with a pilot-pink bore is not a hyperspace tunnel. The seed
+            // is worked out first because Improbability rolls its palette from it.
+            int where = RiftShatter.seedFor(centre.x, centre.y, centre.z);
+            ThemeLook.Palette palette = ThemeLook.palette(theme, where);
+            this.canonical = palette != null;
+            this.colour = palette != null ? palette.core() : colour;
+            this.accentColour = palette != null ? palette.rim() : accentColour;
             this.throat = throat;
             this.openTicks = openTicks;
             this.holdTicks = holdTicks;
             this.closeTicks = closeTicks;
-            this.seed = RiftShatter.seedFor(centre.x, centre.y, centre.z);
+            this.seed = where;
             this.theme = theme;
             this.pattern = RiftShatter.patternFor(theme);
             this.shards = RiftShatter.fracture(seed, pattern);
@@ -445,6 +492,15 @@ public final class RiftEffectManager {
             case EMBER -> SoundEvents.FIRE_EXTINGUISH; // a deep whoomph at this pitch, not a hiss
             case STARLIGHT -> SoundEvents.AMETHYST_BLOCK_RESONATE;
             case STANDARD -> SoundEvents.GLASS_BREAK;
+            // Everything below is pitched right down by the caller too, which is what turns each of
+            // these from the household noise it normally is into something the size of an aperture.
+            case STARBLOCKS -> SoundEvents.FIREWORK_ROCKET_LAUNCH; // a whoosh going away from you
+            case BEDROCK -> SoundEvents.WARDEN_SONIC_BOOM; // the deepest thud vanilla has, for a fold
+            case BOLDLY_GONE -> SoundEvents.BEACON_ACTIVATE; // a drive powering up into engagement
+            case LUDICROUS -> SoundEvents.SLIME_BLOCK_PLACE; // a comic squelch, because it is a joke
+            case EVENTFUL_HORIZON -> SoundEvents.ENDER_DRAGON_GROWL; // a roar, at this pitch - it is violent
+            case VWORP -> SoundEvents.SHULKER_BOX_OPEN; // a groaning grind at this pitch
+            case IMPROBABILITY -> SoundEvents.ILLUSIONER_MIRROR_MOVE; // warbly and not quite real
         };
     }
 
@@ -467,7 +523,7 @@ public final class RiftEffectManager {
      * it stands open changes shape under the player rather than needing to be closed and reopened.
      */
     public static void hold(long holder, Vec3 centre, Vec3 normal, double halfWidth, double halfHeight,
-                            int colour, int openTicks) {
+                            int colour, int openTicks, boolean groundStrikes) {
         if (!AWConfig.RIFT_DISTORTION.get()) {
             return;
         }
@@ -485,6 +541,9 @@ public final class RiftEffectManager {
         rift.aspect = (float) (halfHeight / Math.max(1.0e-3D, halfWidth));
         rift.holder = holder;
         rift.keepAlive = HOLD_TICKS;
+        // A fissure hangs over open ground and strikes it; a chute is a rift boxed in its own cage and
+        // has nothing below it but that cage, so its caller passes false. See ActiveRift.groundStrikes.
+        rift.groundStrikes = groundStrikes;
         ACTIVE.add(rift);
     }
 
@@ -726,6 +785,10 @@ public final class RiftEffectManager {
             VertexConsumer fire = buffers.getBuffer(AWRenderTypes.RIFT_FIRE);
             for (ActiveRift rift : ACTIVE) {
                 drawHaze(fire, matrix, rift, partialTick);
+                // What the crew see from inside the bore, for the themes that borrow their corridor from
+                // somewhere - hyperspace, a warp bubble, the time vortex. Drawn just inside the tube's own
+                // wall, so the solid tube hides every stroke of it from anyone outside.
+                RiftFurniture.corridor(fire, matrix, rift, partialTick);
                 drawFarLight(fire, matrix, rift, partialTick);
                 drawFire(fire, matrix, rift, partialTick, eye);
                 drawOpening(fire, matrix, rift, partialTick, eye);
@@ -734,10 +797,15 @@ public final class RiftEffectManager {
                 // seal rather than needing a clock of its own.
                 RiftFurniture.standing(fire, matrix, rift, partialTick, eye);
                 drawSpark(fire, matrix, rift, partialTick, eye);
-                if (AWConfig.RIFT_LIGHTNING.get()) {
+                // Only for themes whose source crackles - see ThemeLook.crackles.
+                if (AWConfig.RIFT_LIGHTNING.get() && ThemeLook.crackles(rift.theme)) {
                     drawApertureLightning(fire, matrix, rift, partialTick, eye);
                     drawCorridorLightning(fire, matrix, rift, partialTick);
-                    drawGroundLightning(fire, matrix, rift, partialTick);
+                    // Only a rift with open ground beneath it reaches for it - not a chute, which is
+                    // caged around its own rift and would only ever strike the block it sits in.
+                    if (rift.groundStrikes) {
+                        drawGroundLightning(fire, matrix, rift, partialTick);
+                    }
                 }
             }
             buffers.endBatch(AWRenderTypes.RIFT_FIRE);
@@ -927,8 +995,11 @@ public final class RiftEffectManager {
      * <p>The closure is on a cosine rather than a straight line, which matters less for the shape than
      * for the fact that by the time it happens there is no light left on it. A bore that visibly ends
      * in a cone is a bag; one that fades out before it closes is a tunnel going somewhere.
+     *
+     * <p>Package-private because {@code RiftFurniture} dresses the inside of this same tube for the
+     * borrowed themes, and has to follow its shape exactly to stay inside it.
      */
-    private static float throatWidth(float t) {
+    static float throatWidth(float t) {
         if (t <= 0.82F) {
             return 1.0F;
         }
@@ -986,6 +1057,9 @@ public final class RiftEffectManager {
         // a second swatch, so this changes nothing for an undecorated drive.
         float accentGreen = ((rift.accentColour >> 8) & 0xFF) / 255.0F;
         float accentBlue = (rift.accentColour & 0xFF) / 255.0F;
+        // White-hot at the edge for a pilot's colours, as it always was. A borrowed palette's rim is its
+        // own colour all the way out, or every blue rift burns with a pink edge.
+        float edgeRed = rift.canonical ? ((rift.accentColour >> 16) & 0xFF) / 255.0F : 1.0F;
 
         for (int band = 0; band < BANDS; band++) {
             float innerT = band / (float) BANDS;
@@ -995,7 +1069,7 @@ public final class RiftEffectManager {
             // Each band counter-rotates against its neighbour so the aperture churns.
             float spin = time * (band % 2 == 0 ? 1.0F : -1.4F) + band * 0.7F;
 
-            float bandRed = Mth.lerp(edge, red * 0.15F, 1.0F);
+            float bandRed = Mth.lerp(edge, red * 0.15F, edgeRed);
             float bandGreen = Mth.lerp(edge, green * 0.15F, accentGreen);
             float bandBlue = Mth.lerp(edge, blue * 0.3F, accentBlue);
 
@@ -1033,8 +1107,8 @@ public final class RiftEffectManager {
             float reach1 = 0.35F + 0.65F * RiftTear.lick(a1, time);
             float alpha = aperture * 0.55F * agitation;
 
-            vertex(consumer, matrix, rift, bias, a0, rim0, 1.0F, accentGreen, accentBlue, alpha);
-            vertex(consumer, matrix, rift, bias, a1, rim1, 1.0F, accentGreen, accentBlue, alpha);
+            vertex(consumer, matrix, rift, bias, a0, rim0, edgeRed, accentGreen, accentBlue, alpha);
+            vertex(consumer, matrix, rift, bias, a1, rim1, edgeRed, accentGreen, accentBlue, alpha);
             vertex(consumer, matrix, rift, bias, a1, rim1 * (1.0D + RiftTear.FLAME * reach1), red, green, blue, 0.0F);
             vertex(consumer, matrix, rift, bias, a0, rim0 * (1.0D + RiftTear.FLAME * reach0), red, green, blue, 0.0F);
         }
@@ -1130,13 +1204,17 @@ public final class RiftEffectManager {
     /**
      * The pane coming apart, however this aperture's theme comes apart.
      *
-     * <p>Each of the three motions is a different <em>answer to where a piece goes</em>, and that is
-     * what the eye actually reads - far more than which cells the pane was cut into. Glass is thrown
-     * out and tumbles face-over-edge, catching the light as it turns, so a field of it glitters. An
-     * iris blade never leaves the plane and never tumbles: it sweeps round the aperture's own centre
-     * and slides clear, because a mechanism's parts stay in the mechanism. A rune does not go anywhere
-     * at all - it ignites where it stands and burns out, and the wave of that running rim-to-centre is
-     * the whole animation.
+     * <p>Every motion is a different <em>answer to where a piece goes</em>, and that is what the eye
+     * actually reads - far more than which cells the pane was cut into. Glass is thrown out and
+     * tumbles face-over-edge, catching the light as it turns, so a field of it glitters. An iris blade
+     * never leaves the plane and never tumbles: it sweeps round the aperture's own centre and slides
+     * clear, because a mechanism's parts stay in the mechanism. A rune does not go anywhere at all -
+     * it ignites where it stands and burns out, and the wave of that running rim-to-centre is the
+     * whole animation.
+     *
+     * <p>The arms below stay short because each one is only ever a curve and a colour handed to
+     * {@link #planarShard}; anything that needed more than that got a method of its own further down,
+     * which is where the borrowed themes live.
      */
     private static void drawShards(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                    float partialTick, Vec3 eye) {
@@ -1210,9 +1288,248 @@ public final class RiftEffectManager {
                             0.0D, 1.0D - 0.55D * travel,
                             red, green, blue, fade * twinkle * 0.9F);
                 }
+                case STREAK -> streakShard(consumer, matrix, rift, shard, cover, travel, fade,
+                        red, green, blue);
+                case SHEAR -> shearShard(consumer, matrix, rift, shard, cover, travel, fade,
+                        red, green, blue);
+                case IMPLODE -> implodeShard(consumer, matrix, rift, shard, cover, since, travel, fade,
+                        red, green, blue);
+                case ELONGATE -> elongateShard(consumer, matrix, rift, shard, cover, travel, fade,
+                        red, green, blue);
+                case PLAID -> plaidShard(consumer, matrix, rift, shard, cover, travel, fade);
+                case STUTTER -> stutterShard(consumer, matrix, rift, shard, cover, travel, fade,
+                        red, green, blue);
+                case IMPROBABLE -> improbableShard(consumer, matrix, rift, shard, cover, since, travel,
+                        fade, life);
             }
         }
     }
+
+    // ------------------------------------------------------- the borrowed motions
+
+    /**
+     * A piece that never detaches: pinned at its inner edge while its outer edge races away.
+     *
+     * <p>The one motion here that does not move a shape so much as change one - which is why it needs
+     * the two-slide overload of {@link #planarShard} rather than the ordinary one. Sliding both edges
+     * would translate the cell outward and leave a hole at the hub; moving only the outer edge draws
+     * the cell out into a line that still starts where it always did, and a ring of those is a
+     * starfield going to streaks.
+     */
+    private static void streakShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                    RiftShatter.Shard shard, double cover, float travel, float fade,
+                                    float red, float green, float blue) {
+        // Blowing out towards white as it draws out, because a streak that keeps its colour reads as a
+        // painted line rather than as something moving too fast to have a colour any more.
+        float white = travel * travel;
+        // Narrowing as it lengthens: a streak is thin, and a full-width wedge stretched outward is a
+        // slice of pie, not a star going past.
+        double shrink = 1.0D - 0.55D * travel;
+        planarShard(consumer, matrix, rift, shard, cover, 0.0F,
+                0.0D, shard.outward() * cover * travel, 0.0D, shrink,
+                Mth.lerp(white, red, 1.0F), Mth.lerp(white, green, 1.0F), Mth.lerp(white, blue, 1.0F),
+                fade * (0.55F + 0.45F * travel));
+    }
+
+    /**
+     * Space wound round a dark middle: every piece dragged by an amount that falls away with radius.
+     *
+     * <p>The falloff is the whole effect. A uniform turn is a plate spinning, which says nothing about
+     * space; a turn that is violent at the hub and nearly nothing at the rim is the one shape the eye
+     * reads as the <em>frame</em> being bent rather than an object moving inside it.
+     */
+    private static void shearShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                   RiftShatter.Shard shard, double cover, float travel, float fade,
+                                   float red, float green, float blue) {
+        float fromRim = 1.0F - shard.midRadius();
+        float swing = shard.spin() * travel * fromRim * fromRim;
+        // Lit gold at the edge and black in the middle: the rim of the pane is the event horizon, lit by
+        // everything bending round it, and the middle is falling into something no light leaves. The
+        // glass pass is translucent rather than additive, so a black piece really does darken what is
+        // behind it - which makes this the one place in a rift a singularity can be drawn at all.
+        float[] horizon = RiftFurniture.channels(rift.accentColour);
+        float lit = shard.midRadius() * (1.0F - 0.6F * travel);
+        planarShard(consumer, matrix, rift, shard, cover, swing, 0.0D, 0.0D, 1.0D,
+                Mth.lerp(lit, red, horizon[0]), Mth.lerp(lit, green, horizon[1]),
+                Mth.lerp(lit, blue, horizon[2]), fade * 0.9F);
+    }
+
+    /**
+     * A piece torn into the middle and pulled thin on the way - what gravity does to a thing, rather
+     * than what breaking does.
+     *
+     * <p>Its inner edge runs in faster than its outer one, so each cell stretches along its own radius
+     * towards the hole instead of travelling as a tile: spaghettified rather than thrown. Both edges stop
+     * just short of the centre, because an edge carried through it comes out drawn on the far side and
+     * reads as a fold, not a fall. And it shudders - a small wobble round the centre whose phase jumps
+     * every tick rather than gliding, because what separates violent from merely fast is that it is
+     * discontinuous.
+     */
+    private static void implodeShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                     RiftShatter.Shard shard, double cover, float since, float travel,
+                                     float fade, float red, float green, float blue) {
+        double pull = shard.outward() * cover * travel;
+        double inner = -Math.min(pull, cover * shard.innerT() * 0.98D);
+        double outer = -Math.min(pull * 0.55D, cover * shard.outerT() * 0.98D);
+        float jolt = Mth.sin(Mth.floor(since) * 2.7F + shard.axis() * 5.0F);
+        float swing = shard.spin() * jolt * 0.25F * travel;
+        // Cold arc-light as it tears loose, the drive's red as it falls, near black by the time it is
+        // gone. The glass pass is translucent, so that last stage genuinely darkens the view behind it.
+        float[] arc = RiftFurniture.channels(rift.accentColour);
+        float[] glow = RiftFurniture.channels(ThemeLook.GRAVITY_GLOW);
+        float r;
+        float g;
+        float b;
+        if (travel < 0.5F) {
+            float k = travel * 2.0F;
+            r = Mth.lerp(k, arc[0], glow[0]);
+            g = Mth.lerp(k, arc[1], glow[1]);
+            b = Mth.lerp(k, arc[2], glow[2]);
+        } else {
+            float k = (travel - 0.5F) * 2.0F;
+            r = Mth.lerp(k, glow[0], red);
+            g = Mth.lerp(k, glow[1], green);
+            b = Mth.lerp(k, glow[2], blue);
+        }
+        planarShard(consumer, matrix, rift, shard, cover, swing, inner, outer, 0.0D,
+                1.0D - 0.4D * travel, r, g, b, fade * 0.95F);
+    }
+
+    /**
+     * The aperture drawn out along one axis until it lets go.
+     *
+     * <p>Done per piece rather than by scaling the whole figure, because {@link #planarShard} moves in
+     * polar terms: a piece travels outward by how much of it lies along the stretch axis, which is
+     * {@code |cos|} of where it sits. Pieces at the ends run right out, pieces at the sides barely
+     * move, and the ring between them is an ellipse - the same result, reached the way the rest of
+     * this class already works.
+     */
+    private static void elongateShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                      RiftShatter.Shard shard, double cover, float travel, float fade,
+                                      float red, float green, float blue) {
+        double alongAxis = Math.abs(Math.cos(shard.midAngle()));
+        double slide = shard.outward() * cover * travel * LENS_REACH * alongAxis;
+        // A fringe that runs round the rim: the ends of the lens push one way off the pilot's colour
+        // and the sides the other, which is the whole of what makes this read as refracted rather
+        // than merely tinted.
+        float fringe = (float) Math.cos(shard.midAngle() * 2.0D) * 0.35F * travel;
+        // The engagement flash: every piece white the instant the drive engages, cooling to warp blue as
+        // it draws out, and gone within the first third of its travel so it reads as a single flash.
+        float flash = Math.max(0.0F, 1.0F - travel * 3.0F);
+        planarShard(consumer, matrix, rift, shard, cover, 0.0F, slide, 0.0D, 1.0D,
+                Mth.lerp(flash, Mth.clamp(red + fringe, 0.0F, 1.0F), 1.0F), Mth.lerp(flash, green, 1.0F),
+                Mth.lerp(flash, Mth.clamp(blue - fringe, 0.0F, 1.0F), 1.0F), fade * 0.85F);
+    }
+
+    /**
+     * Warp and weft: bands crossing at right angles, in the sett's own colours, snapping apart together.
+     *
+     * <p>The motion is almost nothing - alternate bands slide at different rates so the weave opens -
+     * because a tartan is a <em>colour</em> pattern and putting the effect anywhere else would lose
+     * it. The two band indices are recovered from the cell's own middle rather than passed in, which
+     * keeps this a function of the shard like every other motion here.
+     */
+    private static void plaidShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                   RiftShatter.Shard shard, double cover, float travel, float fade) {
+        RiftShatter.Pattern pattern = rift.pattern;
+        int ringBand = (int) (shard.midRadius() * pattern.rings());
+        int crackBand = (int) (shard.midAngle() / (Math.PI * 2.0D) * pattern.cracks());
+        // A thread of the sett, chosen so neighbouring cells are neighbouring threads - warp round the
+        // rings and weft across the cracks - which is what lets the pieces reassemble as cloth.
+        float[] woven = RiftFurniture.channels(ThemeLook.settColour(ringBand * 3 + crackBand));
+        // Warp and weft come apart at different rates, so the weave separates into its two directions
+        // rather than expanding as one sheet.
+        double rate = Math.floorMod(crackBand, 2) == 0 ? 1.0D : 0.55D;
+        planarShard(consumer, matrix, rift, shard, cover, 0.0F,
+                shard.outward() * cover * travel * rate, 0.0D, 1.0D,
+                woven[0], woven[1], woven[2], fade * 0.9F);
+    }
+
+    /**
+     * A piece that will not arrive properly: five hard steps with a gap between each.
+     *
+     * <p>Position is quantised and opacity is not, which is the arrangement that reads as stuttering.
+     * The reverse - smooth travel with a flickering alpha - is a piece moving normally behind a bad
+     * light, and the difference between the two is the whole effect.
+     */
+    private static void stutterShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                     RiftShatter.Shard shard, double cover, float travel, float fade,
+                                     float red, float green, float blue) {
+        float scaled = travel * STUTTER_STEPS;
+        float step = Mth.floor(scaled);
+        float within = scaled - step;
+        float stepped = step / STUTTER_STEPS;
+        // Solid in the middle of a step and gone at either end of it, so the piece is only ever seen
+        // at one of five places and never on the way between two of them.
+        float presence = Mth.sin(within * (float) Math.PI);
+        if (presence <= 0.02F) {
+            return;
+        }
+        // Alternate teeth in the rift's two colours - the vortex's blue and orange - so the stepping
+        // reads round the rim as well as out from it.
+        int tooth = (int) (shard.midAngle() / (Math.PI * 2.0D) * rift.pattern.cracks());
+        float[] own = (tooth & 1) == 1 ? RiftFurniture.channels(rift.accentColour) : new float[]{red, green, blue};
+        // Brightest as it lands, which gives each step an edge rather than letting them blur together.
+        float flare = presence * presence;
+        planarShard(consumer, matrix, rift, shard, cover, shard.spin() * stepped,
+                shard.outward() * cover * stepped, 0.0D, 1.0D,
+                Mth.lerp(flare * 0.5F, own[0], 1.0F), Mth.lerp(flare * 0.5F, own[1], 1.0F),
+                Mth.lerp(flare * 0.5F, own[2], 1.0F), fade * presence * 0.9F);
+    }
+
+    /**
+     * A piece that cannot decide, and settles it by rolling.
+     *
+     * <p>The roll is taken from the shard's own {@code axis}, which the fracture already filled with
+     * per-piece noise, so the choice is stable for as long as this rift stands and different for the
+     * next one - the joke is that it is never the same twice, not that it flickers.
+     *
+     * <p>Every branch is one of the motions above with its numbers pulled about, rather than anything
+     * new. That is the point: what makes this theme read is a <em>field</em> of pieces disagreeing
+     * with one another about how a rift opens.
+     */
+    private static void improbableShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                        RiftShatter.Shard shard, double cover, float since,
+                                        float travel, float fade, float life) {
+        int roll = Math.floorMod((int) (shard.axis() * 1_024.0F), IMPROBABLE_WAYS);
+        // A colour of its own per piece, cycling as it goes, and nothing to do with the pilot's - the
+        // one theme where the Modulator's swatch is deliberately overruled.
+        float[] hue = rainbow(shard.midAngle() * 0.5F + since * 0.06F + roll);
+        double slide = shard.outward() * cover * travel;
+
+        switch (roll) {
+            case 0 -> planarShard(consumer, matrix, rift, shard, cover, shard.spin() * travel,
+                    slide, 0.0D, 1.0D - 0.5D * travel, hue[0], hue[1], hue[2], fade * 0.9F);
+            case 1 -> planarShard(consumer, matrix, rift, shard, cover, shard.spin() * travel * 3.0F,
+                    slide * 0.3D, CHAR_LIFT * cover * travel, 1.0D - 0.3D * travel,
+                    hue[0], hue[1], hue[2], fade * 0.9F);
+            case 2 -> planarShard(consumer, matrix, rift, shard, cover,
+                    RiftFurniture.GEAR_REST + shard.spin() * travel, slide * 0.6D, 0.0D, 1.0D,
+                    hue[0], hue[1], hue[2], fade * 0.85F);
+            case 3 -> planarShard(consumer, matrix, rift, shard, cover, 0.0F, -slide * 0.4D,
+                    -IMPROBABLE_DRIP * cover * travel, 1.0D, hue[0], hue[1], hue[2], fade * 0.9F);
+            // Motionless, and simply burning out where it stands - the improbable case where nothing
+            // improbable happens at all.
+            default -> planarShard(consumer, matrix, rift, shard, cover, 0.0F, 0.0D, 0.0D,
+                    1.0D - life * 0.6D, hue[0], hue[1], hue[2], fade * 0.8F);
+        }
+    }
+
+    /**
+     * A colour going round the wheel, for the one theme that supplies its own.
+     *
+     * <p>Three sines a third of a turn apart. Not a real HSV conversion, which would be more code for
+     * a result nobody could tell apart at the size and speed these are seen at.
+     */
+    private static float[] rainbow(float phase) {
+        float turn = phase * (float) (Math.PI * 2.0D);
+        float third = (float) (Math.PI * 2.0D / 3.0D);
+        return new float[]{
+                0.5F + 0.5F * Mth.sin(turn),
+                0.5F + 0.5F * Mth.sin(turn + third),
+                0.5F + 0.5F * Mth.sin(turn + third * 2.0F)};
+    }
+
 
     /**
      * One piece of glass, thrown clear and tumbling.
@@ -1298,6 +1615,27 @@ public final class RiftEffectManager {
                                     RiftShatter.Shard shard, double cover, float swing, double slide,
                                     double lift, double shrink,
                                     float red, float green, float blue, float alpha) {
+        planarShard(consumer, matrix, rift, shard, cover, swing, slide, slide, lift, shrink,
+                red, green, blue, alpha);
+    }
+
+    /**
+     * The same piece, with its two radial edges moved by different amounts.
+     *
+     * <p>What {@link RiftShatter.Motion#STREAK} needs and nothing else does. Moving both edges
+     * together - the overload above, which every other motion uses - slides a cell outward with its
+     * shape intact. Moving only the outer one draws the cell out into a line anchored where it
+     * started, which is a different thing entirely and the only way to smear a pane without tearing a
+     * hole at the hub.
+     *
+     * @param innerSlide how far out the edge nearest the middle goes, in blocks
+     * @param outerSlide how far out the edge nearest the rim goes, in blocks
+     */
+    private static void planarShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                    RiftShatter.Shard shard, double cover, float swing,
+                                    double innerSlide, double outerSlide,
+                                    double lift, double shrink,
+                                    float red, float green, float blue, float alpha) {
         double a0 = shard.angle0() + swing;
         double a1 = shard.angle1() + swing;
         double rim0 = rift.reach(a0, rift.rimTime);
@@ -1307,10 +1645,10 @@ public final class RiftEffectManager {
         double cos1 = Math.cos(a1);
         double sin1 = Math.sin(a1);
 
-        double near0 = cover * rim0 * shard.innerT() + slide;
-        double far0 = cover * rim0 * shard.outerT() + slide;
-        double near1 = cover * rim1 * shard.innerT() + slide;
-        double far1 = cover * rim1 * shard.outerT() + slide;
+        double near0 = cover * rim0 * shard.innerT() + innerSlide;
+        double far0 = cover * rim0 * shard.outerT() + outerSlide;
+        double near1 = cover * rim1 * shard.innerT() + innerSlide;
+        double far1 = cover * rim1 * shard.outerT() + outerSlide;
 
         double u0 = cos0 * near0;
         double v0 = sin0 * near0;
@@ -1378,16 +1716,40 @@ public final class RiftEffectManager {
                 // Whatever a theme's pieces did on the way out they undo coming back, from the same
                 // rest angles the opening uses - so a shutter closes onto where it opened from, and a
                 // circle is rewritten over its own figure rather than over a fresh one.
+                float fromRim = 1.0F - shard.midRadius();
                 float swing = switch (rift.pattern.motion()) {
                     case SWING -> RiftFurniture.GEAR_REST + shard.spin() * out;
                     case DISSOLVE -> RiftFurniture.RUNE_REST;
+                    // Unwinding: the same falloff the fold wound in with, run backwards, so the middle
+                    // untwists last rather than the whole plate turning back together.
+                    case SHEAR -> shard.spin() * out * fromRim * fromRim;
+                    // A streak has no rotation to undo, and a lens and a weave were never turned.
+                    case STREAK, ELONGATE, PLAID -> 0.0F;
                     default -> shard.spin() * out;
                 };
-                double lift = rift.pattern.motion() == RiftShatter.Motion.CHAR
-                        ? CHAR_LIFT * cover * out : 0.0D;
+                double lift = switch (rift.pattern.motion()) {
+                    case CHAR -> CHAR_LIFT * cover * out;
+                    default -> 0.0D;
+                };
+                // How far out each edge still is. Only a streak's and an implosion's two edges differ:
+                // a streak comes home by its outer edge retracting onto its inner one, and a piece that
+                // was pulled thin into the middle un-stretches back out of it.
+                double slide = shard.outward() * cover * out;
+                double innerSlide = switch (rift.pattern.motion()) {
+                    case STREAK -> 0.0D;
+                    // Pulled into the middle on the way out, so it comes back out of it, inner edge last.
+                    case IMPLODE -> -Math.min(slide, cover * shard.innerT() * 0.98D);
+                    case ELONGATE -> slide * LENS_REACH * Math.abs(Math.cos(shard.midAngle()));
+                    default -> slide;
+                };
+                double outerSlide = switch (rift.pattern.motion()) {
+                    case STREAK -> slide;
+                    case IMPLODE -> -Math.min(slide * 0.55D, cover * shard.outerT() * 0.98D);
+                    default -> innerSlide;
+                };
                 float white = Math.max(0.0F, 1.0F - (1.0F - out) * 2.5F);
                 planarShard(consumer, matrix, rift, shard, cover, swing,
-                        shard.outward() * cover * out, lift, 1.0D - 0.45D * out,
+                        innerSlide, outerSlide, lift, 1.0D - 0.45D * out,
                         Mth.lerp(white, red, 1.0F), Mth.lerp(white, green, 1.0F),
                         Mth.lerp(white, blue, 1.0F), fade * 0.8F);
                 continue;
@@ -1512,9 +1874,12 @@ public final class RiftEffectManager {
                 + (eye.z - rift.centre.z) * rift.normal.z;
         float bias = towardsEye >= 0.0D ? FIRE_BIAS : -FIRE_BIAS;
 
-        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
-        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
-        float blue = (rift.colour & 0xFF) / 255.0F;
+        // A borrowed palette's bolts are its rim colour - cold arc-light, vortex orange - not its core,
+        // which for a gravity drive is a red too dark to crackle with.
+        int bolt = rift.canonical ? rift.accentColour : rift.colour;
+        float red = ((bolt >> 16) & 0xFF) / 255.0F;
+        float green = ((bolt >> 8) & 0xFF) / 255.0F;
+        float blue = (bolt & 0xFF) / 255.0F;
 
         for (int index = 0; index < rift.apertureBolts.length; index++) {
             RiftLightning.Emitter emitter = rift.apertureBolts[index];
@@ -1590,9 +1955,12 @@ public final class RiftEffectManager {
         double cover = rift.radius * aperture;
         double depth = rift.throat * open;
 
-        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
-        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
-        float blue = (rift.colour & 0xFF) / 255.0F;
+        // A borrowed palette's bolts are its rim colour - cold arc-light, vortex orange - not its core,
+        // which for a gravity drive is a red too dark to crackle with.
+        int bolt = rift.canonical ? rift.accentColour : rift.colour;
+        float red = ((bolt >> 16) & 0xFF) / 255.0F;
+        float green = ((bolt >> 8) & 0xFF) / 255.0F;
+        float blue = (bolt & 0xFF) / 255.0F;
 
         for (int index = 0; index < rift.corridorBolts.length; index++) {
             RiftLightning.Emitter emitter = rift.corridorBolts[index];
@@ -1685,9 +2053,12 @@ public final class RiftEffectManager {
         }
         float clock = Mth.lerp(partialTick, rift.lastAge, rift.age);
 
-        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
-        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
-        float blue = (rift.colour & 0xFF) / 255.0F;
+        // A borrowed palette's bolts are its rim colour - cold arc-light, vortex orange - not its core,
+        // which for a gravity drive is a red too dark to crackle with.
+        int bolt = rift.canonical ? rift.accentColour : rift.colour;
+        float red = ((bolt >> 16) & 0xFF) / 255.0F;
+        float green = ((bolt >> 8) & 0xFF) / 255.0F;
+        float blue = (bolt & 0xFF) / 255.0F;
 
         for (int index = 0; index < rift.groundBolts.length; index++) {
             RiftLightning.Emitter emitter = rift.groundBolts[index];
@@ -2081,8 +2452,12 @@ public final class RiftEffectManager {
     private static void glowVertex(VertexConsumer consumer, Matrix4f matrix,
                                    float x, float y, float z,
                                    float red, float green, float blue, float alpha) {
+        // Clamped, because a channel above one is not brighter - it wraps. The buffer stores each
+        // channel as a byte, so 1.6 of red is stored as 408 cast to a byte, which is a dim red, and a
+        // ring meant to blaze comes out murky. Several passes push lit past one on purpose for a hot
+        // core; every one of them meant "as bright as it goes".
         consumer.addVertex(matrix, x, y, z)
-                .setColor(red, green, blue, alpha)
+                .setColor(Math.min(1.0F, red), Math.min(1.0F, green), Math.min(1.0F, blue), alpha)
                 .setUv(0.5F, 0.5F)
                 .setUv2(GLOW_LIGHT, GLOW_LIGHT)
                 .setNormal(0.0F, 1.0F, 0.0F);

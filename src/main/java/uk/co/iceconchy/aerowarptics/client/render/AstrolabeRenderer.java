@@ -27,6 +27,16 @@ public class AstrolabeRenderer extends GeoBlockRenderer<AstrolabeBlockEntity> {
 
     private static final int FULL_BRIGHT = 0xF0_00F0;
 
+    /**
+     * How much the instrument tower is shrunk this frame, {@code size / MAX_SIZE}.
+     *
+     * <p>Held between {@link #render} working it out and {@link #renderRecursively} applying it to the
+     * tower bone. It cannot be applied in {@code render}: GeckoLib resets every bone to its authored
+     * scale while playing the animation, which happens inside the {@code super.render} call, so a scale
+     * set before that is wiped before the bones are ever drawn.
+     */
+    private float towerScale = 1.0F;
+
     public AstrolabeRenderer() {
         super(new AstrolabeModel());
     }
@@ -44,13 +54,23 @@ public class AstrolabeRenderer extends GeoBlockRenderer<AstrolabeBlockEntity> {
         }
 
         // One model, sized to the footprint it was built on. The geometry is authored for a full
-        // three-by-three, so a smaller table is the same table drawn narrower - width and depth
-        // only, never height, because the block's own collision box is waist high whatever size the
-        // table is and a model that shrank away from it would be a hitbox you could not see.
+        // three-by-three, and a smaller table has to read as the same instrument shrunk, not stretched.
+        // Two things are scaled differently to get there:
+        //
+        //   - The flat table body (base, deck, chart, the spinning corner instruments) is scaled in
+        //     width and depth only, never height. These are low slabs, so a height held constant is
+        //     invisible on them, and it keeps the tabletop at a consistent, leanable height and its
+        //     footprint filling the block's waist-high collision box whatever the size.
+        //   - The instrument tower on top - pillar, ring, gimbal, lens - is scaled uniformly instead,
+        //     down in height as much as in width, so it never becomes the thin spire that a
+        //     width-only squeeze made of it. That is done to the "tower" bone in renderRecursively;
+        //     here we just work out by how much. It shrinks towards its foot on the tabletop, so it
+        //     stays seated whatever size it is drawn at.
         int size = Math.max(1, table.size());
         float scale = size / (float) AstrolabeStructure.MAX_SIZE;
         float offset = (size - 1) * 0.5F;
 
+        towerScale = scale;
         poseStack.pushPose();
         // Before the renderer's own translate to the block's middle, so the model ends up centred on
         // the table rather than on the corner cell that happens to hold its state.
@@ -66,6 +86,13 @@ public class AstrolabeRenderer extends GeoBlockRenderer<AstrolabeBlockEntity> {
                                   RenderType renderType, MultiBufferSource bufferSource, VertexConsumer buffer,
                                   boolean isReRender, float partialTick, int packedLight, int packedOverlay,
                                   int colour) {
+        // The tower carries the model's width scale from the pose already; giving its own bone a
+        // matching height scale is what turns that into a uniform shrink rather than a squeeze. Done
+        // here rather than in render because the animation pass ahead of this resets the bone first.
+        if ("tower".equals(bone.getName())) {
+            bone.setScaleY(towerScale);
+        }
+
         // The chart face is lit from underneath so it stays readable on a night deck, which is when a
         // pilot most wants to see where they are pointed.
         boolean glowing = "chart".equals(bone.getName()) || "ring".equals(bone.getName());

@@ -251,6 +251,12 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
 
     @Override
     public void tick() {
+        // Before super.tick(), not after: Create runs initialize(), lazyTick() and every
+        // behaviour from there, and those touch the level too. Nothing runs on a block that is
+        // no longer there - see Airship.orphaned.
+        if (Airship.orphaned(this)) {
+            return;
+        }
         super.tick();
         if (level == null || level.isClientSide) {
             return;
@@ -364,7 +370,10 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
     protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(tag, registries, clientPacket);
         if (master != null) {
-            tag.put("Master", NbtUtils.writeBlockPos(master));
+            // Stored as the step to the origin rather than its absolute position, so the pointer
+            // survives the hull assembling and relocating every cell into the plot grid at once - an
+            // absolute Master would name the block's old world spot and leave the whole table dark.
+            tag.put("MasterStep", NbtUtils.writeBlockPos(AstrolabeStructure.originStep(worldPosition, master)));
             tag.putInt("Size", size);
         }
         if (destination != null) {
@@ -377,7 +386,18 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
     @Override
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(tag, registries, clientPacket);
-        master = tag.contains("Master") ? NbtUtils.readBlockPos(tag, "Master").orElse(null) : null;
+        if (tag.contains("MasterStep")) {
+            master = NbtUtils.readBlockPos(tag, "MasterStep")
+                    .map(step -> AstrolabeStructure.originFromStep(worldPosition, step))
+                    .orElse(null);
+        } else if (tag.contains("Master")) {
+            // A pointer written absolutely before the step was stored relatively. Correct on the
+            // ground, where the cell has not moved since it was written, and rewritten as a step the
+            // next time this cell saves.
+            master = NbtUtils.readBlockPos(tag, "Master").orElse(null);
+        } else {
+            master = null;
+        }
         // Tables saved before there was more than one size are all three by three, and a zero
         // here would render one as nothing at all.
         size = master == null ? 0 : Math.max(1, tag.getInt("Size"));
