@@ -54,10 +54,32 @@
   under it - loaded, and remembers that across a restart. Warp to an anchor out in the wilderness, log
   off, come back tomorrow, and it's still there. The catch: every drive-carrying ship is now a chunk
   loader. Server admins can turn it off with `keepAirshipsLoaded`.
+- **Rift Storms.** Rare weather - days apart, a few minutes long - in which space is already coming
+  apart. The sky and clouds darken to a bruised violet and the day dims, the sun showing through as a
+  smudge. Glowing violet rain replaces ordinary rain - in every biome, deserts included - fizzing where
+  it lands. Bolts of rift fire split the sky, each one flashing the sky and ground purple before a low
+  roll of thunder, and curtains of rift light hang overhead, faint by day and bright after dark. While
+  one lasts, every Rift Drive **cools down in half the time** after a warp, but
+  every drive is also as **unstable as a Singularity**: any warp might throw your ship off course. The
+  Singularity itself is no worse than it already was, and a Creative drive is unaffected. Storms happen
+  under an open sky, so not in the Nether or the End. Operators can call one with
+  `/weather rift_storm [duration]`, and `/weather clear` ends it. How rare, how long, how much they
+  shorten a cooldown, and whether they happen on their own at all are in the server config under
+  `riftStorm`. If the look is too much, `riftStormWeather` in the client config turns off the dark sky,
+  rain and aurora; the flashes also respect vanilla's *Hide Lightning Flashes*.
+- **Choose how high ships arrive.** A Warp Anchor's panel has an arrival-height slider under its name
+  and network, and the Rift Probe has one under its distance slider - so a harbour anchor can bring a
+  ship in low enough to step off, and a mountaintop one can keep a big hull well clear of the peaks.
+  Drag for a rough height, scroll over the slider for a block at a time. The probe also tells you where
+  the ship will arrive from - *Arrives from y 81* - and a ship only ever comes in higher than that,
+  if something's in the way, never lower. Anchors and probes start at the old six blocks
+  (`arrivalGroundBuffer`), so nothing already built moves; `maxArrivalHeight` in the server config caps
+  how high players can set it.
 - **Two debug commands for server operators.** `/aerowarptics warp dryrun` runs the whole pre-flight
   against the course you've set and tells you what it thinks, without moving anything.
-  `/aerowarptics warp clearance` toggles a live wireframe of the departure path round your ship - teal
-  for the volume that gets checked, amber for the hull's own sweep, red for anything in the way.
+  `/aerowarptics warp clearance` toggles a live wireframe of the departure path round your ship - amber
+  for the hull's own sweep, which is what gets checked, teal for where the rift's opening reaches, red
+  for anything in the way.
 
 ### Changed
 
@@ -70,8 +92,6 @@
   to fly into, which is what actually puts a ship into a hillside, and that check costs the same
   whatever the size. The old whole-corridor check is still there as `requireClearLaunch` for servers
   that want it.
-- The launch check measures the **whole vessel** now - anything joined onto the hull, and the sweep of
-  propellers on bearings - rather than just the main hull.
 - The hull holds still inside the rift during the corridor instead of flying on through terrain nobody
   can see. `corridorDrift` puts that back if you want it.
 - A launch that couldn't be checked all the way now says so - *"The launch path could not be checked
@@ -82,8 +102,15 @@
 - **The whole server froze for over a minute when you put a Rift Drive on an airship** - any airship,
   any size - and afterwards blocks wouldn't break, chests wouldn't open, and nothing in a menu would
   apply. The drive's keep-loaded claim was force-loading the entire patch of space Sable reserves for a
-  ship rather than the ship itself, and asking every chunk of it to tick. It now holds only the chunks
-  the hull actually covers, only the drive's own chunk ticks, and there's a hard ceiling on the lot.
+  ship rather than the ship itself, and asking every chunk of it to tick. It now holds only the ground
+  under the hull, and none of it ticks.
+- **Worlds with a Rift Drive in them never finished saving on exit.** Quitting sat on "Saving worlds"
+  for as long as you'd let it - half an hour, in one case. To keep your ship loaded, the drive was also
+  force-loading the ship's own chunks, which belong to Sable rather than to the normal world, and when
+  the game shut down it waited on those chunks to unload - which they never do. The drive now only
+  holds the real ground under the ship, which keeps the ship loaded just the same. Worlds already
+  affected fix themselves the next time they load; the log says `Dropped N forced chunk claim(s) inside
+  airship plot space` when it happens.
 - **Big ships refused to launch with nothing in the way.** Three separate limits all grew with the
   ship and all reported "blocked": a cap on how much ground could be loaded for the check, a budget that
   open water and plants ate through without ever finding anything solid, and a corridor that stretched
@@ -102,6 +129,31 @@
   wild on a **Rift Fissure**, which is the easiest one to hit by accident: assemble a hull around a
   tear, take the hull apart, and the tear's first tick afterwards would crash the game. Every ticking
   block in the mod now stops dead when its block has gone rather than carrying on regardless.
+- **A ship built from more than one sub-level could never warp at all.** Anything Sable had joined to
+  the hull - a tender, a gondola, a turret on its own plot - was folded into the volume the launch
+  check sweeps, and then read by that same check as *another airship parked in the way*. "Blocked",
+  on every bearing, at every heading, under clear sky. A vessel's own attached plots now count as
+  part of the vessel.
+- **Propellers made the corridor far bigger than the ship.** Clearance was measured from the whole
+  assembly, and Create sizes a spinning contraption's box to enclose the blades' full rotation - so a
+  pair of propellers widened the path that had to be proven clear by the span of the disc, on every
+  side, down the whole length of the run, and scaled the rift aperture to match. The launch check,
+  the arrival search and the clearance overlay all measure the hull itself now.
+- **The launch check refused for things beside the ship.** It used to widen the path by the width of
+  the rift's opening plus `arrivalClearance`, so grass, shoreline and hillside the hull was never going
+  to touch counted as being in the way. It now checks only the path the hull itself flies through -
+  the **amber** box in `/aerowarptics warp clearance`. The **teal** box is still drawn, so you can see
+  how far the rift's opening reaches, but nothing inside it stops a launch any more.
+- **The ground a moored ship sits on counted as an obstruction.** A ship resting on the ground settles
+  a hair into it, and the check took that to mean the whole layer underneath was inside the ship's
+  path - so the ground was marked red for the full length of the run, and so was the row of blocks
+  against the far side of the path. Only blocks that actually reach into the path count now; blocks
+  merely touching it don't. The arrival search reads blocks the same way, so it's a block less fussy
+  at its edges too - it still keeps its `arrivalClearance` gap round the ship.
+- **The clearance overlay's red blocks match the check.** They used to mark everything in the teal box;
+  now they mark only what would actually stop the launch. `/aerowarptics warp dryrun` also prints the
+  hull's exact box now, and no longer lists the aperture margin against the corridor, since the
+  corridor doesn't use it.
 
 ## 1.3.0
 

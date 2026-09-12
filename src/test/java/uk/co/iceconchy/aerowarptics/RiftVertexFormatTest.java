@@ -51,7 +51,8 @@ class RiftVertexFormatTest {
     private static final List<String[]> GLOW_WRITERS = List.of(
             new String[] {"RiftEffectManager.java", "glowVertex"},
             new String[] {"SummonBeacons.java", "vertex"},
-            new String[] {"RiftShimmer.java", "vertex"});
+            new String[] {"RiftShimmer.java", "vertex"},
+            new String[] {"RiftStormSky.java", "vertex"});
 
     private static String read(Path path) {
         try {

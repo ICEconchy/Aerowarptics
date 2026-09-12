@@ -24,7 +24,7 @@ import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
  *
  * @param probePos the probe, in its own level's coordinates - inside an airship's plot, not the world
  * @param action   what the player is doing
- * @param value    the bearing index or the range in blocks, depending on the action
+ * @param value    the bearing index, the range or the arrival height in blocks, depending on the action
  */
 public record ServerboundProbePacket(BlockPos probePos, Action action, int value)
         implements CustomPacketPayload {
@@ -41,7 +41,9 @@ public record ServerboundProbePacket(BlockPos probePos, Action action, int value
         /** Hand the current reading to the drive as a course. */
         SET_COURSE,
         /** Ask for the survey itself, which is far too large to ride on every state update. */
-        FETCH_READING
+        FETCH_READING,
+        /** Set how far above the ground a ship sent from here arrives. */
+        SET_ARRIVAL_HEIGHT
     }
 
     public static final Type<ServerboundProbePacket> TYPE = new Type<>(AeroWarptics.id("probe"));
@@ -59,6 +61,10 @@ public record ServerboundProbePacket(BlockPos probePos, Action action, int value
 
     public static ServerboundProbePacket range(BlockPos probePos, int blocks) {
         return new ServerboundProbePacket(probePos, Action.SET_RANGE, blocks);
+    }
+
+    public static ServerboundProbePacket arrivalHeight(BlockPos probePos, int blocks) {
+        return new ServerboundProbePacket(probePos, Action.SET_ARRIVAL_HEIGHT, blocks);
     }
 
     public static ServerboundProbePacket sound(BlockPos probePos) {
@@ -104,6 +110,7 @@ public record ServerboundProbePacket(BlockPos probePos, Action action, int value
                 case OPEN -> { }
                 case SET_BEARING -> probe.setBearing(ProbeBearing.byIndex(packet.value));
                 case SET_RANGE -> probe.setRange(packet.value);
+                case SET_ARRIVAL_HEIGHT -> probe.setArrivalHeight(packet.value);
                 case SOUND -> report(player, probe.sound(player));
                 case SET_COURSE -> {
                     WarpFailure result = probe.setCourse(player);

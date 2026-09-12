@@ -136,6 +136,61 @@ public final class AWRenderTypes extends RenderStateShard {
                     .setWriteMaskState(COLOR_WRITE)
                     .createCompositeState(false));
 
+    /** The drops a Rift Storm rains down. Coloured in the texture - see {@code tools/rift_rain_texture.py}. */
+    private static final ResourceLocation RIFT_RAIN_TEXTURE = ResourceLocation.fromNamespaceAndPath(
+            "aerowarptics", "textures/environment/rift_rain.png");
+
+    /**
+     * A Rift Storm's rain: vanilla rain's own recipe, with a different texture.
+     *
+     * <p>The particle shader and the lightmap, as vanilla's weather pass uses, so the rain is shaded
+     * by the light where it falls and a shader pack treats it as weather rather than as a glow. It
+     * does not write depth, so it never hides the rain behind it, and it names no output target: it is
+     * drawn at the weather stage, where vanilla has already bound the weather target under Fabulous
+     * graphics, and a render type that bound one of its own would unbind it again on the way out -
+     * from underneath the world border vanilla draws next.
+     */
+    public static final RenderType RIFT_RAIN = RenderType.create(
+            "aerowarptics_rift_rain",
+            DefaultVertexFormat.PARTICLE,
+            VertexFormat.Mode.QUADS,
+            4096,
+            false,
+            true,
+            RenderType.CompositeState.builder()
+                    .setShaderState(new ShaderStateShard(net.minecraft.client.renderer.GameRenderer::getParticleShader))
+                    .setTextureState(new TextureStateShard(RIFT_RAIN_TEXTURE, false, false))
+                    .setTransparencyState(TRANSLUCENT_TRANSPARENCY)
+                    .setLightmapState(LIGHTMAP)
+                    .setCullState(NO_CULL)
+                    .setDepthTestState(LEQUAL_DEPTH_TEST)
+                    .setWriteMaskState(COLOR_WRITE)
+                    .createCompositeState(false));
+
+    /**
+     * Light hung in the sky itself: additive, and tested against nothing.
+     *
+     * <p>Drawn straight after the sky and before any terrain, so there is no depth to test against -
+     * and nothing needs one. Everything drawn afterwards simply paints over it, which is exactly how
+     * the sun and the stars end up behind the hills. Plain position and colour, because the beacon
+     * beam shader {@link #RIFT_FIRE} uses applies fog, and fog at this stage is the sky's: fogged
+     * additive light would lay a glowing band along the horizon.
+     */
+    public static final RenderType RIFT_AURORA = RenderType.create(
+            "aerowarptics_rift_aurora",
+            DefaultVertexFormat.POSITION_COLOR,
+            VertexFormat.Mode.QUADS,
+            1024,
+            false,
+            false,
+            RenderType.CompositeState.builder()
+                    .setShaderState(POSITION_COLOR_SHADER)
+                    .setTransparencyState(LIGHTNING_TRANSPARENCY)
+                    .setCullState(NO_CULL)
+                    .setDepthTestState(NO_DEPTH_TEST)
+                    .setWriteMaskState(COLOR_WRITE)
+                    .createCompositeState(false));
+
     private AWRenderTypes() {
         super("aerowarptics", () -> {
         }, () -> {

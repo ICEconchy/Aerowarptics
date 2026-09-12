@@ -852,8 +852,8 @@ after assembly — the bounding-box volume stands in.
 ### Safe arrival
 
 The airship is never dropped onto the anchor block. The search starts from a **clearance point**: the
-height at which the hull's underside would sit a configured buffer above the anchor, worked out from
-the ship's own footprint rotated into the orientation it will arrive with. A skiff clears the anchor
+height at which the hull's underside would sit the destination's **arrival height** above the anchor,
+worked out from the ship's own footprint rotated into the orientation it will arrive with. A skiff clears the anchor
 by a few blocks; a two-hundred-block dreadnought starts a hundred blocks up, because that is where its
 keel has to be for its deck not to be inside the mountain.
 
@@ -870,6 +870,74 @@ ruled out does it start stepping sideways in widening rings.
 The volume tested at each candidate is not just the hull: it is the hull swept backwards along the
 approach, covering the whole run-out from the exit aperture. If nothing fits, the warp is refused
 before it starts and the ship stays where it is.
+
+**The arrival height belongs to the destination**, not to the server. It used to be one figure,
+`arrivalGroundBuffer`, and no one figure is right everywhere: six blocks suits a meadow, a harbour
+wants a ship low enough to step off, and an anchor on a peak wants the hull clear of the ridges round
+it. So a Warp Anchor carries its own height, set on its panel beside its name, and a Rift Probe has a
+height slider whose value travels with the course it sends. `arrivalGroundBuffer` is now only where a
+new anchor or probe starts, and what a Rift Beacon and anything saved before this existed use.
+`maxArrivalHeight` caps what a player may ask for, and is applied again when the flight is planned so
+lowering it catches heights set before the change.
+
+An anchor course carries no height; the anchor's is read when the rift opens, the same moment its
+position is, so an owner who raises their anchor while a ship is spinning up is heard. A fix course
+does carry one, because by the time it fires the probe that chose it may have been re-aimed or broken.
+Either way the height is where the search *starts*, never a promise: a column blocked at that height
+still means "come in higher", and the probe's panel says **Arrives from** for exactly that reason.
+
+### Rift Storms
+
+A rare weather in which space is already coming apart, and it cuts both ways. A drive tearing it open
+has less to recover from afterwards, so a warp completed during a storm earns a shortened cooldown
+(`riftStorm.cooldownMultiplier`, a half by default). But every drive's exit becomes as unsure as a
+Singularity's: the Singularity's own `instability` is added on top of the drive's, and the same
+scatter roll decides. The Singularity is left as it is - it is the drive the storm borrows from, and
+charging it its own figure twice would punish most the one drive already unstable - and a Creative
+drive is left alone because it is defined by having no penalties.
+
+Both effects are fixed at the moment the drive acts: the scatter roll when the rift opens, the cooldown
+when the warp completes. A storm passing mid-cooldown does not lengthen it again, and one arriving
+part-way through does not shorten it. The drive keeps the length its cooldown started at, so the
+console's progress bar starts empty rather than half full.
+
+The storm is server-wide, like vanilla weather, and rages only over dimensions with a sky and no
+ceiling - vanilla's own test for whether it can rain. It freezes with `doWeatherCycle`. Its clock
+(`RiftStormCycle`) and its arithmetic (`RiftStormRules`) are free of Minecraft and tested directly.
+
+`/weather rift_storm [duration]` is grafted onto vanilla's `/weather` rather than living under
+`/aerowarptics`, because that is where an operator will look for weather. Brigadier merges a literal
+registered under an existing name into the node already there, keeping its operator gate. `clear` is
+wrapped rather than replaced: vanilla's own command runs, then the rift storm is calmed too. Rain and
+thunder leave a storm alone.
+
+On the client a storm darkens the world the way vanilla's thunder does, and only in the ways vanilla's
+thunder does: the sky, the clouds, the fog's *colour* and the daylight, toward violet rather than grey,
+with a faint floor so a storm at night still glows (`RiftStormPalette`, tested directly). Never the
+fog's distance and never a wash over the screen - those are what the warp corridor stopped doing,
+because they dyed the deck the player stood on. NeoForge has an event for the fog colour but none for
+the sky, the clouds or the daylight, so those three are a client mixin each (`ClientLevelMixin`), each
+adjusting vanilla's finished value at `RETURN` and handing it back untouched when no storm is drawing.
+
+Vanilla reads the rain level for more than rain, so the storm changes that reading only where it is
+made (`LevelRendererMixin`): raised in `renderSky`, so the sun, moon and stars are veiled; lowered in
+`renderSnowAndRain` and `tickRain`, so vanilla's pale rain fades out as the storm's violet rain
+(`RiftStormRain`) fades in. The level's real rain level is never touched - that would make the client
+believe it was raining, and drip water off leaves in a desert. The rain is built the way vanilla's is,
+but coloured in its own texture (`tools/rift_rain_texture.py`) because a vertex tint can only take
+colour away, and shaded with a floor under its block light so it glimmers at night. It falls in every
+biome: it is not water.
+
+Overhead, distant bolts of rift fire flash the sky and ground violet (respecting vanilla's *Hide
+Lightning Flashes*), and an aurora (`RiftStormAurora`) hangs at infinity - drawn at `AFTER_SKY` in the
+sky's own rotation-only frame, before any terrain exists to occlude it, so everything drawn later
+simply paints over it. Additive, so it barely shows against a bright day and dominates the night,
+which is what an aurora does anyway.
+
+`MixinTargetTest` reads the mixins as bytecode and proves every injection lands on exactly one place in
+the game's real classes, and that every mixin is registered - a mixin missing from the config compiles
+and silently never applies. Nothing is synchronised between players beyond "a storm is raging";
+weather is not an event at a place, so each client decides for itself where the fire falls.
 
 ### Failure
 
@@ -1248,12 +1316,12 @@ an item that is simply not there.
 
 `config/aerowarptics-server.toml` — range, cost formula, arrival search and clearance buffer, the
 flight through the rift (aperture stand-off and size, approach speed, passage duration, run-out
-length), permissions, failure behaviour, and a block of settings per drive tier. Corridor duration and
+length), permissions, failure behaviour, Rift Storms, and a block of settings per drive tier. Corridor duration and
 run-out time come from the tier, so a Singularity drive crosses faster than a Mk I. The corridor needs
 no settings of its own: it is flown inside the entry aperture, at the speed the hull is already doing.
 
 `config/aerowarptics-client.toml` — particle density, rift distortion, rift lightning, corridor
-effects, screen shake, effect volume.
+effects, screen shake, effect volume, Rift Storm weather.
 
 ---
 

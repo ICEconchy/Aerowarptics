@@ -70,6 +70,8 @@ uk/co/iceconchy/aerowarptics/
   fissure/            Rift Fissures, the goggles that reveal them, and the drain policy
   guide/              the Navigator's Handbook: what it says, and the item that opens it
   siphon/             Spatial Siphon, collects Rift Essence from completed warps
+  weather/            Rift Storms: the clock, what they do to a drive, and /weather rift_storm
+  mixin/              client mixins - only the Rift Storm's sky, clouds, daylight and rain level
   network/            all packets (see conventions below)
   registry/           blocks, items, block entities, capabilities, creative tab
   advancement/        custom criteria triggers
@@ -138,6 +140,7 @@ overwritten, and the tests will catch the drift but only after you have wasted t
 | `python tools/chute_model.py` | the Rift Chute's geo, animation and textures |
 | `python tools/rift_drive_model.py` | the Rift Drive's geo, animations and all five tier textures |
 | `python tools/rift_portal_texture.py` | the Rift Portal's three textures - idle, opening, closing - and their `.mcmeta` |
+| `python tools/rift_rain_texture.py` | the Rift Storm's rain texture |
 
 `chute_model.py` and `rift_drive_model.py` generate a block model, its animations and its texture sheet
 together, for the same reason: a GeckoLib cube's UV rectangle is derived from its *size*, so the
@@ -156,7 +159,7 @@ Change the script, re-run it, re-run the tests.
 
 ## Testing
 
-59 test classes, **552 tests, all passing**. The suite is the main safety net and is unusually load-
+65 test classes, **607 tests, all passing**. The suite is the main safety net and is unusually load-
 bearing here, because most failure modes in this mod are *silent* — a panel four pixels off, a
 translation key that renders raw, a recipe that quietly asks for four complete drives.
 
@@ -233,6 +236,17 @@ These have each cost a real bug. Breaking one usually produces something that dr
   `Airship` first were already safe by accident, via `isActive()`; the Rift Fissure was not, because it
   is a worldgen feature with no airship to ask about, and it is the one that crashed.
 
+- **Never put a vanilla chunk ticket on plot coordinates.** A ship's plot chunks are Sable's: it serves
+  them itself and parks its own `PlotChunkHolder`s in vanilla's `ChunkMap`. Sable cancels the
+  four-argument `ServerChunkCache.addRegionTicket` inside plot space, but NeoForge's forced chunks
+  (`TicketController.forceChunk`) use the five-argument overload, which it does not. Residency once
+  forced a hull's plot chunks that way, and every world with a drive in it hung on "Saving worlds"
+  forever: on shutdown vanilla drops all tickets and waits for the chunks to unload, and
+  `PlotChunkHolder.isReadyForSaving()` is hard-coded `false`, so the unload re-queues itself
+  endlessly. Releasing such a ticket at runtime does the same. Hold a ship by the **world** ground under
+  it - Sable loads the sub-level with that chunk. `AirshipResidency` refuses plot chunks and strips old
+  ones at load. (`ArrivalTicket.holdDrive` and a gate or probe ticket placed aboard a ship use the
+  four-argument form, so Sable silently cancels them - harmless, but they hold nothing.)
 - **Machines aboard a hull are read from the plot's own chunks**, not Sable's actor list — membership
   of that list depends on a block having *changed* since the plot was created, so a machine placed on
   an already-assembled hull may never appear in it.
@@ -246,6 +260,13 @@ These have each cost a real bug. Breaking one usually produces something that dr
   overrides `rotateBlock` to lift the pivot half a block first. `RiftModulatorRenderer` copies the
   same override for the same reason - it also takes all six facings and also stands on its own base.
   Everything else here is either horizontal-only (the Warp Anchor) or does not turn at all.
+- **Nothing but mixins may live in `mixin/`.** Mixin reserves the package: an ordinary class placed
+  there cannot be loaded at all. The hooks the mixins call live in `RiftStormSky`. Every mixin must be
+  listed in `aerowarptics.mixins.json` or it compiles and silently never applies, and `defaultRequire`
+  is 1, so a target that stops matching is a crash at launch - `MixinTargetTest` checks both against
+  the game's bytecode before that. The mod had no mixins until the Rift Storm, which needed them only
+  because NeoForge has no event for the sky, cloud or daylight colour; prefer an event wherever one
+  exists.
 - **Naming a `DeferredHolder` loads its registry class, and that needs a bootstrapped Minecraft.**
   Writing `AWBlockEntities.RIFT_DRIVE` anywhere that a test will reach loads `AWBlockEntities`, whose
   static initialiser calls `DeferredRegister.register` and dies with "Not bootstrapped". The Display
@@ -299,8 +320,8 @@ matter most:
    relocation round-trips the block entity through NBT as part of the crossing, and `read()`
    deliberately drops any running flight. Unconfirmed; the plan starts with a diagnostic step.
 
-Also unimplemented: the per-tier `instability` config value is documented as the Singularity's
-"unstable exit" but **nothing reads it**.
+The per-tier `instability` value is read when the rift opens (`RiftDriveBlockEntity.beginWarp`, via
+`RiftStorm.instability`, which adds the Singularity's figure to the other drives during a Rift Storm).
 
 ---
 

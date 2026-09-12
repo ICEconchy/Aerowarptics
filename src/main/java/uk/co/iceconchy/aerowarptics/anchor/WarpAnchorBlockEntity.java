@@ -25,6 +25,7 @@ import software.bernie.geckolib.util.GeckoLibUtil;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 
 import java.util.List;
 import java.util.UUID;
@@ -56,6 +57,12 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
     private WarpAnchorAccess access = WarpAnchorAccess.PUBLIC;
     private String network = "";
     private boolean enabled = true;
+    /**
+     * Blocks above this anchor an arriving hull's underside is set, or {@link ArrivalHeight#UNSET}
+     * until the server has had a chance to say what a new anchor starts at. Not read from the config
+     * here, because this constructor runs on the client too.
+     */
+    private int arrivalHeight = ArrivalHeight.UNSET;
     @Nullable
     private UUID owner;
     private String ownerName = "";
@@ -67,6 +74,9 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
     private int arrivalFlash;
 
     private boolean registered;
+
+    /** The server's {@code maxArrivalHeight}, as it arrived with the last sync. Client side only. */
+    private int syncedMaximumArrivalHeight = ArrivalHeight.FALLBACK_MAXIMUM;
 
     public WarpAnchorBlockEntity(BlockPos pos, BlockState state) {
         super(AWBlockEntities.WARP_ANCHOR.get(), pos, state);
@@ -144,6 +154,10 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
 
     /** Writes this anchor's current fields into the shared registry. */
     public void syncToRegistry(ServerLevel serverLevel) {
+        if (arrivalHeight < 0) {
+            arrivalHeight = ArrivalHeight.serverDefault();
+            setChanged();
+        }
         WarpAnchorRegistry registry = WarpAnchorRegistry.get(serverLevel);
         if (isAboardAirship()) {
             registry.remove(anchorId);
@@ -155,12 +169,13 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         WarpAnchor existing = registry.byId(anchorId);
         WarpAnchor anchor = existing == null
                 ? new WarpAnchor(anchorId, anchorName, serverLevel.dimension(), worldPosition, owner, ownerName,
-                access, network, enabled)
+                access, network, enabled, arrivalHeight)
                 : existing.withPosition(serverLevel.dimension(), worldPosition)
                 .withName(anchorName)
                 .withAccess(access)
                 .withNetwork(network)
-                .withEnabled(enabled);
+                .withEnabled(enabled)
+                .withArrivalHeight(arrivalHeight);
         registry.register(anchor);
         registered = true;
         status = computeStatus();
@@ -220,10 +235,12 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
     /**
      * Applies a player edit.
      *
+     * @param newArrivalHeight clamped to what the server allows rather than refused, so a client whose
+     *                         idea of the ceiling is stale still saves everything else it sent
      * @return {@code false} when the requested name collides with another anchor
      */
     public boolean applyEdit(ServerLevel serverLevel, String newName, WarpAnchorAccess newAccess,
-                             String newNetwork, boolean newEnabled) {
+                             String newNetwork, boolean newEnabled, int newArrivalHeight) {
         WarpAnchorRegistry registry = WarpAnchorRegistry.get(serverLevel);
         String trimmed = newName == null ? "" : newName.trim();
         if (!trimmed.isBlank() && registry.isNameTaken(trimmed, anchorId)) {
@@ -233,6 +250,7 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         access = newAccess.permitted() ? newAccess : WarpAnchorAccess.PUBLIC;
         network = newNetwork == null ? "" : newNetwork.trim();
         enabled = newEnabled;
+        arrivalHeight = ArrivalHeight.clamp(newArrivalHeight, ArrivalHeight.maximum());
         registry.remove(anchorId);
         syncToRegistry(serverLevel);
         setChanged();
@@ -283,6 +301,22 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         return enabled;
     }
 
+    /** The arrival height as last synced; resolved to the server default on a server if never set. */
+    public int arrivalHeight() {
+        return arrivalHeight < 0 && level != null && !level.isClientSide
+                ? ArrivalHeight.serverDefault() : Math.max(0, arrivalHeight);
+    }
+
+    /**
+     * The highest arrival height the configuration panel may offer.
+     *
+     * <p>Carried on the block entity's own sync rather than read by the screen, because the ceiling is
+     * a server setting and a client does not get to read those for itself.
+     */
+    public int maximumArrivalHeight() {
+        return syncedMaximumArrivalHeight;
+    }
+
     @Nullable
     public UUID owner() {
         return owner;
@@ -310,6 +344,15 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         tag.putString("Access", access.getSerializedName());
         tag.putString("Network", network);
         tag.putBoolean("Enabled", enabled);
+        if (clientPacket) {
+            // Resolved for the client, which cannot resolve an unset height itself: an anchor held
+            // back by the per-player cap never reaches syncToRegistry, and would otherwise open its
+            // panel reading zero.
+            tag.putInt("ArrivalHeight", arrivalHeight());
+            tag.putInt("MaxArrivalHeight", ArrivalHeight.maximum());
+        } else if (arrivalHeight >= 0) {
+            tag.putInt("ArrivalHeight", arrivalHeight);
+        }
         tag.putString("OwnerName", ownerName);
         tag.putInt("Status", status.ordinal());
         if (owner != null) {
@@ -327,6 +370,10 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         access = WarpAnchorAccess.byName(tag.getString("Access"));
         network = tag.getString("Network");
         enabled = !tag.contains("Enabled") || tag.getBoolean("Enabled");
+        arrivalHeight = tag.contains("ArrivalHeight") ? tag.getInt("ArrivalHeight") : ArrivalHeight.UNSET;
+        if (clientPacket && tag.contains("MaxArrivalHeight")) {
+            syncedMaximumArrivalHeight = tag.getInt("MaxArrivalHeight");
+        }
         ownerName = tag.getString("OwnerName");
         owner = tag.hasUUID("Owner") ? tag.getUUID("Owner") : null;
         status = WarpAnchorStatus.byIndex(tag.getInt("Status"));

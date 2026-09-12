@@ -66,6 +66,47 @@ public final class ObstructionScan {
     }
 
     /**
+     * How far a block may reach into a volume and still count as merely touching it.
+     *
+     * <p>A hull resting on the ground is never exactly on a block boundary: Sable settles it a few
+     * hundredths into whatever it sits on, and its world box is a double. Without this, the layer of
+     * ground under a moored ship read as being inside the ship's own sweep and refused the launch -
+     * every block of it, the whole length of the corridor. An eighth of a block is two pixels: far
+     * more than the solver's settling, and far less than anything a pilot would call "in the way".
+     */
+    public static final double CONTACT_TOLERANCE = 0.125D;
+
+    /**
+     * The inclusive block coordinates whose cells actually lie inside a box, rather than beside it.
+     *
+     * <p>The block at {@code b} occupies {@code [b, b+1]}. The old conversion was
+     * {@code floor(min)..ceil(max)} inclusive, which is one block too many on every far side - a box
+     * from 0 to 10 took in block 10, the one sitting against its face - and on the near side took in
+     * the whole block below whenever {@code min} fell a hair under a whole number. Both are blocks
+     * adjacent to the volume, and both were read as obstructions. Here a block counts only when it
+     * reaches more than {@link #CONTACT_TOLERANCE} into the box.
+     *
+     * <p>May come out empty ({@code min > max} on an axis) for a box thinner than twice the tolerance,
+     * which holds no block and is correctly clear.
+     */
+    public record BlockSpan(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+
+        public static BlockSpan inside(double minX, double minY, double minZ,
+                                       double maxX, double maxY, double maxZ) {
+            return new BlockSpan(first(minX), first(minY), first(minZ),
+                    last(maxX), last(maxY), last(maxZ));
+        }
+
+        private static int first(double min) {
+            return (int) Math.floor(min + CONTACT_TOLERANCE);
+        }
+
+        private static int last(double max) {
+            return (int) Math.ceil(max - CONTACT_TOLERANCE) - 1;
+        }
+    }
+
+    /**
      * Like {@link #scan}, but hands back <em>where</em> the first solid block was rather than just
      * that there was one. For reporting a collision to a pilot; the runtime clearance path uses
      * {@link #scan} and only needs the verdict.

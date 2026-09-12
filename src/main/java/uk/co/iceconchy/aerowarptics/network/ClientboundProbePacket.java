@@ -14,6 +14,7 @@ import uk.co.iceconchy.aerowarptics.probe.ProbeState;
 import uk.co.iceconchy.aerowarptics.probe.ProbeVerdict;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.probe.RiftProbeBlockEntity;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
 
 /**
@@ -27,12 +28,16 @@ import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
  * @param verdictIndex what the reading amounts to, or {@code -1} when there is no reading
  * @param groundY      surface height at the fix, meaningless without a reading
  * @param coverage     how much of the reading actually came back, 0..1
+ * @param arrivalHeight        blocks above the ground a ship sent from here would come in at
+ * @param maximumArrivalHeight the server's ceiling on that, for the slider's far end
  */
 public record ClientboundProbePacket(BlockPos probePos,
                                      int bearingIndex,
                                      int range,
                                      int minimumRange,
                                      int maximumRange,
+                                     int arrivalHeight,
+                                     int maximumArrivalHeight,
                                      int stateIndex,
                                      float reachProgress,
                                      int essence,
@@ -57,14 +62,19 @@ public record ClientboundProbePacket(BlockPos probePos,
         // set a course and never say that it had, which made the button feel like it did nothing.
         RiftDriveBlockEntity drive = probe.drive();
         WarpCourse course = drive == null ? null : drive.standingCourse();
+        // The height counts as part of "this very reading": a course sent at six blocks is not the one
+        // the slider now says forty, and the button has to come back so the pilot can send it again.
         boolean isCourse = reading != null && reading.usable() && course != null && course.isFix()
-                && course.fix().equals(reading.fix());
+                && course.fix().equals(reading.fix())
+                && ArrivalHeight.resolve(course.arrivalHeight()) == probe.arrivalHeight();
         return new ClientboundProbePacket(
                 probe.getBlockPos(),
                 probe.bearing().index(),
                 probe.range(),
                 RiftProbeBlockEntity.minimumRange(),
                 RiftProbeBlockEntity.maximumRange(),
+                probe.arrivalHeight(),
+                ArrivalHeight.maximum(),
                 probe.state().index(),
                 probe.reachProgress(),
                 probe.essence(),
@@ -111,6 +121,8 @@ public record ClientboundProbePacket(BlockPos probePos,
         buf.writeVarInt(packet.range);
         buf.writeVarInt(packet.minimumRange);
         buf.writeVarInt(packet.maximumRange);
+        buf.writeVarInt(packet.arrivalHeight);
+        buf.writeVarInt(packet.maximumArrivalHeight);
         buf.writeVarInt(packet.stateIndex);
         buf.writeFloat(packet.reachProgress);
         buf.writeVarInt(packet.essence);
@@ -128,6 +140,8 @@ public record ClientboundProbePacket(BlockPos probePos,
     private static ClientboundProbePacket decode(RegistryFriendlyByteBuf buf) {
         return new ClientboundProbePacket(
                 buf.readBlockPos(),
+                buf.readVarInt(),
+                buf.readVarInt(),
                 buf.readVarInt(),
                 buf.readVarInt(),
                 buf.readVarInt(),

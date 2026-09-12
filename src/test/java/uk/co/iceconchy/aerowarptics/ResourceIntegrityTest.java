@@ -120,6 +120,35 @@ class ResourceIntegrityTest {
         assertTrue(problems.isEmpty(), String.join("\n", problems));
     }
 
+    /**
+     * A texture named in code rather than in a model is one no model test ever sees.
+     *
+     * <p>The render types and GeckoLib models name theirs as a path string. A missing one is not an
+     * error anywhere: the render type binds the missing-texture chequer and draws with it - which, for
+     * the storm's rain, would be a curtain of magenta and black squares falling out of the sky.
+     */
+    @Test
+    void everyTextureTheCodeNamesExists() {
+        java.util.regex.Pattern literal = java.util.regex.Pattern.compile("\"(textures/[^\"]+\\.png)\"");
+        List<String> problems = new ArrayList<>();
+        int found = 0;
+        try (Stream<Path> files = Files.walk(Path.of("src/main/java"))) {
+            for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
+                java.util.regex.Matcher matcher = literal.matcher(Files.readString(file));
+                while (matcher.find()) {
+                    found++;
+                    if (!Files.exists(ASSETS.resolve(matcher.group(1)))) {
+                        problems.add(file + " -> missing " + matcher.group(1));
+                    }
+                }
+            }
+        } catch (IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
+        assertTrue(found >= 7, "only found " + found + " texture paths in code - has the naming changed?");
+        assertTrue(problems.isEmpty(), String.join("\n", problems));
+    }
+
     @Test
     void everyModelTextureExists() {
         List<String> problems = new ArrayList<>();

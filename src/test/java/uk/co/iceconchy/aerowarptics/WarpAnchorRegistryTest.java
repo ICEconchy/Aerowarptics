@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchor;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorAccess;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorRegistry;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 
 import java.util.UUID;
 
@@ -33,7 +34,7 @@ class WarpAnchorRegistryTest {
     }
 
     private static WarpAnchor anchor(UUID id, String name, BlockPos pos, ResourceKey<Level> dimension) {
-        return new WarpAnchor(id, name, dimension, pos, null, "", WarpAnchorAccess.PUBLIC, "", true);
+        return new WarpAnchor(id, name, dimension, pos, null, "", WarpAnchorAccess.PUBLIC, "", true, 6);
     }
 
     /** Round-trips a registry through NBT the way the world save does. */
@@ -130,7 +131,7 @@ class WarpAnchorRegistryTest {
         WarpAnchorRegistry registry = new WarpAnchorRegistry();
         UUID owner = UUID.randomUUID();
         WarpAnchor a = new WarpAnchor(UUID.randomUUID(), "Brasshaven", OVERWORLD, new BlockPos(1250, 110, -8400),
-                owner, "Pilot", WarpAnchorAccess.PRIVATE, "trade-route", false);
+                owner, "Pilot", WarpAnchorAccess.PRIVATE, "trade-route", false, 40);
         WarpAnchor b = anchor(UUID.randomUUID(), "Ashfall", new BlockPos(-40, 32, 90), NETHER);
         registry.register(a);
         registry.register(b);
@@ -142,6 +143,43 @@ class WarpAnchorRegistryTest {
         assertEquals(a, restored, "every field must round-trip");
         assertEquals(NETHER, reloaded.byId(b.id()).dimension(), "dimensions other than the overworld persist");
         assertEquals(a.id(), reloaded.byName("Brasshaven").id(), "the name index is rebuilt on load");
+    }
+
+    /**
+     * An anchor saved before arrival heights were adjustable comes in where every anchor used to.
+     *
+     * <p>Without the fallback a missing key reads as zero, and every existing anchor on an upgraded
+     * server would quietly start bringing ships in with their keels on the block instead of six blocks
+     * clear of it.
+     */
+    @Test
+    void anAnchorSavedBeforeArrivalHeightsKeepsTheOldHeight() {
+        CompoundTag old = anchor("Brasshaven", new BlockPos(1, 2, 3)).withArrivalHeight(40).save();
+        old.remove("ArrivalHeight");
+
+        WarpAnchor loaded = WarpAnchor.load(old);
+
+        assertNotNull(loaded);
+        assertEquals(ArrivalHeight.serverDefault(), loaded.arrivalHeight());
+        assertEquals(ArrivalHeight.FALLBACK, loaded.arrivalHeight(),
+                "with no config loaded, the default is the shipped arrivalGroundBuffer");
+    }
+
+    /** Every other field is kept when the height changes, and the height is kept when they do. */
+    @Test
+    void theArrivalHeightSurvivesEveryOtherEdit() {
+        WarpAnchor anchor = anchor("Brasshaven", new BlockPos(1, 2, 3)).withArrivalHeight(40);
+        WarpAnchor edited = anchor.withName("Ironreach").withAccess(WarpAnchorAccess.PRIVATE)
+                .withNetwork("north").withEnabled(false).withPosition(NETHER, new BlockPos(9, 9, 9));
+
+        assertEquals(40, edited.arrivalHeight());
+        assertEquals("Ironreach", edited.withArrivalHeight(12).name());
+    }
+
+    /** A record never holds a height the arrival search would start inside the block from. */
+    @Test
+    void anAnchorNeverHoldsANegativeHeight() {
+        assertEquals(0, anchor("Brasshaven", BlockPos.ZERO).withArrivalHeight(-5).arrivalHeight());
     }
 
     @Test
@@ -191,11 +229,11 @@ class WarpAnchorRegistryTest {
         UUID pilot = UUID.randomUUID();
         UUID other = UUID.randomUUID();
         registry.register(new WarpAnchor(UUID.randomUUID(), "A", OVERWORLD, BlockPos.ZERO,
-                pilot, "Pilot", WarpAnchorAccess.PUBLIC, "", true));
+                pilot, "Pilot", WarpAnchorAccess.PUBLIC, "", true, 6));
         registry.register(new WarpAnchor(UUID.randomUUID(), "B", OVERWORLD, new BlockPos(1, 0, 0),
-                pilot, "Pilot", WarpAnchorAccess.PUBLIC, "", true));
+                pilot, "Pilot", WarpAnchorAccess.PUBLIC, "", true, 6));
         registry.register(new WarpAnchor(UUID.randomUUID(), "C", OVERWORLD, new BlockPos(2, 0, 0),
-                other, "Other", WarpAnchorAccess.PUBLIC, "", true));
+                other, "Other", WarpAnchorAccess.PUBLIC, "", true, 6));
 
         assertEquals(2, registry.countOwnedBy(pilot));
         assertEquals(1, registry.countOwnedBy(other));

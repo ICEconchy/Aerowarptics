@@ -25,16 +25,18 @@ import java.util.List;
  * Draws a drive's departure clearance as a world-space wireframe, for a few seconds after
  * {@code /aerowarptics warp clearance} is run.
  *
- * <p>Three things are outlined, and the point of the command is the difference between the first two:
+ * <p>Three things are outlined:
  * <ul>
- *   <li>the <em>padded</em> volume the clearance check actually tests, in teal;
- *   <li>the <em>bare</em> hull sweep the ship physically flies through, in amber, sitting inside it;
- *   <li>every block found fouling the padded volume, in red.
+ *   <li>the <em>padded</em> volume - the sweep widened to the aperture's reach - in teal, for
+ *       reference only;
+ *   <li>the <em>bare</em> hull sweep the ship physically flies through, in amber, sitting inside it -
+ *       the volume the clearance check actually tests;
+ *   <li>every block found fouling the amber sweep, in red.
  * </ul>
  *
- * <p>When a launch is refused for terrain that only touches the teal box and never the amber one, the
- * refusal is coming from the padding rather than the flight path - which is the over-sensitivity the
- * next pass is meant to narrow, made visible here so it can be judged by eye.
+ * <p>The teal used to be what was tested, and this overlay is how that was shown to be the problem:
+ * launches refused for terrain that touched the teal and never the amber. It is still drawn so a pilot
+ * can see where the aperture will reach, but terrain inside it and outside the amber stops nothing.
  */
 @EventBusSubscriber(modid = AeroWarptics.MODID, value = Dist.CLIENT)
 public final class ClearanceOverlay {
@@ -87,7 +89,7 @@ public final class ClearanceOverlay {
         MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
         VertexConsumer lines = buffers.getBuffer(RenderType.lines());
 
-        // The tested segments (teal), then the bare hull sweep inside them (amber). One box per
+        // The aperture's reach (teal), then the tested hull sweep inside it (amber). One box per
         // segment rather than one around the lot: on a diagonal bearing the enclosing box is far
         // wider than anything the check reads, and an overlay that overstates the corridor is worse
         // than none at all.

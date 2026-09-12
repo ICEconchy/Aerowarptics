@@ -3,6 +3,7 @@ package uk.co.iceconchy.aerowarptics.warp;
 import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.companion.math.BoundingBox3d;
 import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
+import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.SubLevel;
@@ -22,13 +23,15 @@ import uk.co.iceconchy.aerowarptics.airship.Airship;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Finds somewhere an airship can actually materialise.
  *
  * <p>An airship is never dropped onto an anchor block. The search starts from a <em>clearance
- * point</em>: the height at which the hull's underside would sit a configured buffer above the
- * anchor, computed from the airship's own footprint rotated into the orientation it will arrive with.
+ * point</em>: the height at which the hull's underside would sit the destination's
+ * {@link ArrivalHeight arrival height} above the anchor, computed from the airship's own footprint
+ * rotated into the orientation it will arrive with.
  * A skiff clears the anchor by a few blocks; a two-hundred-block dreadnought starts a hundred blocks
  * up, because that is where its keel has to be for its deck not to be inside the mountain.
  *
@@ -79,19 +82,27 @@ public final class SafeArrival {
      * @param runOut         how far back along {@code approach} the airship first appears
      * @param apertureMargin how far past the hull's own footprint the aperture opening reaches, from
      *                       {@link #apertureMargin}; zero reduces this to the old hull-only sweep
+     * @param arrivalHeight  blocks between the top of the anchor and the hull's underside at the
+     *                       first candidate, already {@link ArrivalHeight#resolve resolved}
      * @return the chosen placement, or {@code null} when nothing within the configured radius fits
      */
     @Nullable
     public static Result find(Airship airship, ServerLevel destination, BlockPos anchorPos,
                               Quaterniondc orientation, Vector3dc approach, double runOut,
-                              double apertureMargin) {
-        // The whole assembly's footprint in plot coordinates - the hull plus any connected sub-levels
-        // and bearing-mounted propellers - so the space proven clear at the far end holds everything
-        // that arrives, not just the bare plot. Null only when the hull has no plot to measure.
-        BoundingBox3d localBounds = airship.assemblyShipBounds();
-        if (localBounds == null) {
+                              double apertureMargin, int arrivalHeight) {
+        // The hull's own footprint in plot coordinates, and deliberately only that. Measuring the
+        // whole assembly instead folded in every connected sub-level and every bearing-mounted
+        // propeller's swept box, and Create keeps that box wide enough to enclose a full rotation -
+        // so a ship with propellers asked for a landing site several blocks larger on every side
+        // than the ship, and a hull that fitted perfectly well was told there was nowhere to arrive.
+        // Null only when the hull has no plot to measure.
+        BoundingBox3ic plot = airship.shipBounds();
+        if (plot == null) {
             return null;
         }
+        // Block bounds are inclusive; a block at maxX occupies up to maxX + 1.
+        BoundingBox3d localBounds = new BoundingBox3d(plot.minX(), plot.minY(), plot.minZ(),
+                plot.maxX() + 1.0D, plot.maxY() + 1.0D, plot.maxZ() + 1.0D);
 
         Pose3dc currentPose = airship.pose();
         Pose3d probePose = new Pose3d(currentPose);
@@ -104,13 +115,13 @@ public final class SafeArrival {
         Vector3d hullSize = measured.size(new Vector3d());
         Vector3d hullCentreOffset = measured.center(new Vector3d());
 
-        double buffer = AWConfig.ARRIVAL_GROUND_BUFFER.get();
         double clearance = AWConfig.ARRIVAL_CLEARANCE.get();
 
-        // Where the hull's centre has to be for its underside to clear the anchor by the buffer.
+        // Where the hull's centre has to be for its underside to clear the anchor by the arrival
+        // height. The destination's own figure rather than the server's: see ArrivalHeight.
         Vector3d clearancePoint = new Vector3d(
                 anchorPos.getX() + 0.5D,
-                anchorPos.getY() + 1.0D + buffer + hullSize.y * 0.5D,
+                ArrivalHeight.lowestUnderside(anchorPos.getY(), arrivalHeight) + hullSize.y * 0.5D,
                 anchorPos.getZ() + 0.5D);
 
         List<ArrivalSearch.Candidate> candidates = ArrivalSearch.candidates(
@@ -326,8 +337,11 @@ public final class SafeArrival {
                                       List<? extends BoundingBox3dc> volumes, long budget) {
         long[] spent = {0L};
         boolean unproven = false;
+        // Resolved once for the whole path rather than per segment: the chain does not change
+        // between two segments of one sweep, and a corridor is routinely dozens of segments.
+        Set<SubLevel> own = airship.assemblySubLevels();
         for (BoundingBox3dc bounds : volumes) {
-            Clearance verdict = clearanceOf(airship, level, bounds, budget, spent);
+            Clearance verdict = clearanceOf(level, bounds, own, budget, spent);
             if (verdict == Clearance.OBSTRUCTED) {
                 return Clearance.OBSTRUCTED;
             }
@@ -336,16 +350,16 @@ public final class SafeArrival {
         return unproven ? Clearance.UNPROVEN : Clearance.CLEAR;
     }
 
-    private static Clearance clearanceOf(Airship airship, ServerLevel level, BoundingBox3dc bounds,
-                                         long budget, long[] spent) {
+    private static Clearance clearanceOf(ServerLevel level, BoundingBox3dc bounds,
+                                         Set<SubLevel> own, long budget, long[] spent) {
         if (bounds.minY() > level.getMaxBuildHeight()) {
-            return intersectsAnotherAirship(airship, level, bounds)
+            return intersectsAnotherAirship(own, level, bounds)
                     ? Clearance.OBSTRUCTED : Clearance.CLEAR;
         }
         if (!ensureLoaded(level, bounds)) {
             return Clearance.UNPROVEN;
         }
-        if (intersectsAnotherAirship(airship, level, bounds)) {
+        if (intersectsAnotherAirship(own, level, bounds)) {
             return Clearance.OBSTRUCTED;
         }
         return scanVolume(level, bounds, budget, spent);
@@ -392,10 +406,22 @@ public final class SafeArrival {
         return true;
     }
 
-    /** Rejects a candidate that would overlap another sub-level, including a docked neighbour. */
-    private static boolean intersectsAnotherAirship(Airship airship, ServerLevel level, BoundingBox3dc bounds) {
+    /**
+     * Rejects a candidate that would overlap a sub-level belonging to <em>some other</em> vessel,
+     * including a docked neighbour.
+     *
+     * <p>"Other" is the whole word. This used to excuse only the hull's own plot, and a vessel built
+     * as several constrained sub-levels - a tender, a gondola, a turret on its own plot - therefore
+     * read its own attached plots as another ship parked in its path. Since those plots are joined to
+     * the hull they are always in the volume swept from it, so the verdict was OBSTRUCTED on every
+     * bearing, at every heading, with nothing whatever in the way: the report that sub-levels stop
+     * warps. The whole connected chain is now self, from
+     * {@link Airship#assemblySubLevels()}.
+     */
+    private static boolean intersectsAnotherAirship(Set<SubLevel> own, ServerLevel level,
+                                                    BoundingBox3dc bounds) {
         for (SubLevel other : Sable.HELPER.getAllIntersecting(level, bounds)) {
-            if (other != airship.subLevel()) {
+            if (!own.contains(other)) {
                 return true;
             }
         }
@@ -425,12 +451,13 @@ public final class SafeArrival {
      */
     private static Clearance scanVolume(ServerLevel level, BoundingBox3dc bounds, long budget,
                                         long[] reads) {
-        int minX = (int) Math.floor(bounds.minX());
-        int minY = Math.max(level.getMinBuildHeight(), (int) Math.floor(bounds.minY()));
-        int minZ = (int) Math.floor(bounds.minZ());
-        int maxX = (int) Math.ceil(bounds.maxX());
-        int maxY = Math.min(level.getMaxBuildHeight() - 1, (int) Math.ceil(bounds.maxY()));
-        int maxZ = (int) Math.ceil(bounds.maxZ());
+        ObstructionScan.BlockSpan span = blocksInside(level, bounds);
+        int minX = span.minX();
+        int minY = span.minY();
+        int minZ = span.minZ();
+        int maxX = span.maxX();
+        int maxY = span.maxY();
+        int maxZ = span.maxZ();
         if (minX > maxX || minY > maxY || minZ > maxZ) {
             return Clearance.CLEAR;
         }
@@ -540,12 +567,13 @@ public final class SafeArrival {
         if (cap <= 0 || bounds.minY() > level.getMaxBuildHeight()) {
             return hits;
         }
-        int minX = (int) Math.floor(bounds.minX());
-        int minY = Math.max(level.getMinBuildHeight(), (int) Math.floor(bounds.minY()));
-        int minZ = (int) Math.floor(bounds.minZ());
-        int maxX = (int) Math.ceil(bounds.maxX());
-        int maxY = Math.min(level.getMaxBuildHeight() - 1, (int) Math.ceil(bounds.maxY()));
-        int maxZ = (int) Math.ceil(bounds.maxZ());
+        ObstructionScan.BlockSpan span = blocksInside(level, bounds);
+        int minX = span.minX();
+        int minY = span.minY();
+        int minZ = span.minZ();
+        int maxX = span.maxX();
+        int maxY = span.maxY();
+        int maxZ = span.maxZ();
         if (minX > maxX || minY > maxY || minZ > maxZ) {
             return hits;
         }
@@ -596,12 +624,13 @@ public final class SafeArrival {
         if (bounds.minY() > level.getMaxBuildHeight()) {
             return null;
         }
-        int minX = (int) Math.floor(bounds.minX());
-        int minY = Math.max(level.getMinBuildHeight(), (int) Math.floor(bounds.minY()));
-        int minZ = (int) Math.floor(bounds.minZ());
-        int maxX = (int) Math.ceil(bounds.maxX());
-        int maxY = Math.min(level.getMaxBuildHeight() - 1, (int) Math.ceil(bounds.maxY()));
-        int maxZ = (int) Math.ceil(bounds.maxZ());
+        ObstructionScan.BlockSpan span = blocksInside(level, bounds);
+        int minX = span.minX();
+        int minY = span.minY();
+        int minZ = span.minZ();
+        int maxX = span.maxX();
+        int maxY = span.maxY();
+        int maxZ = span.maxZ();
         if (minX > maxX || minY > maxY || minZ > maxZ) {
             return null;
         }
@@ -645,6 +674,21 @@ public final class SafeArrival {
             }
         }
         return null;
+    }
+
+    /**
+     * The blocks inside a volume, clipped to the world's build range.
+     *
+     * <p>One conversion for the gate, the collision report and the overlay's red blocks, so none of
+     * them can take in a block the others leave out - see {@link ObstructionScan.BlockSpan} for why a
+     * block touching the volume's face is not in it.
+     */
+    private static ObstructionScan.BlockSpan blocksInside(ServerLevel level, BoundingBox3dc bounds) {
+        ObstructionScan.BlockSpan span = ObstructionScan.BlockSpan.inside(bounds.minX(), bounds.minY(),
+                bounds.minZ(), bounds.maxX(), bounds.maxY(), bounds.maxZ());
+        return new ObstructionScan.BlockSpan(span.minX(),
+                Math.max(level.getMinBuildHeight(), span.minY()), span.minZ(), span.maxX(),
+                Math.min(level.getMaxBuildHeight() - 1, span.maxY()), span.maxZ());
     }
 
     /**

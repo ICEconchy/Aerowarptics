@@ -12,6 +12,10 @@ logoFile = "${mod_id}.png"
 authors = "${mod_authors}"
 description = '''${mod_description}'''
 
+# Client-only, and only for the Rift Storm's sky: vanilla has no event for the sky or cloud colour.
+[[mixins]]
+config = "${mod_id}.mixins.json"
+
 [[dependencies."${mod_id}"]]
 modId = "neoforge"
 type = "required"

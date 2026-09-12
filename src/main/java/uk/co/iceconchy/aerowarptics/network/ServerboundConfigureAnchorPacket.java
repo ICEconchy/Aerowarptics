@@ -16,16 +16,17 @@ import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 
 /**
- * A player's edit to a Warp Anchor: name, visibility, network label and on/off.
+ * A player's edit to a Warp Anchor: name, visibility, network label, on/off and arrival height.
  *
- * <p>The server re-checks ownership and the name-collision rule; the client's copy of the anchor is
- * never authoritative.
+ * <p>The server re-checks ownership and the name-collision rule, and clamps the height to its own
+ * ceiling; the client's copy of the anchor is never authoritative.
  */
 public record ServerboundConfigureAnchorPacket(BlockPos anchorPos,
                                                String name,
                                                WarpAnchorAccess access,
                                                String network,
-                                               boolean enabled) implements CustomPacketPayload {
+                                               boolean enabled,
+                                               int arrivalHeight) implements CustomPacketPayload {
 
     public static final Type<ServerboundConfigureAnchorPacket> TYPE =
             new Type<>(AeroWarptics.id("configure_anchor"));
@@ -38,13 +39,15 @@ public record ServerboundConfigureAnchorPacket(BlockPos anchorPos,
                         buf.writeEnum(packet.access);
                         buf.writeUtf(packet.network, 32);
                         buf.writeBoolean(packet.enabled);
+                        buf.writeVarInt(packet.arrivalHeight);
                     },
                     buf -> new ServerboundConfigureAnchorPacket(
                             buf.readBlockPos(),
                             buf.readUtf(64),
                             buf.readEnum(WarpAnchorAccess.class),
                             buf.readUtf(32),
-                            buf.readBoolean()));
+                            buf.readBoolean(),
+                            buf.readVarInt()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {
@@ -70,7 +73,8 @@ public record ServerboundConfigureAnchorPacket(BlockPos anchorPos,
                 return;
             }
 
-            boolean applied = anchor.applyEdit(level, packet.name(), packet.access(), packet.network(), packet.enabled());
+            boolean applied = anchor.applyEdit(level, packet.name(), packet.access(), packet.network(),
+                    packet.enabled(), packet.arrivalHeight());
             if (!applied) {
                 AWLang.translate("message.anchor_name_taken").sendStatus(player);
                 return;

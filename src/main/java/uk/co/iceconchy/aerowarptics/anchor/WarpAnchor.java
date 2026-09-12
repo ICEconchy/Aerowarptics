@@ -12,6 +12,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 
 import java.util.UUID;
 
@@ -31,6 +32,8 @@ import java.util.UUID;
  * @param access    who may warp here
  * @param network   optional grouping label, used to filter long anchor lists
  * @param enabled   whether the anchor currently accepts arrivals
+ * @param arrivalHeight blocks between the top of the anchor and an arriving hull's underside - see
+ *                  {@link ArrivalHeight}; never negative
  */
 public record WarpAnchor(UUID id,
                          String name,
@@ -40,7 +43,8 @@ public record WarpAnchor(UUID id,
                          String ownerName,
                          WarpAnchorAccess access,
                          String network,
-                         boolean enabled) {
+                         boolean enabled,
+                         int arrivalHeight) {
 
     public static final String UNNAMED = "";
 
@@ -52,33 +56,39 @@ public record WarpAnchor(UUID id,
         ownerName = ownerName == null ? "" : ownerName;
         network = network == null ? "" : network;
         access = access == null ? WarpAnchorAccess.PUBLIC : access;
+        arrivalHeight = Math.max(0, arrivalHeight);
     }
 
     public static WarpAnchor create(UUID id, ResourceKey<Level> dimension, BlockPos pos, @Nullable Player placer) {
         return new WarpAnchor(id, UNNAMED, dimension, pos.immutable(),
                 placer == null ? null : placer.getUUID(),
                 placer == null ? "" : placer.getGameProfile().getName(),
-                WarpAnchorAccess.PUBLIC, "", true);
+                WarpAnchorAccess.PUBLIC, "", true, ArrivalHeight.serverDefault());
     }
 
     public WarpAnchor withName(String newName) {
-        return new WarpAnchor(id, newName, dimension, pos, owner, ownerName, access, network, enabled);
+        return new WarpAnchor(id, newName, dimension, pos, owner, ownerName, access, network, enabled, arrivalHeight);
     }
 
     public WarpAnchor withAccess(WarpAnchorAccess newAccess) {
-        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, newAccess, network, enabled);
+        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, newAccess, network, enabled, arrivalHeight);
     }
 
     public WarpAnchor withNetwork(String newNetwork) {
-        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, newNetwork, enabled);
+        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, newNetwork, enabled, arrivalHeight);
     }
 
     public WarpAnchor withEnabled(boolean newEnabled) {
-        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, network, newEnabled);
+        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, network, newEnabled, arrivalHeight);
+    }
+
+    public WarpAnchor withArrivalHeight(int newArrivalHeight) {
+        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, network, enabled, newArrivalHeight);
     }
 
     public WarpAnchor withPosition(ResourceKey<Level> newDimension, BlockPos newPos) {
-        return new WarpAnchor(id, name, newDimension, newPos.immutable(), owner, ownerName, access, network, enabled);
+        return new WarpAnchor(id, name, newDimension, newPos.immutable(), owner, ownerName, access, network, enabled,
+                arrivalHeight);
     }
 
     /** Display name, falling back to a short form of the UUID when the player has not named it. */
@@ -124,6 +134,7 @@ public record WarpAnchor(UUID id,
         tag.putString("Access", access.getSerializedName());
         tag.putString("Network", network);
         tag.putBoolean("Enabled", enabled);
+        tag.putInt("ArrivalHeight", arrivalHeight);
         return tag;
     }
 
@@ -155,7 +166,9 @@ public record WarpAnchor(UUID id,
                 tag.getString("OwnerName"),
                 WarpAnchorAccess.byName(tag.getString("Access")),
                 tag.getString("Network"),
-                !tag.contains("Enabled") || tag.getBoolean("Enabled"));
+                !tag.contains("Enabled") || tag.getBoolean("Enabled"),
+                // An anchor saved before heights were adjustable comes in where every anchor used to.
+                tag.contains("ArrivalHeight") ? tag.getInt("ArrivalHeight") : ArrivalHeight.serverDefault());
     }
 
     // --------------------------------------------------------------- network
@@ -171,6 +184,7 @@ public record WarpAnchor(UUID id,
         buf.writeEnum(anchor.access);
         buf.writeUtf(anchor.network, 32);
         buf.writeBoolean(anchor.enabled);
+        buf.writeVarInt(anchor.arrivalHeight);
     }
 
     private static WarpAnchor decode(RegistryFriendlyByteBuf buf) {
@@ -184,7 +198,8 @@ public record WarpAnchor(UUID id,
         WarpAnchorAccess access = buf.readEnum(WarpAnchorAccess.class);
         String network = buf.readUtf(32);
         boolean enabled = buf.readBoolean();
-        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, network, enabled);
+        int arrivalHeight = buf.readVarInt();
+        return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, network, enabled, arrivalHeight);
     }
 
     @Nullable

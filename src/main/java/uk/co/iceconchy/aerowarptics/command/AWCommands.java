@@ -34,8 +34,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>{@code /aerowarptics warp clearance} is a toggle. Run on an airship it turns on a live wireframe
  * of that drive's departure corridor, refreshed as the ship moves; run again anywhere it turns off.
- * The point of it is the gap between the volume actually tested and the hull's bare sweep - the
- * over-sensitivity a later pass is meant to narrow, shown so it can be judged by eye.
+ * The amber hull sweep is what the check tests; the teal around it is where the aperture reaches, and
+ * was the tested volume until this overlay showed that padding to be the source of false refusals.
  */
 @EventBusSubscriber(modid = AeroWarptics.MODID)
 public final class AWCommands {
@@ -119,7 +119,7 @@ public final class AWCommands {
 
         int found = view.hits().size();
         source.sendSuccess(() -> Component.literal(String.format(java.util.Locale.ROOT,
-                "Clearance overlay on: %d%s block%s fouling the corridor (teal = tested volume, amber = hull sweep, red = collisions). Run again anywhere to turn it off.",
+                "Clearance overlay on: %d%s block%s fouling the corridor (amber = hull sweep, tested; teal = aperture reach, not tested; red = collisions). Run again anywhere to turn it off.",
                 found, found >= 512 ? "+" : "", found == 1 ? "" : "s")), false);
         return 1;
     }

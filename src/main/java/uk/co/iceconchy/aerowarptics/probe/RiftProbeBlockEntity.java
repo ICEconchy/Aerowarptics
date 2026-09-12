@@ -31,6 +31,7 @@ import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWFluids;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 
 import java.util.List;
@@ -77,6 +78,11 @@ public class RiftProbeBlockEntity extends SmartBlockEntity implements IHaveGoggl
 
     private ProbeBearing bearing = ProbeBearing.NORTH;
     private int range = 2_000;
+    /**
+     * How far above the ground it finds the probe asks the drive to bring the ship in, or
+     * {@link ArrivalHeight#UNSET} until somebody moves the slider - which follows the server default.
+     */
+    private int arrivalHeight = ArrivalHeight.UNSET;
     private ProbeState state = ProbeState.IDLE;
 
     /** Where the current sounding is aimed, kept while it reaches so the poll knows what to watch. */
@@ -112,6 +118,11 @@ public class RiftProbeBlockEntity extends SmartBlockEntity implements IHaveGoggl
 
     public int range() {
         return range;
+    }
+
+    /** The arrival height a course set from here would carry. Server side. */
+    public int arrivalHeight() {
+        return ArrivalHeight.resolve(arrivalHeight);
     }
 
     public ProbeState state() {
@@ -216,6 +227,24 @@ public class RiftProbeBlockEntity extends SmartBlockEntity implements IHaveGoggl
         }
         range = clamped;
         discard();
+        markDirty();
+    }
+
+    /**
+     * Sets how high a ship sent from here comes in.
+     *
+     * <p>Unlike the bearing and the range this leaves the reading alone, and is allowed while a
+     * sounding is out: it changes nothing about the ground the probe is reading, only where over that
+     * ground the ship will be asked to appear. A course already handed to the drive keeps the height it
+     * was set with until the pilot sends it again - setting a course is the decision, and moving a
+     * slider on another machine afterwards is not.
+     */
+    public void setArrivalHeight(int blocks) {
+        int clamped = ArrivalHeight.clamp(blocks, ArrivalHeight.maximum());
+        if (arrivalHeight == clamped) {
+            return;
+        }
+        arrivalHeight = clamped;
         markDirty();
     }
 
@@ -373,7 +402,7 @@ public class RiftProbeBlockEntity extends SmartBlockEntity implements IHaveGoggl
         if (drive == null) {
             return WarpFailure.NO_AIRSHIP;
         }
-        return drive.setFixCourse(player, result.fix(), result.label());
+        return drive.setFixCourse(player, result.fix(), arrivalHeight(), result.label());
     }
 
     // -------------------------------------------------------------------- nbt
@@ -384,6 +413,9 @@ public class RiftProbeBlockEntity extends SmartBlockEntity implements IHaveGoggl
         tag.put("Tank", tank.writeToNBT(registries, new CompoundTag()));
         tag.putInt("Bearing", bearing.index());
         tag.putInt("Range", range);
+        if (arrivalHeight >= 0) {
+            tag.putInt("ArrivalHeight", arrivalHeight);
+        }
         tag.putInt("State", state.index());
         tag.putInt("ReachTicks", reachTicks);
         if (target != null) {
@@ -414,6 +446,7 @@ public class RiftProbeBlockEntity extends SmartBlockEntity implements IHaveGoggl
         if (range <= 0) {
             range = minimumRange();
         }
+        arrivalHeight = tag.contains("ArrivalHeight") ? tag.getInt("ArrivalHeight") : ArrivalHeight.UNSET;
         state = ProbeState.byIndex(tag.getInt("State"));
         reachTicks = tag.getInt("ReachTicks");
         target = tag.contains("Target") ? BlockPos.of(tag.getLong("Target")) : null;

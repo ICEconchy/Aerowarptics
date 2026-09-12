@@ -31,7 +31,10 @@ import org.joml.Vector3d;
 import org.joml.Vector3dc;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -305,6 +308,14 @@ public final class Airship {
      * Create keeps that box wide enough to enclose the spinning sweep, which is exactly the volume
      * that has to stay clear. A contraption box that lands implausibly far from the hull - a stale or
      * wrong-framed entity - is dropped rather than trusted, so it can never balloon the corridor.
+     *
+     * <p><strong>The clearance checks deliberately do not use this.</strong> Sizing a corridor from
+     * the assembly meant a propeller's swept box - which Create keeps wide enough to enclose a full
+     * rotation - widened every departure volume by the reach of the blades, and the connected plots
+     * folded into the box were then read as obstructions by the very check the box was built for.
+     * Departure and arrival both measure the hull's own plot instead; see
+     * {@link uk.co.iceconchy.aerowarptics.warp.LaunchClearance} for why that is the right footprint
+     * rather than merely the cheaper one.
      */
     public BoundingBox3d assemblyBounds() {
         BoundingBox3dc hull = subLevel.boundingBox();
@@ -321,33 +332,22 @@ public final class Airship {
     }
 
     /**
-     * The same assembly expressed in this airship's own plot (ship) space, for the arrival search,
-     * which rotates a ship-space footprint into the orientation the hull will arrive with.
+     * Every sub-level that is part of <em>this one vessel</em>: the hull's own plot, plus whatever
+     * Sable has constrained to it.
      *
-     * <p>The hull's own contribution stays the tight plot box {@link #shipBounds()} gives; the
-     * connected sub-levels and bearing contraptions are folded in by their world corners, run back
-     * through the current pose into ship space. Returns {@code null} only when the hull has no plot,
-     * the one case the arrival search already treats as "nowhere to measure".
+     * <p>Asked by the clearance checks before anything is called an obstruction. A vessel is
+     * routinely several sub-levels - a tender, a gondola, a turret on its own plot - and they all fly
+     * together, so none of them is "another airship" to the hull they are joined to. The obstruction
+     * test used to excuse only {@link #subLevel()}, which meant any such vessel read its own attached
+     * plot as a ship standing in its path and could never be cleared to launch at all: the sub-levels
+     * stopping warps. Identity-keyed, because Sable's sub-levels are compared by reference
+     * everywhere else here and nothing promises a useful {@code equals}.
      */
-    @Nullable
-    public BoundingBox3d assemblyShipBounds() {
-        BoundingBox3ic plot = shipBounds();
-        if (plot == null) {
-            return null;
-        }
-        double[] box = {plot.minX(), plot.minY(), plot.minZ(),
-                plot.maxX() + 1.0D, plot.maxY() + 1.0D, plot.maxZ() + 1.0D};
-        for (SubLevel connected : SubLevelHelper.getConnectedChain(subLevel)) {
-            if (connected == subLevel) {
-                continue; // the hull itself, already the tight plot box above
-            }
-            BoundingBox3dc b = connected.boundingBox();
-            includeCornersInShip(box, b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ());
-        }
-        for (AABB c : contraptionBounds()) {
-            includeCornersInShip(box, c.minX, c.minY, c.minZ, c.maxX, c.maxY, c.maxZ);
-        }
-        return new BoundingBox3d(box[0], box[1], box[2], box[3], box[4], box[5]);
+    public Set<SubLevel> assemblySubLevels() {
+        Set<SubLevel> own = Collections.newSetFromMap(new IdentityHashMap<>());
+        own.add(subLevel);
+        own.addAll(SubLevelHelper.getConnectedChain(subLevel));
+        return own;
     }
 
     /**
@@ -388,18 +388,6 @@ public final class Airship {
         box[3] = Math.max(box[3], maxX);
         box[4] = Math.max(box[4], maxY);
         box[5] = Math.max(box[5], maxZ);
-    }
-
-    /** Fold a world-space box into a ship-space accumulator by transforming its eight corners. */
-    private void includeCornersInShip(double[] box, double minX, double minY, double minZ,
-                                      double maxX, double maxY, double maxZ) {
-        for (int corner = 0; corner < 8; corner++) {
-            double wx = (corner & 1) == 0 ? minX : maxX;
-            double wy = (corner & 2) == 0 ? minY : maxY;
-            double wz = (corner & 4) == 0 ? minZ : maxZ;
-            Vec3 ship = toShip(new Vec3(wx, wy, wz));
-            include(box, ship.x, ship.y, ship.z, ship.x, ship.y, ship.z);
-        }
     }
 
     private static boolean isFinite(AABB box) {

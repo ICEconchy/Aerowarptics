@@ -9,6 +9,7 @@ import uk.co.iceconchy.aerowarptics.probe.ProbeBearing;
 import uk.co.iceconchy.aerowarptics.probe.ProbeSounding;
 import uk.co.iceconchy.aerowarptics.probe.ProbeState;
 import uk.co.iceconchy.aerowarptics.probe.ProbeVerdict;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -146,19 +147,50 @@ class ProbeTest {
     @Test
     void aCourseIsAnAnchorOrAFixAndNeverBoth() {
         assertThrows(IllegalArgumentException.class,
-                () -> new WarpCourse(null, null, "nowhere"));
+                () -> new WarpCourse(null, null, ArrivalHeight.UNSET, "nowhere"));
         assertThrows(IllegalArgumentException.class,
-                () -> new WarpCourse(java.util.UUID.randomUUID(), new BlockPos(0, 0, 0), "both"));
+                () -> new WarpCourse(java.util.UUID.randomUUID(), new BlockPos(0, 0, 0), 6, "both"));
     }
 
     @Test
     void aFixCourseSurvivesBeingSavedAndLoaded() {
-        WarpCourse course = WarpCourse.toFix(new BlockPos(4_100, 92, -880), "NE 3,200");
+        WarpCourse course = WarpCourse.toFix(new BlockPos(4_100, 92, -880), 40, "NE 3,200");
         CompoundTag tag = course.save();
         WarpCourse back = WarpCourse.load(tag);
         assertEquals(course, back);
+        assertEquals(40, back.arrivalHeight(), "the height the probe asked for goes with the course");
         assertTrue(back.isFix());
         assertFalse(back.isAnchor());
+    }
+
+    /**
+     * A fix set before heights were adjustable follows the server default, as it did when it was set.
+     *
+     * <p>Read as zero instead, a course a pilot armed before the upgrade would put the keel on the
+     * ground the sounding found.
+     */
+    @Test
+    void aFixSavedBeforeArrivalHeightsFollowsTheServerDefault() {
+        CompoundTag tag = WarpCourse.toFix(new BlockPos(1, 2, 3), 40, "old").save();
+        tag.remove("ArrivalHeight");
+
+        WarpCourse back = WarpCourse.load(tag);
+
+        assertEquals(ArrivalHeight.UNSET, back.arrivalHeight());
+        assertEquals(ArrivalHeight.serverDefault(), ArrivalHeight.resolve(back.arrivalHeight()));
+    }
+
+    /**
+     * An anchor course carries no height of its own: the anchor's is read when the rift opens.
+     *
+     * <p>Normalised rather than stored, so two courses to the same anchor compare equal whatever was
+     * passed - the probe panel's "already the course" check is an equality test.
+     */
+    @Test
+    void anAnchorCourseCarriesNoHeight() {
+        java.util.UUID id = java.util.UUID.nameUUIDFromBytes("home".getBytes());
+        assertEquals(WarpCourse.toAnchor(id, "Home"), new WarpCourse(id, null, 40, "Home"));
+        assertEquals(ArrivalHeight.UNSET, WarpCourse.toAnchor(id, "Home").arrivalHeight());
     }
 
     @Test
@@ -179,9 +211,10 @@ class ProbeTest {
     /** An anchor can be renamed after a course is set, and the console should not keep saying the old one. */
     @Test
     void aCourseCanBeRelabelledWithoutMoving() {
-        WarpCourse course = WarpCourse.toFix(new BlockPos(1, 2, 3), "old");
+        WarpCourse course = WarpCourse.toFix(new BlockPos(1, 2, 3), 12, "old");
         WarpCourse renamed = course.withLabel("new");
         assertEquals(course.fix(), renamed.fix());
+        assertEquals(12, renamed.arrivalHeight(), "relabelling does not move the ship up or down");
         assertEquals("new", renamed.label());
     }
 

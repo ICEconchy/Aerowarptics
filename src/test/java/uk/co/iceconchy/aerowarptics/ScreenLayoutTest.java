@@ -61,6 +61,7 @@ class ScreenLayoutTest {
                 panels.put("header", layout.header());
                 panels.put("name", layout.name());
                 panels.put("network", layout.network());
+                panels.put("height", layout.height());
                 panels.put("access", layout.access());
                 panels.put("enabled", layout.enabled());
                 panels.put("save", layout.save());
@@ -79,6 +80,7 @@ class ScreenLayoutTest {
                 panels.put("header", layout.header());
                 panels.put("compass", layout.compass());
                 panels.put("range", layout.range());
+                panels.put("height", layout.height());
                 panels.put("supply", layout.supply());
                 panels.put("reading", layout.reading());
                 panels.put("verdict", layout.verdict());
@@ -136,7 +138,7 @@ class ScreenLayoutTest {
             "chart", List.of("list", "preview", "detail"),
             "dial", List.of("list", "detail"),
             "anchor", List.of(),
-            "probe", List.of("compass", "range", "supply", "reading", "verdict"),
+            "probe", List.of("compass", "range", "height", "supply", "reading", "verdict"),
             "chute", List.of("list", "detail"),
             // The handbook's pages draw their own edge and the shadow they throw into the spine, so
             // they want the same clearance from each other that a recessed panel does.
@@ -258,7 +260,7 @@ class ScreenLayoutTest {
     @Test
     void barBandsHaveRoomForTheirCaptions() {
         AWLayouts.Console console = AWLayouts.console();
-        for (Rect band : List.of(console.bar(), AWLayouts.modulator().intensity())) {
+        for (Rect band : List.of(console.bar(), AWLayouts.modulator().intensity(), AWLayouts.anchor().height())) {
             assertTrue(band.height() >= AWLayouts.BAR_BAND,
                     "a bar band is " + band.height() + "px, too short for a caption and a bar");
             assertTrue(AWLayouts.BAR_BAND >= 10 + AWLayouts.BAR,
@@ -310,6 +312,46 @@ class ScreenLayoutTest {
         assertTrue(AWLayouts.chart().detail().height() >= content,
                 "the chart's detail panel is " + AWLayouts.chart().detail().height() + "px for "
                         + content + "px of content - the course-status pill would be drawn below it");
+    }
+
+    /**
+     * The probe's verdict panel has room for everything it draws, now that it says where the ship
+     * will arrive as well as what the ground is.
+     *
+     * <p>The numbers are {@code RiftProbeScreen.renderVerdict}'s: a two-pixel inset, the verdict pill
+     * and the line it heads, three label-and-value readouts - ground, mapped, and the lowest arrival -
+     * and the course-status pill two pixels under them.
+     */
+    @Test
+    void theProbeVerdictPanelHoldsWhatItDraws() {
+        int content = AWLayout.INSET + 16 + 3 * AWLayout.LINE + 2 + 11;
+        assertTrue(AWLayouts.probe().verdict().height() >= content,
+                "the probe's verdict panel is " + AWLayouts.probe().verdict().height() + "px for "
+                        + content + "px of content - the course-status pill would be drawn below it");
+    }
+
+    /**
+     * The two probe sliders are built the same way, so the height slider is not a cramped copy of the
+     * range one - and neither has left the dial too small to hit a point on.
+     */
+    @Test
+    void theProbeSlidersMatchAndTheDialKeepsItsSize() {
+        AWLayouts.Probe probe = AWLayouts.probe();
+        assertEquals(probe.range().width(), probe.height().width());
+        assertEquals(probe.range().height(), probe.height().height());
+        // RiftProbeScreen's ring radius: eight labels round a ring any smaller than this overlap.
+        int radius = Math.min(probe.compass().width(), probe.compass().height() - 12) / 2 - 12;
+        assertTrue(radius >= 30, "the bearing dial's ring is only " + radius + "px across its radius");
+    }
+
+    /** An anchor's height slider sits inside its own band, under its caption. */
+    @Test
+    void theAnchorHeightSliderSitsUnderItsCaption() {
+        Rect band = AWLayouts.anchor().height();
+        Rect bar = AWLayouts.sliderBar(band);
+        assertTrue(bar.x() >= band.x() && bar.right() <= band.right(), "the bar runs out of its band sideways");
+        assertTrue(bar.bottom() <= band.bottom(), "the bar hangs below its band");
+        assertTrue(bar.y() - band.y() >= 8, "the bar would be drawn over its caption");
     }
 
     /**

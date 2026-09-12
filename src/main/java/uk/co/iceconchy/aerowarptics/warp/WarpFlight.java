@@ -150,20 +150,24 @@ public final class WarpFlight {
      * @param bowDirection  world-space unit vector the airship will fly along, already resolved
      * @param corridorTicks how long this drive tier holds the corridor open
      * @param emergeTicks   how long this drive tier takes to set the hull down at the far end
+     * @param arrivalHeight the destination's arrival height, already resolved - see {@link ArrivalHeight}
      * @return the planned flight, or {@code null} when no safe arrival exists
      */
     @Nullable
     public static WarpFlight plan(Airship airship, ServerLevel destination, BlockPos anchorPos,
-                                  Vector3dc bowDirection, int corridorTicks, int emergeTicks) {
+                                  Vector3dc bowDirection, int corridorTicks, int emergeTicks,
+                                  int arrivalHeight) {
         Quaterniond orientation = new Quaterniond(airship.orientation());
+        // Rift placement, corridor length and aperture width all come off the hull's own box. They
+        // were briefly sized to the whole assembly so that nothing mounted could clip terrain the
+        // bare hull cleared, but a bearing contraption's box encloses the blades' full rotation, and
+        // scaling the aperture by that inflated the clearance margin - which is derived from the
+        // aperture's radius - by the span of the disc. The corridor a ship had to prove clear grew
+        // with its propellers rather than with the ship.
         BoundingBox3dc hull = airship.worldBounds();
-        // Rifts are placed against the true hull centre, but the corridor and aperture are sized to
-        // the whole assembly - propellers on bearings included - so nothing mounted clips the terrain
-        // the bare hull would have cleared.
-        BoundingBox3dc assembly = airship.assemblyBounds();
 
-        double hullLength = Math.max(assembly.width(), assembly.length());
-        double hullRadius = Math.max(4.0D, Math.sqrt(assembly.width() * assembly.width() + assembly.height() * assembly.height()) * 0.5D);
+        double hullLength = Math.max(hull.width(), hull.length());
+        double hullRadius = Math.max(4.0D, Math.sqrt(hull.width() * hull.width() + hull.height() * hull.height()) * 0.5D);
         double riftRadius = hullRadius * AWConfig.RIFT_RADIUS_FACTOR.get();
 
         Vector3d heading = new Vector3d(bowDirection);
@@ -186,7 +190,7 @@ public final class WarpFlight {
         // the opening it flies out through. This is the margin that widens the arrival test.
         double apertureMargin = SafeArrival.apertureMargin(riftRadius, hullRadius);
         SafeArrival.Result arrival = SafeArrival.find(airship, destination, anchorPos, orientation,
-                heading, emergeDistance, apertureMargin);
+                heading, emergeDistance, apertureMargin, arrivalHeight);
         if (arrival == null) {
             return null;
         }
@@ -237,9 +241,10 @@ public final class WarpFlight {
      * exactly the case a pilot wants to check before committing to one.
      */
     public static DepartureShape departureShape(Airship airship, int corridorTicks) {
-        // The whole assembly, not the bare plot: a corridor drawn for a hull that ignores its own
-        // propellers is the over-tight case this exists to expose.
-        BoundingBox3dc hull = airship.assemblyBounds();
+        // The hull's own box, the same footprint LaunchClearance sweeps and plan() sizes the
+        // aperture from. Kept identical on purpose: a clearance drawn from a different footprint
+        // than the check reads is worse than no drawing at all.
+        BoundingBox3dc hull = airship.worldBounds();
         double hullLength = Math.max(hull.width(), hull.length());
         double hullRadius = Math.max(4.0D,
                 Math.sqrt(hull.width() * hull.width() + hull.height() * hull.height()) * 0.5D);

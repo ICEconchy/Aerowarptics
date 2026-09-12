@@ -18,14 +18,17 @@ import uk.co.iceconchy.aerowarptics.probe.ProbeSounding;
 import uk.co.iceconchy.aerowarptics.probe.ProbeState;
 import uk.co.iceconchy.aerowarptics.probe.ProbeVerdict;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 
 /**
  * The Rift Probe's panel: aim a sounding, throw it, and look at what comes back.
  *
- * <p>Two controls and one picture. The dial says which way, the slider says how far, and the map is
- * the answer - which is the same map the Astrolabe draws of an anchor, on purpose. A pilot deciding
- * whether to commit a hull to somewhere nobody has been should be reading the same kind of evidence
- * they read everywhere else, not a score out of ten.
+ * <p>Three controls and one picture. The dial says which way, the first slider says how far, and the
+ * map is the answer - which is the same map the Astrolabe draws of an anchor, on purpose. A pilot
+ * deciding whether to commit a hull to somewhere nobody has been should be reading the same kind of
+ * evidence they read everywhere else, not a score out of ten. The second slider is not about the
+ * reading at all: it is how far above the ground that reading found the ship should come in, and so
+ * it is the one control that can still be moved while a sounding is out.
  *
  * <p>Nothing here decides anything. The bearing, the range and the sounding are all the server's; the
  * screen sends the request and draws the reply, because a sounding is a request to generate terrain
@@ -59,6 +62,7 @@ public class RiftProbeScreen extends AWWindowScreen {
     private Button courseButton;
 
     private boolean draggingRange;
+    private boolean draggingHeight;
 
     public RiftProbeScreen(ClientboundProbePacket data) {
         super(AWLang.translate("gui.rift_probe.title").component());
@@ -83,6 +87,9 @@ public class RiftProbeScreen extends AWWindowScreen {
             dropReading();
         } else if (reading == null && !readingCurrent) {
             requestReading();
+        }
+        if (packet.arrivalHeight() == sentHeight) {
+            sentHeight = ArrivalHeight.UNSET;
         }
         aimNeedle(packet.bearing());
         fill.set(supplyFraction(packet));
@@ -205,9 +212,15 @@ public class RiftProbeScreen extends AWWindowScreen {
             }
             return true;
         }
-        if (!data.state().busy() && sliderTrack().contains(mouseX - guiLeft, mouseY - guiTop)) {
+        if (!data.state().busy() && sliderTrack(LAYOUT.range()).contains(mouseX - guiLeft, mouseY - guiTop)) {
             draggingRange = true;
             dragRange(mouseX);
+            return true;
+        }
+        // Not held back while busy, unlike the two above: the height changes nothing about a sounding.
+        if (sliderTrack(LAYOUT.height()).contains(mouseX - guiLeft, mouseY - guiTop)) {
+            draggingHeight = true;
+            dragHeight(mouseX);
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
@@ -219,6 +232,10 @@ public class RiftProbeScreen extends AWWindowScreen {
         mouseY = unscaleY(mouseY);
         if (draggingRange) {
             dragRange(mouseX);
+            return true;
+        }
+        if (draggingHeight) {
+            dragHeight(mouseX);
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
@@ -236,14 +253,43 @@ public class RiftProbeScreen extends AWWindowScreen {
             playClick(0.9F);
             return true;
         }
+        if (draggingHeight) {
+            draggingHeight = false;
+            sendHeight(pendingHeight);
+            playClick(0.9F);
+            return true;
+        }
         return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    /**
+     * A block at a time under the wheel, over the height slider.
+     *
+     * <p>The slider spans the server's whole ceiling in about a hundred and forty pixels, which is
+     * right for "high" and hopeless for "exactly six". Each notch is its own packet, but a notch is a
+     * deliberate click of a wheel rather than a frame of a drag.
+     */
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        double x = unscaleX(mouseX);
+        double y = unscaleY(mouseY);
+        if (scrollY != 0.0D && !draggingHeight && LAYOUT.height().contains(x - guiLeft, y - guiTop)) {
+            int next = Math.max(0, Math.min(data.maximumArrivalHeight(),
+                    shownHeight() + (int) Math.signum(scrollY)));
+            if (next != shownHeight()) {
+                sendHeight(next);
+                playClick(1.0F);
+            }
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
     /** What the slider is showing while it is being dragged, before the server has agreed. */
     private int pendingRange;
 
     private void dragRange(double mouseX) {
-        Rect track = sliderTrack();
+        Rect track = sliderTrack(LAYOUT.range());
         double fraction = (mouseX - guiLeft - track.x()) / Math.max(1, track.width());
         fraction = Math.max(0.0D, Math.min(1.0D, fraction));
         int span = data.maximumRange() - data.minimumRange();
@@ -257,8 +303,43 @@ public class RiftProbeScreen extends AWWindowScreen {
         return draggingRange ? pendingRange : data.range();
     }
 
-    private Rect sliderTrack() {
-        Rect panel = LAYOUT.range();
+    /** The height the slider is showing while it is dragged, before the server has agreed. */
+    private int pendingHeight;
+
+    private void dragHeight(double mouseX) {
+        Rect track = sliderTrack(LAYOUT.height());
+        double fraction = (mouseX - guiLeft - track.x()) / Math.max(1, track.width());
+        fraction = Math.max(0.0D, Math.min(1.0D, fraction));
+        // Whole blocks, not round numbers: unlike a range, an exact height is the point.
+        pendingHeight = (int) Math.round(fraction * Math.max(0, data.maximumArrivalHeight()));
+    }
+
+    /**
+     * The last height sent, shown until the server's reply catches up with it.
+     *
+     * <p>Without it the slider snaps back to the old height for the round trip after a release, and a
+     * wheel turned three notches before the first reply lands moves one block rather than three,
+     * because every notch counted up from the same stale number. Given up on after a second, so a
+     * height the server clamped to something else cannot hold the panel on a number it never agreed to.
+     */
+    private int sentHeight = ArrivalHeight.UNSET;
+    private int sentHeightTicks;
+
+    private void sendHeight(int blocks) {
+        sentHeight = blocks;
+        sentHeightTicks = 0;
+        PacketDistributor.sendToServer(ServerboundProbePacket.arrivalHeight(data.probePos(), blocks));
+    }
+
+    private int shownHeight() {
+        if (draggingHeight) {
+            return pendingHeight;
+        }
+        return sentHeight >= 0 ? sentHeight : data.arrivalHeight();
+    }
+
+    /** The draggable strip along the foot of either slider panel. */
+    private static Rect sliderTrack(Rect panel) {
         return new Rect(panel.x() + 4, panel.y() + panel.height() - 16, panel.width() - 8, 10);
     }
 
@@ -284,6 +365,9 @@ public class RiftProbeScreen extends AWWindowScreen {
         needle.tick();
         fill.tick();
         reach.tick();
+        if (sentHeight >= 0 && ++sentHeightTicks > 20) {
+            sentHeight = ArrivalHeight.UNSET;
+        }
         if (--refreshTimer <= 0) {
             refreshTimer = REFRESH_INTERVAL;
             PacketDistributor.sendToServer(ServerboundProbePacket.open(data.probePos()));
@@ -313,6 +397,7 @@ public class RiftProbeScreen extends AWWindowScreen {
 
         renderCompass(graphics, partialTicks);
         renderRange(graphics);
+        renderHeight(graphics);
         renderSupply(graphics, partialTicks);
         renderReading(graphics, partialTicks);
         renderVerdict(graphics);
@@ -371,21 +456,30 @@ public class RiftProbeScreen extends AWWindowScreen {
     }
 
     private void renderRange(GuiGraphics graphics) {
-        Rect panel = LAYOUT.range();
+        int span = Math.max(1, data.maximumRange() - data.minimumRange());
+        renderSlider(graphics, LAYOUT.range(), AWLang.translate("gui.rift_probe.range").component(),
+                AWLang.distance(shownRange()), (shownRange() - data.minimumRange()) / (float) span);
+    }
+
+    private void renderHeight(GuiGraphics graphics) {
+        renderSlider(graphics, LAYOUT.height(),
+                AWLang.translate("gui.rift_probe.arrival_height").component(),
+                AWLang.distance(shownHeight()),
+                shownHeight() / (float) Math.max(1, data.maximumArrivalHeight()));
+    }
+
+    /** One slider panel: its caption and value along the top, the track and knob along the foot. */
+    private void renderSlider(GuiGraphics graphics, Rect panel, Component caption, String value,
+                              float fraction) {
         AWScreenStyle.panel(graphics, guiLeft, guiTop, panel);
 
         int left = guiLeft + panel.x() + 2;
         int top = guiTop + panel.y() + 2;
-        graphics.drawString(font, AWLang.translate("gui.rift_probe.range").component(),
-                left, top, AWScreenStyle.LABEL, false);
-
-        String value = AWLang.distance(shownRange());
+        graphics.drawString(font, caption, left, top, AWScreenStyle.LABEL, false);
         graphics.drawString(font, value, guiLeft + panel.right() - font.width(value) - 2, top,
                 AWScreenStyle.VALUE, false);
 
-        Rect track = sliderTrack();
-        int span = Math.max(1, data.maximumRange() - data.minimumRange());
-        float fraction = (shownRange() - data.minimumRange()) / (float) span;
+        Rect track = sliderTrack(panel);
         AWScreenStyle.bar(graphics, guiLeft + track.x(), guiTop + track.y() + 3,
                 track.width(), 4, fraction, AWScreenStyle.ACCENT_DIM);
 
@@ -502,6 +596,12 @@ public class RiftProbeScreen extends AWWindowScreen {
                 AWLang.translate("gui.rift_probe.coverage").component(),
                 Math.round(data.coverage() * 100.0F) + "%",
                 data.coverage() >= ProbeSounding.THIN_COVERAGE ? AWScreenStyle.VALUE : AWScreenStyle.WARN);
+        // Where the ship will come in, from the ground and the slider. "Lowest" because it is where the
+        // arrival search starts: blocked there, the ship comes in higher, never lower.
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.rift_probe.lowest_arrival").component(),
+                verdict.usable() ? "y " + ArrivalHeight.lowestUnderside(data.groundY(), shownHeight()) : "-",
+                AWScreenStyle.VALUE);
         // What this reading is *for*, rather than another number about it. Setting a course moves
         // nothing, so this line is the only thing that can tell a player it worked.
         String state;

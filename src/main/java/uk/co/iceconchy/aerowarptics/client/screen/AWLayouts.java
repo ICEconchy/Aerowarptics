@@ -169,23 +169,43 @@ public final class AWLayouts {
     // ---------------------------------------------------------------- anchor
 
     public static final int ANCHOR_WIDTH = 244;
-    public static final int ANCHOR_HEIGHT = 178;
+    // One BAR_BAND and its gutter taller than the form was before it had an arrival height, added
+    // rather than carved out of the fields above it - the same way the Modulator grew its slider.
+    public static final int ANCHOR_HEIGHT = 202;
 
-    public record Anchor(Rect header, Rect name, Rect network, Rect access, Rect enabled, Rect save) {
+    /**
+     * A Warp Anchor's configuration panel.
+     *
+     * @param height the captioned slider that sets how far above the anchor a ship comes in
+     */
+    public record Anchor(Rect header, Rect name, Rect network, Rect height, Rect access, Rect enabled,
+                         Rect save) {
     }
 
     public static Anchor anchor() {
         Rect body = AWLayout.body(ANCHOR_WIDTH, ANCHOR_HEIGHT, true);
         // Each field is a label line above a box, so the bands are taller than the boxes in them.
-        List<Rect> bands = AWLayout.rows(body, 26, 26, AWLayout.BUTTON, 0);
-        List<Rect> toggles = AWLayout.columns(bands.get(2), 0, 0);
+        List<Rect> bands = AWLayout.rows(body, 26, 26, BAR_BAND, AWLayout.BUTTON, 0);
+        List<Rect> toggles = AWLayout.columns(bands.get(3), 0, 0);
         return new Anchor(
                 AWLayout.header(ANCHOR_WIDTH, ANCHOR_HEIGHT),
                 new Rect(bands.get(0).x(), bands.get(0).y() + 10, bands.get(0).width(), 16),
                 new Rect(bands.get(1).x(), bands.get(1).y() + 10, bands.get(1).width(), 16),
+                bands.get(2),
                 toggles.get(0),
                 toggles.get(1),
                 AWLayout.footer(ANCHOR_WIDTH, ANCHOR_HEIGHT));
+    }
+
+    /**
+     * The draggable bar inside a {@link #BAR_BAND}: the band's full width less a knob's reach either
+     * side, sitting at the band's foot under its caption.
+     *
+     * <p>Shared so the captioned sliders - the Modulator's intensity and an anchor's arrival height -
+     * put their bar in the same place, and a test can see where that is.
+     */
+    public static Rect sliderBar(Rect band) {
+        return new Rect(band.x() + 4, band.y() + BAR_BAND - BAR - 2, band.width() - 8, BAR);
     }
 
     // ----------------------------------------------------------------- chute
@@ -228,18 +248,22 @@ public final class AWLayouts {
     // Same reasoning as the chart: kept at or under the 320-wide floor Minecraft's Auto GUI scale
     // guarantees, rather than the 344 both screens used to assume was always available.
     public static final int PROBE_WIDTH = 320;
-    public static final int PROBE_HEIGHT = 280;
+    // A third control band - the arrival height, the same size as the range above it - and its gutter
+    // taller than it was, so the dial kept its size rather than shrinking to make room. The verdict
+    // panel on the other side grows by the same amount, and spends it on where the ship will arrive.
+    public static final int PROBE_HEIGHT = 332;
 
     /**
      * The Rift Probe's panel.
      *
      * @param compass the bearing dial, which is square and drives its own hit testing
      * @param range   the range slider and its readout
+     * @param height  the arrival-height slider, built like the range one
      * @param supply  essence held against what a sounding at these settings costs
      * @param reading the survey a completed sounding brought back
      * @param verdict what that survey amounts to
      */
-    public record Probe(Rect header, Rect compass, Rect range, Rect supply,
+    public record Probe(Rect header, Rect compass, Rect range, Rect height, Rect supply,
                         Rect reading, Rect verdict, Rect sound, Rect course) {
     }
 
@@ -397,7 +421,7 @@ public final class AWLayouts {
     public static Probe probe() {
         Rect body = AWLayout.body(PROBE_WIDTH, PROBE_HEIGHT, true);
         List<Rect> panels = AWLayout.columns(body, 0, PREVIEW_FRAMED);
-        List<Rect> left = AWLayout.rows(panels.get(0), 0, 44, 40);
+        List<Rect> left = AWLayout.rows(panels.get(0), 0, 44, 44, 40);
         List<Rect> right = AWLayout.rows(panels.get(1), PREVIEW_FRAMED, 0);
         List<Rect> footer = AWLayout.buttons(AWLayout.footer(PROBE_WIDTH, PROBE_HEIGHT), 2);
         return new Probe(
@@ -405,6 +429,7 @@ public final class AWLayouts {
                 left.get(0),
                 left.get(1),
                 left.get(2),
+                left.get(3),
                 right.get(0),
                 right.get(1),
                 footer.get(0),

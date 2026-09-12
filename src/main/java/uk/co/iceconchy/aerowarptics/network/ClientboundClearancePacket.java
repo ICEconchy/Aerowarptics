@@ -18,16 +18,17 @@ import java.util.List;
  * Draws a drive's departure clearance for the one player who asked, via
  * {@code /aerowarptics warp clearance}.
  *
- * <p>Carries only what the wireframe needs: whether the overlay is on at all, the bare hull sweep, the
- * padded volume the check actually tests, the blocks found fouling it, and how long one snapshot lasts.
+ * <p>Carries only what the wireframe needs: whether the overlay is on at all, the bare hull sweep the
+ * check actually tests, the padded volume the aperture reaches, the blocks found fouling the sweep, and
+ * how long one snapshot lasts.
  * The command is a toggle, so while it is on the server resends this a few times a second to keep the
  * picture live as the ship moves; each snapshot outlives the refresh interval, so it neither flickers
  * nor lingers if the refreshes stop. An {@code active == false} packet clears the overlay at once.
  *
  * @param active   whether to show the overlay ({@code false} clears it; the boxes are then ignored)
- * @param core     the hull's own swept corridor, no padding
- * @param padded   the volume the clearance check widens to and tests
- * @param hits     the solid blocks standing in the padded volume (capped server-side)
+ * @param core     the hull's own swept corridor, no padding - the volume the clearance check tests
+ * @param padded   the same corridor widened to the aperture's reach, drawn but never tested
+ * @param hits     the solid blocks standing in the core (capped server-side)
  * @param duration ticks to keep this snapshot up before it fades on its own
  */
 public record ClientboundClearancePacket(boolean active, List<AABB> core, List<AABB> padded,

@@ -52,6 +52,7 @@ import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 import uk.co.iceconchy.aerowarptics.warp.AirshipResidency;
+import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 import uk.co.iceconchy.aerowarptics.warp.ArrivalTicket;
 import uk.co.iceconchy.aerowarptics.warp.LaunchClearance;
 import uk.co.iceconchy.aerowarptics.warp.CrossDimensionWarp;
@@ -66,6 +67,7 @@ import uk.co.iceconchy.aerowarptics.warp.WarpFlight;
 import uk.co.iceconchy.aerowarptics.warp.WarpPassengers;
 import uk.co.iceconchy.aerowarptics.warp.WarpTrace;
 import uk.co.iceconchy.aerowarptics.warp.WarpValidator;
+import uk.co.iceconchy.aerowarptics.weather.RiftStorm;
 
 import java.util.EnumMap;
 import java.util.ArrayList;
@@ -128,6 +130,14 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     private double committedDistance;
     private int sequenceTicks;
     private int cooldownTicks;
+    /**
+     * How long the cooldown in progress was when it started, or {@code -1} for the tier's own figure.
+     *
+     * <p>Not simply the tier's figure, because a Rift Storm shortens it - and measuring progress against
+     * the full figure would open a storm-shortened cooldown with its bar already half full. Minus one
+     * rather than zero for "unknown", because zero is a real cooldown the multiplier can produce.
+     */
+    private int cooldownTotal = -1;
     private int errorTicks;
 
     /**
@@ -150,6 +160,13 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     private UUID destinationAnchor;
     @Nullable
     private Vec3 destinationPos;
+    /**
+     * The height a committed fix asked to arrive at, or {@link ArrivalHeight#UNSET} for the server's.
+     *
+     * <p>Only a fix's. An anchor's is read off the anchor when the rift opens, alongside its position,
+     * so an owner who raises their anchor while a ship is spinning up is heard.
+     */
+    private int destinationArrivalHeight = ArrivalHeight.UNSET;
     /**
      * What to call the committed destination.
      *
@@ -439,9 +456,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
      * persistent forced chunks, so the claim is written to disk and reinstated on reboot instead of
      * evaporating with the server.
      *
-     * <p>Each renewal recomputes the chunks the ship wants held - its plot chunk and the ground under
-     * its hull - and reconciles that against what the drive already forces: claiming what is newly
-     * wanted, letting go of what has moved out from under it. Run on the
+     * <p>Each renewal recomputes the chunks the ship wants held - the ground under its hull - and
+     * reconciles that against what the drive already forces: claiming what is newly wanted, letting go
+     * of what has moved out from under it. Run on the
      * {@link ArrivalTicket#RESIDENCY_RENEW_INTERVAL} cadence, which while a ship cruises trails its
      * true position, but that gap is covered by the pilot's own view tickets; the forced claim only
      * has to be right where the ship comes to rest, which is where it matters for a restart.
@@ -460,15 +477,14 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         }
 
         Set<Long> desired = new HashSet<>();
-        // Every chunk the ship's plot actually occupies, not a fixed patch around the drive. A large
-        // hull spans far more than the drive's own corner, and holding only that let the far ends of
-        // the plot unload the moment the arrival ticket lapsed - Sable then removed the sub-level and
-        // the ship was gone, while the crew, being ordinary entities, arrived regardless. One chunk of
-        // margin covers a plot whose bounds sit flush against a chunk edge.
-        addPlotResidency(desired, airship);
         // The real-world ground the hull is floating over, sized from the hull's own span so a large
         // ship holds enough for what sits under it. The diagonal of the ship-space footprint is a
         // rotation-proof bound on how far the hull reaches from its centre.
+        //
+        // Only the ground. The ship's own plot chunks used to be claimed too, and Sable owns those:
+        // forcing them is what stopped the world from ever finishing its save on exit. Sable keeps a
+        // sub-level loaded while the ground under it is, which is all the plot claim was ever for -
+        // see AirshipResidency.
         BoundingBox3ic bounds = airship.shipBounds();
         double span = bounds == null ? 0.0D : Math.hypot(bounds.width(), bounds.length());
         Vector3d centre = airship.centre(new Vector3d());
@@ -488,52 +504,25 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
     }
 
     /**
-     * Adds every chunk the ship's plot occupies, plus a one-chunk margin, to {@code out}.
+     * Reconciles the forced-chunk claim to exactly {@code desired}: force the new, release the gone.
      *
-     * <p>Sized from the plot's true global chunk extent rather than a radius around the drive, so the
-     * whole hull is held however large it is. Falls back to the drive's own chunk when the plot cannot
-     * report its bounds, which keeps the machine itself resident even in that unexpected case.
+     * <p>A drive saved by an older version remembers plot chunks among its claims. Releasing those
+     * here is harmless - {@link AirshipResidency#set} refuses anything in plot space, and the claims
+     * themselves were already stripped when the world loaded - so they simply fall out of the set.
      */
-    private void addPlotResidency(Set<Long> out, Airship airship) {
-        // The hull's own chunks, not the plot's reservation. Sable hands a sub-level a fixed square of
-        // the plot grid whatever size the ship is, so claiming the reservation was work proportional
-        // to nothing at all: placing a drive on any vessel force-loaded the whole square on its first
-        // tick - residencyTimer starts at zero - and hung the server for over a minute, identically
-        // for a raft and for a battleship. That "regardless of size" is the tell.
-        ChunkPos min = airship.hullChunkMin();
-        ChunkPos max = airship.hullChunkMax();
-        if (min == null || max == null) {
-            addResidencyRegion(out, new ChunkPos(worldPosition), 1);
-            return;
-        }
-        out.addAll(ArrivalTicket.plotResidencyChunks(min, max, 1));
-    }
-
-    /** Reconciles the forced-chunk claim to exactly {@code desired}: force the new, release the gone. */
     private void applyResidency(ServerLevel serverLevel, Set<Long> desired) {
         for (long chunk : desired) {
             if (!forcedChunks.contains(chunk)) {
-                AirshipResidency.set(serverLevel, worldPosition, chunk, true, ticks(chunk));
+                AirshipResidency.set(serverLevel, worldPosition, chunk, true);
             }
         }
         for (long chunk : forcedChunks) {
             if (!desired.contains(chunk)) {
-                AirshipResidency.set(serverLevel, worldPosition, chunk, false, ticks(chunk));
+                AirshipResidency.set(serverLevel, worldPosition, chunk, false);
             }
         }
         forcedChunks.clear();
         forcedChunks.addAll(desired);
-    }
-
-    /**
-     * Whether a claimed chunk needs to tick. Only the drive's own does - see {@link AirshipResidency}.
-     *
-     * <p>Derived from the drive's position rather than remembered, so a release computes the same
-     * answer the claim did. NeoForge keeps ticking and non-ticking claims in separate sets, and a
-     * mismatch here would silently leave the chunk forced for good.
-     */
-    private boolean ticks(long chunk) {
-        return chunk == ChunkPos.asLong(worldPosition.getX() >> 4, worldPosition.getZ() >> 4);
     }
 
     /** Drops every chunk this drive was force-loading. Needs a live server level to do the unforcing. */
@@ -542,7 +531,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             return;
         }
         for (long chunk : forcedChunks) {
-            AirshipResidency.set(serverLevel, worldPosition, chunk, false, ticks(chunk));
+            AirshipResidency.set(serverLevel, worldPosition, chunk, false);
         }
         forcedChunks.clear();
     }
@@ -643,6 +632,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
 
         destinationAnchor = course.anchorId();
         destinationPos = target;
+        destinationArrivalHeight = course.arrivalHeight();
         destinationLabel = anchor != null ? anchor.displayName() : course.label();
         // A redstone start has no player in hand, so the warp belongs to whoever set the course.
         // Every reader of this field already copes with it being absent.
@@ -750,8 +740,12 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
      * <p>Range and affordability are deliberately <em>not</em> checked here. They are checked when the
      * warp fires, against the charge the drive has then rather than the charge it has now, and a
      * course a pilot cannot afford yet is a course worth keeping while it charges.
+     *
+     * @param arrivalHeight blocks above the fix to come in at, as the probe's slider stood when the
+     *                      course was sent; clamped again when the rift opens
      */
-    public WarpFailure setFixCourse(ServerPlayer player, BlockPos fix, String label) {
+    public WarpFailure setFixCourse(ServerPlayer player, BlockPos fix, int arrivalHeight,
+                                    String label) {
         WarpFailure permission = WarpValidator.validatePlayer(player, this);
         if (permission.isFailure()) {
             return permission;
@@ -759,7 +753,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         if (!(level instanceof ServerLevel)) {
             return WarpFailure.DRIVE_BUSY;
         }
-        armCourse(WarpCourse.toFix(fix, label), player.getUUID());
+        armCourse(WarpCourse.toFix(fix, arrivalHeight, label), player.getUUID());
         return WarpFailure.NONE;
     }
 
@@ -784,7 +778,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         if (!(level instanceof ServerLevel)) {
             return WarpFailure.DRIVE_BUSY;
         }
-        WarpCourse course = WarpCourse.toFix(fix, label);
+        // A beacon has no height of its own to offer, so it asks for the server's - resolved when the
+        // rift opens, like any other course that never had one chosen.
+        WarpCourse course = WarpCourse.toFix(fix, ArrivalHeight.UNSET, label);
         // Armed before it is fired rather than after, so a refusal leaves the drive holding the
         // course that was refused. A pilot who was told "not enough charge" can then walk aboard,
         // wait, and pull a lever, instead of having to go back and aim the thing again.
@@ -864,6 +860,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         // be taken down while a ship is on its way to it.
         ServerLevel destination;
         BlockPos targetBlock;
+        int arrivalHeight;
         if (destinationAnchor != null) {
             WarpAnchor anchor = WarpAnchorRegistry.get(serverLevel).byId(destinationAnchor);
             if (anchor == null) {
@@ -872,10 +869,12 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             }
             destination = serverLevel.getServer().getLevel(anchor.dimension());
             targetBlock = anchor.pos();
+            arrivalHeight = ArrivalHeight.resolve(anchor.arrivalHeight());
         } else if (destinationPos != null) {
             // Soundings are thrown from the ship's own level and never leave it.
             destination = serverLevel;
             targetBlock = BlockPos.containing(destinationPos);
+            arrivalHeight = ArrivalHeight.resolve(destinationArrivalHeight);
         } else {
             abort(WarpFailure.ANCHOR_MISSING);
             return;
@@ -899,11 +898,13 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         // only — the hull arrives at the correct altitude but displaced laterally. The arrival
         // search still proves the scattered spot clear, so a hull can never materialise inside
         // terrain. If the scattered position has no safe arrival, the warp falls back to the
-        // original target rather than aborting: the ship always arrives somewhere.
+        // original target rather than aborting: the ship always arrives somewhere. A Rift Storm lends
+        // every drive the Singularity's instability on top of its own, so it is asked here rather than
+        // the tier - see RiftStormRules.
         BlockPos flightTarget = targetBlock;
         boolean scattered = false;
         double scatterRoll = serverLevel.getRandom().nextDouble();
-        if (ScatterOffset.isScattered(tier.instability(), scatterRoll)) {
+        if (ScatterOffset.isScattered(RiftStorm.instability(serverLevel, tier), scatterRoll)) {
             double angle = serverLevel.getRandom().nextDouble() * Math.PI * 2.0D;
             double magnitude = serverLevel.getRandom().nextDouble();
             Vector3d scatterVec = ScatterOffset.offset(
@@ -917,8 +918,11 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             }
         }
 
+        // A scattered arrival keeps the height asked for: the scatter is sideways, so the ship still
+        // comes in the same distance above the target's own block height, not above the ground it
+        // was blown over - the search climbs from there if that ground is higher.
         WarpFlight planned = WarpFlight.plan(airship, destination, flightTarget, bow,
-                tier.warpTicks(), tier.arriveTicks());
+                tier.warpTicks(), tier.arriveTicks(), arrivalHeight);
 
         // If the scattered position has no safe arrival, try the original target. A scatter that
         // lands in open sky settles there; one that lands in a mountainside simply does not happen,
@@ -927,7 +931,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             scattered = false;
             flightTarget = targetBlock;
             planned = WarpFlight.plan(airship, destination, targetBlock, bow,
-                    tier.warpTicks(), tier.arriveTicks());
+                    tier.warpTicks(), tier.arriveTicks(), arrivalHeight);
         }
 
         if (planned == null) {
@@ -1039,6 +1043,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
 
         ServerLevel destination;
         BlockPos targetBlock;
+        int arrivalHeight;
         if (course.isAnchor()) {
             WarpAnchor anchor = WarpAnchorRegistry.get(serverLevel).byId(course.anchorId());
             if (anchor == null) {
@@ -1046,20 +1051,23 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             }
             destination = serverLevel.getServer().getLevel(anchor.dimension());
             targetBlock = anchor.pos();
+            arrivalHeight = ArrivalHeight.resolve(anchor.arrivalHeight());
         } else {
             destination = serverLevel;
             targetBlock = course.fix();
+            arrivalHeight = ArrivalHeight.resolve(course.arrivalHeight());
         }
         if (destination == null || !SafeArrival.isDestinationLoadable(destination, targetBlock)) {
             return List.of(Component.literal("dry run: the destination chunk will not load"));
         }
 
         List<Component> report = new ArrayList<>();
-        report.add(Component.literal("dry run to " + course.label() + " " + targetBlock.toShortString()));
+        report.add(Component.literal("dry run to " + course.label() + " " + targetBlock.toShortString()
+                + ", arrival height " + arrivalHeight));
 
         Vector3d bow = WarpFlight.worldBow(airship, shipSpaceBow());
         WarpFlight planned = WarpFlight.plan(airship, destination, targetBlock, bow,
-                tier.warpTicks(), tier.arriveTicks());
+                tier.warpTicks(), tier.arriveTicks(), arrivalHeight);
         if (planned == null) {
             report.add(Component.literal("  arrival: NO SAFE ARRIVAL - nowhere clear near the target"));
             report.add(Component.literal("  verdict: WOULD REFUSE (no_safe_arrival)"));
@@ -1080,6 +1088,15 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         boolean refuseUndurable = !AWConfig.KEEP_AIRSHIPS_LOADED.get()
                 && AWConfig.REQUIRE_LOADED_ARRIVAL.get();
 
+        // The box every departure sweep starts from, to the hundredth. Whether its floor sits just under
+        // a whole block - and so whether the ground it rests on is within the contact tolerance - is
+        // otherwise invisible from the overlay.
+        dev.ryanhcode.sable.companion.math.BoundingBox3dc hullBox = airship.worldBounds();
+        report.add(Component.literal(String.format(java.util.Locale.ROOT,
+                "  hull box: (%.2f, %.2f, %.2f) to (%.2f, %.2f, %.2f)",
+                hullBox.minX(), hullBox.minY(), hullBox.minZ(),
+                hullBox.maxX(), hullBox.maxY(), hullBox.maxZ())));
+
         // The guard is the gate; the corridor below it is advisory unless requireClearLaunch is on.
         uk.co.iceconchy.aerowarptics.warp.SafeArrival.Clearance guard =
                 LaunchClearance.guard(airship, serverLevel, bow);
@@ -1097,8 +1114,8 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         }
 
         report.add(Component.literal(String.format(java.util.Locale.ROOT,
-                "  corridor: reach %.1fb, aperture margin %.1fb -> %s",
-                LaunchClearance.launchReach(planned), planned.apertureMargin(),
+                "  corridor: reach %.1fb, bare hull -> %s",
+                LaunchClearance.launchReach(planned),
                 launchClear ? "CLEAR"
                         : unproven ? "UNPROVEN"
                         : requireClearLaunch ? "BLOCKED" : "BLOCKED (advisory - not a gate)")));
@@ -1140,9 +1157,11 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
      * corridor far wider than the one actually tested on any diagonal heading - the overlay has to
      * show what the check reads, or it is worse than no overlay.
      *
-     * @param core   the bare hull sweep, no padding - what the ship physically flies through
-     * @param padded the segments actually tested, widened by the aperture margin and clearance
-     * @param hits   the solid blocks standing in those segments, capped for display
+     * @param core   the bare hull sweep, no padding - what the ship physically flies through, and the
+     *               segments actually tested
+     * @param padded the same sweep widened by the aperture margin and clearance - where the aperture
+     *               reaches, drawn for reference and never tested
+     * @param hits   the solid blocks standing in the core, capped for display
      */
     public record ClearanceView(java.util.List<dev.ryanhcode.sable.companion.math.BoundingBox3d> core,
                                 java.util.List<dev.ryanhcode.sable.companion.math.BoundingBox3d> padded,
@@ -1154,9 +1173,9 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
      * {@code /aerowarptics warp clearance}.
      *
      * <p>Needs no standing course: the corridor's shape comes from the hull and this drive's tier, so
-     * a pilot can see the clearance before choosing where to go. Returns both the bare hull sweep and
-     * the padded volume the check actually tests, because the gap between them is exactly the
-     * over-sensitivity that has been complained about - showing them apart is what makes it legible.
+     * a pilot can see the clearance before choosing where to go. Returns both the bare hull sweep the
+     * check tests and the padded volume it used to test, because the gap between them was exactly the
+     * over-sensitivity that was complained about - and the padding is still where the aperture reaches.
      *
      * @return the view, or {@code null} when this drive is not aboard a live airship
      */
@@ -1173,15 +1192,19 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         double reach = shape.corridorReach() + AWConfig.RIFT_LEAD_DISTANCE.get();
         double margin = shape.apertureMargin();
         double clearance = AWConfig.ARRIVAL_CLEARANCE.get();
-        // The assembly, so the wireframe outlines what actually flies - propellers on bearings and
-        // all - rather than the bare plot the corridor used to be sized from.
-        dev.ryanhcode.sable.companion.math.BoundingBox3dc hull = airship.assemblyBounds();
+        // The hull's own box - what LaunchClearance actually sweeps. Outlining the whole assembly
+        // here would draw a corridor wider than the one the check reads, which is the one thing an
+        // overlay must never do.
+        dev.ryanhcode.sable.companion.math.BoundingBox3dc hull = airship.worldBounds();
         java.util.List<dev.ryanhcode.sable.companion.math.BoundingBox3d> padded =
                 LaunchClearance.departureSegments(hull, bow, reach, clearance, margin);
         java.util.List<dev.ryanhcode.sable.companion.math.BoundingBox3d> core =
-                LaunchClearance.departureSegments(hull, bow, reach, 0.0D, 0.0D);
+                LaunchClearance.testedSegments(hull, bow, reach);
         java.util.List<net.minecraft.core.BlockPos> hits = new java.util.ArrayList<>();
-        for (dev.ryanhcode.sable.companion.math.BoundingBox3d segment : padded) {
+        // Collisions are found in the core, because that is what the check reads. A block that only
+        // the padding reaches is not in the way of anything, and marking it red would send the pilot
+        // coming about for grass.
+        for (dev.ryanhcode.sable.companion.math.BoundingBox3d segment : core) {
             if (hits.size() >= 512) {
                 break;
             }
@@ -1431,7 +1454,10 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         airship.driveVelocity(new Vector3d());
         passengers.settle(airship);
         CrewManifest.close(airship.uuid());
-        airship.warpData().release(false, level.getGameTime() + tier.cooldownTicks());
+        // Fixed now, at the moment the warp completes: a storm that passes while the drive cools does
+        // not lengthen it again, and one that arrives part-way through does not shorten it.
+        int cooldown = RiftStorm.cooldownTicks(level, tier);
+        airship.warpData().release(false, level.getGameTime() + cooldown);
         flight = null;
         destinationAnchor = null;
         destinationPos = null;
@@ -1440,7 +1466,8 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         committedCost = 0.0F;
         committedDistance = 0.0D;
         sequenceTicks = 0;
-        cooldownTicks = tier.cooldownTicks();
+        cooldownTicks = cooldown;
+        cooldownTotal = cooldown;
         // Re-assert the loading claim now, at the settled position, rather than waiting out the
         // renewal interval: the flight's arrival claim was sized and centred on the plan, and this
         // pins it to where the hull actually came to rest.
@@ -1694,7 +1721,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             case STABILIZING -> 0;
             case WARPING -> tier.warpTicks();
             case ARRIVING -> AWConfig.RIFT_TRANSIT_TICKS.get() + tier.arriveTicks();
-            case COOLDOWN -> Math.max(1, tier.cooldownTicks());
+            case COOLDOWN -> Math.max(1, cooldownTotal >= 0 ? cooldownTotal : tier.cooldownTicks());
             case ERROR -> Math.max(1, AWConfig.FAILURE_COOLDOWN_TICKS.get());
             default -> 0;
         };
@@ -1840,6 +1867,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         tag.putFloat("SpinRequired", spinRequired);
         tag.putFloat("SpinProgress", spinProgress);
         tag.putInt("CooldownTicks", cooldownTicks);
+        tag.putInt("CooldownTotal", cooldownTotal);
         tag.putInt("ErrorTicks", errorTicks);
         tag.putInt("LastFailure", lastFailure.ordinal());
         tag.putInt("Heading", heading.ordinal());
@@ -1850,6 +1878,7 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
             tag.putDouble("TargetX", destinationPos.x);
             tag.putDouble("TargetY", destinationPos.y);
             tag.putDouble("TargetZ", destinationPos.z);
+            tag.putInt("TargetArrivalHeight", destinationArrivalHeight);
         }
         tag.putString("DestinationLabel", destinationLabel);
         if (initiator != null) {
@@ -1899,6 +1928,8 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         spinRequired = tag.getFloat("SpinRequired");
         spinProgress = tag.getFloat("SpinProgress");
         cooldownTicks = tag.getInt("CooldownTicks");
+        // A drive saved before storms existed has no total, and its cooldown was the tier's own.
+        cooldownTotal = tag.contains("CooldownTotal") ? tag.getInt("CooldownTotal") : -1;
         errorTicks = tag.getInt("ErrorTicks");
         lastFailure = WarpFailure.byIndex(tag.getInt("LastFailure"));
         heading = DriveHeading.byIndex(tag.getInt("Heading"));
@@ -1906,6 +1937,8 @@ public class RiftDriveBlockEntity extends KineticBlockEntity
         destinationPos = tag.contains("TargetX")
                 ? new Vec3(tag.getDouble("TargetX"), tag.getDouble("TargetY"), tag.getDouble("TargetZ"))
                 : null;
+        destinationArrivalHeight = tag.contains("TargetArrivalHeight")
+                ? tag.getInt("TargetArrivalHeight") : ArrivalHeight.UNSET;
         destinationLabel = tag.getString("DestinationLabel");
         initiator = tag.hasUUID("Initiator") ? tag.getUUID("Initiator") : null;
         flight = tag.contains("Flight") ? WarpFlight.load(tag.getCompound("Flight")) : null;

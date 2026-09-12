@@ -30,6 +30,7 @@ public final class AWConfig {
     public static final ModConfigSpec.DoubleValue MASS_REFERENCE;
 
     public static final ModConfigSpec.DoubleValue ARRIVAL_GROUND_BUFFER;
+    public static final ModConfigSpec.IntValue MAX_ARRIVAL_HEIGHT;
     public static final ModConfigSpec.IntValue SAFE_ARRIVAL_RADIUS;
     public static final ModConfigSpec.IntValue SAFE_ARRIVAL_VERTICAL_RADIUS;
     public static final ModConfigSpec.IntValue SAFE_ARRIVAL_STEP;
@@ -101,6 +102,13 @@ public final class AWConfig {
     public static final ModConfigSpec.DoubleValue DANGEROUS_FAILURE_IMPULSE;
     public static final ModConfigSpec.IntValue MANIFEST_GRACE_TICKS;
 
+    public static final ModConfigSpec.BooleanValue NATURAL_RIFT_STORMS;
+    public static final ModConfigSpec.IntValue RIFT_STORM_CALM_LEAST;
+    public static final ModConfigSpec.IntValue RIFT_STORM_CALM_MOST;
+    public static final ModConfigSpec.IntValue RIFT_STORM_LENGTH_LEAST;
+    public static final ModConfigSpec.IntValue RIFT_STORM_LENGTH_MOST;
+    public static final ModConfigSpec.DoubleValue RIFT_STORM_COOLDOWN_MULTIPLIER;
+
     /** Per-tier settings, seeded from {@link RiftDriveTier#defaults()}. */
     public static final Map<RiftDriveTier, TierConfig> TIERS = new EnumMap<>(RiftDriveTier.class);
 
@@ -152,9 +160,16 @@ public final class AWConfig {
 
         SERVER_BUILDER.comment("How the exit point is chosen once the rift opens.").push("arrival");
         ARRIVAL_GROUND_BUFFER = SERVER_BUILDER
-                .comment("Blocks of daylight left between the anchor and the airship's underside.",
+                .comment("Blocks of daylight left between the anchor and the airship's underside, unless the",
+                        "anchor or Rift Probe says otherwise. Each of those carries its own arrival height,",
+                        "which a player can adjust; this is the height a new one starts at, and the height",
+                        "used by anything saved before arrival heights were adjustable and by Rift Beacons.",
                         "The search starts here and climbs, so an airship never materialises sitting on its anchor.")
                 .defineInRange("arrivalGroundBuffer", 6.0D, 0.0D, 256.0D);
+        MAX_ARRIVAL_HEIGHT = SERVER_BUILDER
+                .comment("Highest arrival height a player may set on a Warp Anchor or a Rift Probe, in blocks.",
+                        "Heights already set above this are lowered to it when a warp is planned.")
+                .defineInRange("maxArrivalHeight", 128, 0, 1024);
         SAFE_ARRIVAL_RADIUS = SERVER_BUILDER
                 .comment("Horizontal radius, in blocks, searched around an anchor for a clear arrival volume.")
                 .defineInRange("safeArrivalRadius", 48, 0, 512);
@@ -510,6 +525,35 @@ public final class AWConfig {
                 .defineInRange("oreMax", 24, 0, 4_096);
         SERVER_BUILDER.pop();
 
+        SERVER_BUILDER.comment("Rift Storms: rare weather in which space is already coming apart. While one",
+                        "rages, a Rift Drive's cooldown after a warp is shortened, and every drive's exit",
+                        "is as unsure as a Singularity's - the Singularity's own instability is added on",
+                        "top of the drive's. Storms rage in every dimension with a sky and no ceiling,",
+                        "freeze with the doWeatherCycle gamerule like the rain does, and can be started",
+                        "with /weather rift_storm and ended with /weather clear.")
+                .push("riftStorm");
+        NATURAL_RIFT_STORMS = SERVER_BUILDER
+                .comment("Let Rift Storms arrive on their own. Off, they only happen when commanded.")
+                .define("naturalStorms", true);
+        RIFT_STORM_CALM_LEAST = SERVER_BUILDER
+                .comment("Fewest ticks between one natural storm and the next. 24000 is one day.")
+                .defineInRange("calmLeastTicks", 144_000, 1, 100_000_000);
+        RIFT_STORM_CALM_MOST = SERVER_BUILDER
+                .comment("Most ticks between one natural storm and the next.")
+                .defineInRange("calmMostTicks", 480_000, 1, 100_000_000);
+        RIFT_STORM_LENGTH_LEAST = SERVER_BUILDER
+                .comment("Shortest a storm lasts, in ticks, when it arrives on its own or is commanded",
+                        "without a duration.")
+                .defineInRange("stormLeastTicks", 6_000, 20, 10_000_000);
+        RIFT_STORM_LENGTH_MOST = SERVER_BUILDER
+                .comment("Longest a storm lasts, in ticks.")
+                .defineInRange("stormMostTicks", 12_000, 20, 10_000_000);
+        RIFT_STORM_COOLDOWN_MULTIPLIER = SERVER_BUILDER
+                .comment("Fraction of a drive's cooldown that is left when it completes a warp during a",
+                        "storm. 0.5 halves it; 0 removes it; 1 leaves it alone.")
+                .defineInRange("cooldownMultiplier", 0.5D, 0.0D, 1.0D);
+        SERVER_BUILDER.pop();
+
         SERVER_BUILDER.comment("Diagnostics. Off by default and of no interest during normal play.")
                 .push("debug");
         TRACE_WARPS = SERVER_BUILDER
@@ -572,6 +616,7 @@ public final class AWConfig {
     public static final ModConfigSpec.BooleanValue WARP_CORRIDOR;
     public static final ModConfigSpec.BooleanValue SCREEN_SHAKE;
     public static final ModConfigSpec.DoubleValue EFFECT_VOLUME;
+    public static final ModConfigSpec.BooleanValue RIFT_STORM_WEATHER;
 
     public static final ModConfigSpec CLIENT_SPEC;
 
@@ -595,6 +640,12 @@ public final class AWConfig {
         EFFECT_VOLUME = CLIENT_BUILDER
                 .comment("Volume multiplier for warp sounds emitted by this mod.")
                 .defineInRange("effectVolume", 1.0D, 0.0D, 2.0D);
+        RIFT_STORM_WEATHER = CLIENT_BUILDER
+                .comment("Draw a Rift Storm's weather: the darkened violet sky and clouds, the rift rain that",
+                        "replaces ordinary rain while it lasts, the flashes that light the sky, and the aurora.",
+                        "Off leaves the sky and rain as vanilla draws them. The storm's bolts still follow",
+                        "riftLightning and its sparks particleDensity, and the storm itself still happens.")
+                .define("riftStormWeather", true);
         CLIENT_BUILDER.pop();
 
         CLIENT_SPEC = CLIENT_BUILDER.build();

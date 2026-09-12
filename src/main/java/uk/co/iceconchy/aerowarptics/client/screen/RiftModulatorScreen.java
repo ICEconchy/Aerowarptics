@@ -171,9 +171,7 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
     }
 
     private AWLayout.Rect intensityTrack() {
-        AWLayout.Rect panel = LAYOUT.intensity();
-        return new AWLayout.Rect(panel.x() + 4, panel.y() + AWLayouts.BAR_BAND - AWLayouts.BAR - 2,
-                panel.width() - 8, AWLayouts.BAR);
+        return AWLayouts.sliderBar(LAYOUT.intensity());
     }
 
     /** Which swatch, if any, sits under this point. */

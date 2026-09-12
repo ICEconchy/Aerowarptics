@@ -20,20 +20,40 @@ import uk.co.iceconchy.aerowarptics.airship.Airship;
  *
  * <p>The volume proven clear is the hull swept <em>forward</em> along the world bow from its current
  * pose, through the entry plane, and on for the full {@link WarpFlight#corridorReach() corridor
- * reach}. It is widened to the aperture's radius the same way the arrival is, so the entry aperture
- * opening and its throat are proven clear too - the symmetric treatment the two ends deserve, since
- * the entry throat is every bit as real as the exit one.
+ * reach}. It is the bare hull and nothing wider - see {@link #testedSegments} for why the aperture's
+ * radius, which the arrival end still pads by, is deliberately left out here.
  *
  * <p>Kept free of Minecraft in the parts that decide the shape of the volume, exactly as
  * {@link ObstructionScan} and {@link SafeArrival#candidateVolume} are: the geometry is a pure
  * function of doubles and the block test is a {@link ObstructionScan.Solid} predicate, so the wall
  * cases can be swept without a server running. The runtime entry point puts a real level behind that
- * predicate through {@link SafeArrival#isClear}, which also excludes the hull's own sub-level so a
- * ship never reads its own deck as an obstruction.
+ * predicate through {@link SafeArrival#isClear}, which excludes every sub-level of the vessel itself
+ * so a ship never reads its own deck - or its own tender - as an obstruction.
  */
 public final class LaunchClearance {
 
     private LaunchClearance() {
+    }
+
+    /**
+     * The footprint every departure sweep starts from: the hull's own box, and nothing hung off it.
+     *
+     * <p>It used to be {@link Airship#assemblyBounds()} - the hull unioned with its connected
+     * sub-levels and with every bearing-mounted contraption's world box - on the reasoning that a
+     * propeller which clips terrain the bare hull cleared is still a collision. True, and it cost far
+     * more than it bought. A Create contraption's box is sized to enclose the blades' <em>full
+     * rotation</em>, so a pair of propellers widened the corridor by the whole span of the disc they
+     * sweep, on every axis, for the entire length of the run; and the connected plots folded into the
+     * box were then handed to an obstruction test that had no idea they were part of the same ship,
+     * which refused every launch outright. A vessel with sub-levels could not warp at all.
+     *
+     * <p>So the sweep is the hull. What a propeller does to the terrain it passes is between the
+     * propeller and the terrain - Sable's solver has never ejected a ship over a blade - whereas
+     * flying the hull itself into a hillside is the failure this check exists for, and the hull's own
+     * box catches that exactly.
+     */
+    private static BoundingBox3dc clearanceHull(Airship airship) {
+        return airship.worldBounds();
     }
 
     /**
@@ -74,6 +94,26 @@ public final class LaunchClearance {
     }
 
     /**
+     * The segments the departure checks actually read: the bare hull swept along the bow, and
+     * nothing wider.
+     *
+     * <p>No aperture margin and no arrival clearance. The corridor proof used to test the padded
+     * sweep - the hull widened by the aperture's radius and {@code arrivalClearance} on every side -
+     * on the reasoning that the opening the hull flies through is wider than the hull. It is, but the
+     * rift is a picture, not a solid: nothing about the aperture collides with terrain, and what the
+     * padding caught was grass and shoreline beside a hull that was never going to touch them. The
+     * clearance overlay drew the two apart, and every refusal that came from the teal and not the
+     * amber was one of those. So the amber is what is tested, and the teal is drawn only so a pilot
+     * can see where the aperture will reach.
+     *
+     * <p>One method, so the gate, the report and the overlay cannot drift onto different volumes.
+     */
+    public static java.util.List<BoundingBox3d> testedSegments(BoundingBox3dc hull, Vector3dc bow,
+                                                               double reach) {
+        return departureSegments(hull, bow, reach, 0.0D, 0.0D);
+    }
+
+    /**
      * Whether the departure path is clear, tested against a bare predicate.
      *
      * <p>The Minecraft-free core, so a thin wall at the entry plane, at mid-corridor or at the far end
@@ -88,13 +128,10 @@ public final class LaunchClearance {
                                                     double clearance, double apertureMargin,
                                                     long budget, ObstructionScan.Solid solid) {
         BoundingBox3d volume = departureVolume(hull, bow, reach, clearance, apertureMargin);
-        int minX = (int) Math.floor(volume.minX());
-        int minY = (int) Math.floor(volume.minY());
-        int minZ = (int) Math.floor(volume.minZ());
-        int maxX = (int) Math.ceil(volume.maxX());
-        int maxY = (int) Math.ceil(volume.maxY());
-        int maxZ = (int) Math.ceil(volume.maxZ());
-        return ObstructionScan.scan(minX, minY, minZ, maxX, maxY, maxZ, budget, solid);
+        ObstructionScan.BlockSpan span = ObstructionScan.BlockSpan.inside(volume.minX(), volume.minY(),
+                volume.minZ(), volume.maxX(), volume.maxY(), volume.maxZ());
+        return ObstructionScan.scan(span.minX(), span.minY(), span.minZ(),
+                span.maxX(), span.maxY(), span.maxZ(), budget, solid);
     }
 
     /**
@@ -123,8 +160,7 @@ public final class LaunchClearance {
     public static SafeArrival.Clearance clearance(Airship airship, ServerLevel level, Vector3dc bow,
                                                   WarpFlight flight) {
         return SafeArrival.clearance(airship, level,
-                departureSegments(airship.assemblyBounds(), bow, launchReach(flight),
-                        AWConfig.ARRIVAL_CLEARANCE.get(), flight.apertureMargin()),
+                testedSegments(clearanceHull(airship), bow, launchReach(flight)),
                 SafeArrival.budgetFor(airship));
     }
 
@@ -140,8 +176,7 @@ public final class LaunchClearance {
     @org.jetbrains.annotations.Nullable
     public static net.minecraft.core.BlockPos firstObstruction(Airship airship, ServerLevel level,
                                                                Vector3dc bow, WarpFlight flight) {
-        for (BoundingBox3d segment : departureSegments(airship.assemblyBounds(), bow,
-                launchReach(flight), AWConfig.ARRIVAL_CLEARANCE.get(), flight.apertureMargin())) {
+        for (BoundingBox3d segment : testedSegments(clearanceHull(airship), bow, launchReach(flight))) {
             net.minecraft.core.BlockPos hit = SafeArrival.firstObstruction(level, segment);
             if (hit != null) {
                 return hit;
@@ -175,7 +210,7 @@ public final class LaunchClearance {
      */
     public static SafeArrival.Clearance guard(Airship airship, ServerLevel level, Vector3dc bow) {
         return SafeArrival.clearance(airship, level,
-                departureSegments(airship.assemblyBounds(), bow, guardReach(), 0.0D, 0.0D),
+                testedSegments(clearanceHull(airship), bow, guardReach()),
                 SafeArrival.budgetFor(airship));
     }
 
@@ -183,8 +218,7 @@ public final class LaunchClearance {
     @org.jetbrains.annotations.Nullable
     public static net.minecraft.core.BlockPos guardObstruction(Airship airship, ServerLevel level,
                                                                Vector3dc bow) {
-        for (BoundingBox3d segment : departureSegments(airship.assemblyBounds(), bow,
-                guardReach(), 0.0D, 0.0D)) {
+        for (BoundingBox3d segment : testedSegments(clearanceHull(airship), bow, guardReach())) {
             net.minecraft.core.BlockPos hit = SafeArrival.firstObstruction(level, segment);
             if (hit != null) {
                 return hit;

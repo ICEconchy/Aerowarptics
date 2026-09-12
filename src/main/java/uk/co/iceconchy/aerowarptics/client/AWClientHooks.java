@@ -236,6 +236,13 @@ public final class AWClientHooks {
         }
     }
 
+    /** A Rift Storm has begun or passed, or this client has just joined a server with one raging. */
+    public static void setRiftStorm(boolean raging) {
+        if (client()) {
+            uk.co.iceconchy.aerowarptics.client.fx.RiftStormSky.set(raging);
+        }
+    }
+
     public static void openHandbook() {
         if (client()) {
             ClientRuntime.openHandbook();

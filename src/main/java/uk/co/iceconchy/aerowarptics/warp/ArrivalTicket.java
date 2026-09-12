@@ -10,8 +10,6 @@ import org.joml.Vector3d;
 import org.joml.Vector3dc;
 
 import java.util.Comparator;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Keeps the far end of a warp - and the corridor it is flown down - loaded while a ship is on its way.
@@ -157,54 +155,6 @@ public final class ArrivalTicket {
      */
     public static double arrivalSpan(double hullSpan, double emergeRunOut, double apertureMargin) {
         return hullSpan + Math.max(0.0D, emergeRunOut) + 2.0D * Math.max(0.0D, apertureMargin);
-    }
-
-    /**
-     * Every chunk a plot occupies, plus a margin, as packed {@link ChunkPos} longs.
-     *
-     * <p>The set of chunks that has to stay force-loaded for a whole hull to survive unattended. Sized
-     * from the plot's own global chunk extent, so it scales with the ship instead of a fixed patch
-     * around the drive - a large hull spans many chunks, and holding only the drive's corner let the
-     * rest of the plot unload the instant the arrival ticket lapsed, at which point Sable removed the
-     * sub-level and the ship was gone. The pure part, so the coverage can be checked without a server.
-     */
-    public static Set<Long> plotResidencyChunks(ChunkPos min, ChunkPos max, int margin) {
-        int x0 = clampSpanLow(min.x - margin, max.x + margin);
-        int x1 = clampSpanHigh(min.x - margin, max.x + margin);
-        int z0 = clampSpanLow(min.z - margin, max.z + margin);
-        int z1 = clampSpanHigh(min.z - margin, max.z + margin);
-        Set<Long> out = new HashSet<>();
-        for (int x = x0; x <= x1; x++) {
-            for (int z = z0; z <= z1; z++) {
-                out.add(ChunkPos.asLong(x, z));
-            }
-        }
-        return out;
-    }
-
-    /**
-     * Most chunks a drive will hold along one side for its own hull.
-     *
-     * <p>Twenty chunks is three hundred and twenty blocks: larger than any hull anyone is flying, and
-     * small enough that the worst case is four hundred forced chunks rather than a number with no
-     * ceiling at all. Every other claim in this class is capped - {@link #radiusFor} at eight,
-     * {@link #radiusForReach} at twelve - and this one was not, which is precisely how it came to
-     * force-load an entire plot reservation in one tick and stall the server for seventy seconds.
-     * A hull somehow larger than this keeps its middle held and leaves the rim to the arrival ticket
-     * and to whoever is standing there, which is the same bargain the corridor cap already makes.
-     */
-    public static final int PLOT_RESIDENCY_MAX_SIDE = 20;
-
-    /** Low edge of a span shrunk to {@link #PLOT_RESIDENCY_MAX_SIDE}, keeping its middle. */
-    private static int clampSpanLow(int low, int high) {
-        int excess = (high - low + 1) - PLOT_RESIDENCY_MAX_SIDE;
-        return excess <= 0 ? low : low + excess / 2;
-    }
-
-    /** High edge of a span shrunk to {@link #PLOT_RESIDENCY_MAX_SIDE}, keeping its middle. */
-    private static int clampSpanHigh(int low, int high) {
-        int excess = (high - low + 1) - PLOT_RESIDENCY_MAX_SIDE;
-        return excess <= 0 ? high : high - (excess - excess / 2);
     }
 
     /**

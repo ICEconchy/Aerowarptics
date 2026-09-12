@@ -15,7 +15,8 @@ import uk.co.iceconchy.aerowarptics.network.ServerboundConfigureAnchorPacket;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 
 /**
- * Configuration panel for a Warp Anchor: name it, group it, choose who may use it, switch it off.
+ * Configuration panel for a Warp Anchor: name it, group it, set how high ships come in over it, choose
+ * who may use it, switch it off.
  *
  * <p>Edits are sent as a single payload when the player saves; the server validates ownership and
  * name uniqueness and is free to reject them.
@@ -38,12 +39,15 @@ public class WarpAnchorScreen extends AbstractSimiScreen {
 
     private WarpAnchorAccess access;
     private boolean enabled;
+    private int arrivalHeight;
+    private boolean draggingHeight;
 
     public WarpAnchorScreen(WarpAnchorBlockEntity anchor) {
         super(AWLang.translate("gui.warp_anchor.title").component());
         this.anchor = anchor;
         this.access = anchor.access();
         this.enabled = anchor.enabled();
+        this.arrivalHeight = Math.min(anchor.arrivalHeight(), maximumHeight());
     }
 
     @Override
@@ -108,7 +112,68 @@ public class WarpAnchorScreen extends AbstractSimiScreen {
                 nameBox.getValue().trim(),
                 access,
                 networkBox.getValue().trim(),
-                enabled));
+                enabled,
+                arrivalHeight));
+    }
+
+    private int maximumHeight() {
+        return Math.max(0, anchor.maximumArrivalHeight());
+    }
+
+    // ------------------------------------------------------------------ input
+
+    // Nothing here is sent until Save, like every other field on this form: the slider only moves the
+    // number that Save will send, so dragging it about and then closing the panel changes nothing.
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && LAYOUT.height().contains(mouseX - guiLeft, mouseY - guiTop)) {
+            draggingHeight = true;
+            dragHeight(mouseX);
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (draggingHeight) {
+            dragHeight(mouseX);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (draggingHeight) {
+            draggingHeight = false;
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    /**
+     * A block at a time under the wheel.
+     *
+     * <p>A slider across a hundred-odd blocks moves one and a half of them per pixel, which is fine for
+     * "high" or "low" and hopeless for "exactly level with the dock". The wheel is the fine adjustment.
+     */
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (scrollY != 0.0D && LAYOUT.height().contains(mouseX - guiLeft, mouseY - guiTop)) {
+            arrivalHeight = Math.max(0, Math.min(maximumHeight(),
+                    arrivalHeight + (int) Math.signum(scrollY)));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    private void dragHeight(double mouseX) {
+        Rect track = AWLayouts.sliderBar(LAYOUT.height());
+        double fraction = (mouseX - guiLeft - track.x()) / Math.max(1, track.width());
+        fraction = Math.max(0.0D, Math.min(1.0D, fraction));
+        arrivalHeight = (int) Math.round(fraction * maximumHeight());
     }
 
     @Override
@@ -137,6 +202,30 @@ public class WarpAnchorScreen extends AbstractSimiScreen {
         graphics.drawString(font, AWLang.translate("gui.warp_anchor.network").component(),
                 guiLeft + LAYOUT.network().x(), guiTop + LAYOUT.network().y() - 10,
                 AWScreenStyle.LABEL, false);
+
+        renderHeight(graphics);
+    }
+
+    /** The arrival height: caption and value on one line, the bar under them. */
+    private void renderHeight(GuiGraphics graphics) {
+        Rect band = LAYOUT.height();
+        int left = guiLeft + band.x();
+        int top = guiTop + band.y();
+
+        graphics.drawString(font, AWLang.translate("gui.warp_anchor.arrival_height").component(),
+                left, top, AWScreenStyle.LABEL, false);
+        String value = AWLang.distance(arrivalHeight);
+        graphics.drawString(font, value, left + band.width() - font.width(value), top,
+                AWScreenStyle.VALUE, false);
+
+        Rect track = AWLayouts.sliderBar(band);
+        float fraction = maximumHeight() <= 0 ? 0.0F : arrivalHeight / (float) maximumHeight();
+        AWScreenStyle.bar(graphics, guiLeft + track.x(), guiTop + track.y(),
+                track.width(), track.height(), fraction, AWScreenStyle.ACCENT_DIM);
+
+        int knob = guiLeft + track.x() + Math.round(track.width() * AWAnim.clamp(fraction));
+        graphics.fill(knob - 2, guiTop + track.y() - 2, knob + 2, guiTop + track.y() + track.height() + 2,
+                AWScreenStyle.ACCENT);
     }
 
     @Override
