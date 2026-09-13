@@ -11,6 +11,8 @@ a temporary rift to the far end.
 * Create: Aeronautics 1.3.0 (Sable 2.0.3 + Simulated 1.3.0 + Aeronautics 1.3.0)
 * GeckoLib 4.8.4
 
+Licensed under [CC BY-NC-SA 4.0](LICENSE).
+
 ---
 
 ## What an "airship" actually is here
@@ -1373,9 +1375,33 @@ machine in `~/.gradle/gradle.properties`, or for one build with `-Pdeploy_dir=..
 running it will hold a lock on the jar and the copy will fail loudly rather than leaving you testing
 the previous build without knowing.
 
-The mods this builds against live in `Depends/`. Create and the Aeronautics bundle ship several of
-their libraries as jar-in-jar artifacts; those are unpacked into `Depends/lib/` so javac can see them.
-Both directories are on the compile classpath and on the dev runtime classpath.
+The mods this builds against live in `Depends/`. Create, Sable and the Aeronautics bundle ship several
+of their libraries as jar-in-jar artifacts; those are unpacked into `Depends/lib/` so javac can see
+them. Both directories are on the compile classpath and on the dev runtime classpath.
+
+**`Depends/` is not in the repository** — those jars belong to their authors and are not ours to
+redistribute. Before the first build, download these from CurseForge or Modrinth:
+
+```
+Depends/
+  create-1.21.1-6.0.10.jar
+  create-aeronautics-bundled-1.21.1-1.3.0.jar
+  sable-neoforge-1.21.1-2.0.3.jar
+  geckolib-neoforge-1.21.1-4.8.4.jar
+  jei-1.21.1-neoforge-19.44.0.403.jar
+```
+
+then copy every jar from each one's `META-INF/jarjar/` folder into `Depends/lib/` (a jar is a zip, so
+any archive tool opens it):
+
+| Outer jar | Nested jars to copy into `Depends/lib/` |
+| --- | --- |
+| `create` | Flywheel, Ponder, Registrate |
+| `create-aeronautics-bundled` | Aeronautics, Simulated, Offroad |
+| `sable-neoforge` | Sable Rapier, Sable Companion, Veil |
+
+The file names inside `Depends/lib/` do not matter; every `*.jar` there is picked up. Without these
+the build fails to compile with hundreds of missing Create and Sable symbols.
 
 ```bash
 ./gradlew test

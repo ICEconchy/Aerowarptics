@@ -18,6 +18,15 @@ logs/
 .project
 bin/
 
+# Third-party mod jars - not ours to redistribute. See "Building" in the README for what goes here.
+Depends/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local tool state
+.freebuff/
 
 # OS
 .DS_Store

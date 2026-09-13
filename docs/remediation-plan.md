@@ -63,14 +63,9 @@ the cap constant matches the codec limit. The last assertion is the one that sto
 
 Carried over from the release audit; blocks a public repo rather than a working mod.
 
-1. `git rm -r --cached Depends/`, add it to `.gitignore`, and document in the README how to populate
-   it. 13 third-party jars and 105 MB of `.git` currently redistribute Create, Sable, Aeronautics,
-   GeckoLib, Flywheel, Veil, Ponder and Registrate from a public remote. **History rewrite is a
-   separate decision** — removing them going forward does not remove them from past commits.
-2. Decide the licence. `All Rights Reserved` with no `LICENSE` file is the MDK default rather than a
-   choice, and it blocks modpack inclusion. Add a real `LICENSE` once decided.
-3. Move `deploy_dir` out of the committed `gradle.properties` into `~/.gradle/gradle.properties`.
-4. Commit. Everything from the last several sessions is still uncommitted.
+**Done.** `Depends/` was purged from the whole history and is now gitignored, with the README
+listing what to download into it. The licence is CC BY-NC-SA 4.0 (`LICENSE`). `deploy_dir` is blank
+in the committed `gradle.properties` and set per machine in `~/.gradle/gradle.properties`.
 
 ---
 

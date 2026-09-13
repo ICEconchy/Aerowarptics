@@ -87,7 +87,7 @@ uk/co/iceconchy/aerowarptics/
 **`JAVA_HOME` is not set in this environment.** Every Gradle invocation needs it:
 
 ```bash
-export JAVA_HOME="/path/to/jdk-21" && ./gradlew build
+export JAVA_HOME="$HOME/.gradle/jdks/eclipse_adoptium-21-amd64-windows.2" && ./gradlew build
 ```
 
 Without it `./gradlew` prints a JAVA_HOME error and **still exits 0** — do not read a bare exit code
@@ -101,11 +101,12 @@ as success. Check the actual output.
 | From scratch | `./gradlew clean build` |
 
 `build` is finalized by `deployToInstance`, which copies the jar into the PrismLauncher instance
-named by `deploy_dir` in `gradle.properties` and deletes older `aerowarptics-*.jar` files there. It
+named by `deploy_dir` and deletes older `aerowarptics-*.jar` files there. It
 fails loudly rather than fatally if the game is running and holding a lock.
 
 **Dependencies are not on Maven.** They live in `Depends/` as jars, with Create's and Aeronautics'
 jar-in-jar libraries unpacked into `Depends/lib/`. Both are on the compile and dev-runtime classpath.
+`Depends/` is gitignored; the README's "Building" section says what goes in it.
 Do not try to resolve them from a repository.
 
 ---
@@ -305,8 +306,11 @@ the Probe's UI says "Scan ahead", not "Throw sounding", deliberately.
 
 - **1.3.1 is committed and pushed** to `main`, unreleased. Anything newer is whatever `git status` shows.
 - Remote is `https://github.com/ICEconchy/Aerowarptics.git`.
-- Licence is still the MDK default (`All Rights Reserved`, no `LICENSE` file) — unresolved.
-- `Depends/` (13 third-party jars, ~105 MB) is **tracked in git** on a public remote. Unresolved.
+- Licence is CC BY-NC-SA 4.0 (`LICENSE`, `mod_license` in `gradle.properties`).
+- `Depends/` is **gitignored** and was purged from history before the repo went public. The README's
+  "Building" section lists the jars to put there. Never commit a third-party jar again.
+- Nothing machine-specific belongs in a committed file. `deploy_dir` is blank in `gradle.properties`
+  and set per machine in `~/.gradle/gradle.properties`; write paths as `$HOME/...`, not a user name.
 
 ### Known issues
 
