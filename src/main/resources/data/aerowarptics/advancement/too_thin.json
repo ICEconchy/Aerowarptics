@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:scarred_stone"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.too_thin.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.too_thin.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "ruptured": {
+      "trigger": "aerowarptics:sunderer",
+      "conditions": {
+        "event": "ruptured"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "ruptured"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:where_it_went_wrong"
+}

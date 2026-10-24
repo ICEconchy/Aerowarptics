@@ -1,11 +1,15 @@
 package uk.co.iceconchy.aerowarptics;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import org.junit.jupiter.api.Test;
 import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeStructure;
 import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeStructure.Table;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -234,6 +238,108 @@ class AstrolabeStructureTest {
                         "step did not follow the relocation for cell " + cell);
             }
         }
+    }
+
+    /**
+     * A table carried off in part is broken at both ends, and one carried off whole is not.
+     *
+     * <p>The bug this guards: a table half inside a ship's glue went aboard in pieces. The cells that
+     * went still pointed - correctly, by their relative step - at where their origin would be aboard,
+     * but the origin had stayed on the ground. Formed cells with no origin drawing them are invisible,
+     * so the check each cell makes on arrival has to call that table broken, while a table that arrived
+     * whole must be left exactly as it is.
+     */
+    @Test
+    void aTableCarriedOffInPartIsBrokenAndOneCarriedOffWholeIsNot() {
+        BlockPos origin = new BlockPos(11660, 69, -182);
+        BlockPos move = new BlockPos(20469371, 59, 20483262);
+        for (int size = 2; size <= AstrolabeStructure.MAX_SIZE; size++) {
+            Table ground = new Table(origin, size);
+            List<BlockPos> cells = ground.cells();
+
+            // Whole: every cell lands, and every one of them agrees on the moved table.
+            Map<BlockPos, Table> whole = carry(ground, cells, move);
+            for (Table recorded : whole.values()) {
+                assertEquals(AstrolabeStructure.Integrity.INTACT,
+                        AstrolabeStructure.integrity(recorded, cell -> memberOf(whole, recorded, cell)),
+                        "a " + size + "x" + size + " table that moved whole was called broken");
+            }
+
+            // In part: the one cell the screenshot showed, a corner that is not the origin.
+            BlockPos straggler = cells.get(cells.size() - 1);
+            Map<BlockPos, Table> part = carry(ground, List.of(straggler), move);
+            Table recorded = part.values().iterator().next();
+            assertEquals(AstrolabeStructure.Integrity.BROKEN,
+                    AstrolabeStructure.integrity(recorded, cell -> memberOf(part, recorded, cell)),
+                    "a lone " + size + "x" + size + " cell carried aboard was left pointing at nothing");
+        }
+    }
+
+    @Test
+    void anUnloadedCellLeavesTheQuestionOpenButCannotHideAHole() {
+        Table table = new Table(BlockPos.ZERO, 3);
+        BlockPos near = BlockPos.ZERO;
+        BlockPos far = new BlockPos(2, 0, 2);
+
+        assertEquals(AstrolabeStructure.Integrity.UNKNOWN, AstrolabeStructure.integrity(table,
+                        cell -> cell.equals(far) ? AstrolabeStructure.Cell.UNLOADED : AstrolabeStructure.Cell.MEMBER),
+                "a table straddling an unloaded chunk must not be torn down for it");
+        // Both ways round, so the answer cannot depend on which of the two the check reaches first.
+        for (BlockPos[] pair : new BlockPos[][]{{near, far}, {far, near}}) {
+            BlockPos unloaded = pair[0];
+            BlockPos gap = pair[1];
+            assertEquals(AstrolabeStructure.Integrity.BROKEN, AstrolabeStructure.integrity(table,
+                            cell -> cell.equals(unloaded) ? AstrolabeStructure.Cell.UNLOADED
+                                    : cell.equals(gap) ? AstrolabeStructure.Cell.STRANGER
+                                    : AstrolabeStructure.Cell.MEMBER),
+                    "a known hole at " + gap + " is a broken table whatever " + unloaded + " turns out to hold");
+        }
+    }
+
+    /**
+     * A cell holds on to the rest of its own table and to nothing else, which is what makes an
+     * assembler or a contraption take a table whole - and only the table.
+     */
+    @Test
+    void aTableHoldsItsOwnCellsTogetherAndNothingElse() {
+        BlockPos origin = new BlockPos(5, 64, 5);
+        Table table = new Table(origin, 3);
+        for (BlockPos cell : table.cells()) {
+            for (Direction towards : Direction.values()) {
+                BlockPos next = cell.relative(towards);
+                boolean inside = table.covers(next);
+                assertEquals(inside, AstrolabeStructure.holdsTogether(table, cell, towards, inside ? table : null),
+                        cell + " towards " + towards);
+            }
+        }
+
+        BlockPos corner = origin;
+        // A neighbour in a different table is a different object, however close it is.
+        assertFalse(AstrolabeStructure.holdsTogether(table, corner, Direction.EAST, new Table(origin.east(), 1)));
+        // A loose panel holds nothing, and a lone block has no one to hold.
+        assertFalse(AstrolabeStructure.holdsTogether(null, corner, Direction.EAST, table));
+        Table single = new Table(corner, 1);
+        for (Direction towards : Direction.values()) {
+            assertFalse(AstrolabeStructure.holdsTogether(single, corner, towards, single));
+        }
+    }
+
+    /**
+     * Carries some cells of a table by a vector, the way an assembler does: each cell's relative step
+     * goes with it, and the table it records afterwards is rebuilt from that step at its new place.
+     */
+    private static Map<BlockPos, Table> carry(Table table, List<BlockPos> moved, BlockPos by) {
+        Map<BlockPos, Table> landed = new HashMap<>();
+        for (BlockPos cell : moved) {
+            BlockPos step = AstrolabeStructure.originStep(cell, table.origin());
+            BlockPos arrived = cell.offset(by.getX(), by.getY(), by.getZ());
+            landed.put(arrived, new Table(AstrolabeStructure.originFromStep(arrived, step), table.size()));
+        }
+        return landed;
+    }
+
+    private static AstrolabeStructure.Cell memberOf(Map<BlockPos, Table> landed, Table table, BlockPos cell) {
+        return table.equals(landed.get(cell)) ? AstrolabeStructure.Cell.MEMBER : AstrolabeStructure.Cell.STRANGER;
     }
 
     /** Candidates are offered largest first, so the greedy search cannot settle for a small table. */

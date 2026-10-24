@@ -9,6 +9,7 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -17,6 +18,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -30,11 +32,28 @@ import org.joml.Quaterniond;
 import org.joml.Vector3d;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.advancement.AWCriteria;
+import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorAccess;
+import uk.co.iceconchy.aerowarptics.detector.SpatialWaveDetectorBlockEntity;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.airship.Fastening;
+import uk.co.iceconchy.aerowarptics.airship.Fastenings;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
 import uk.co.iceconchy.aerowarptics.registry.AWFluids;
+import uk.co.iceconchy.aerowarptics.hold.Holds;
+import uk.co.iceconchy.aerowarptics.rail.RailCorridor;
+import uk.co.iceconchy.aerowarptics.rail.RailGateLogic;
+import uk.co.iceconchy.aerowarptics.rail.RailLane;
+import uk.co.iceconchy.aerowarptics.rail.RailLaneMap;
+import uk.co.iceconchy.aerowarptics.rail.RailLaneRegistry;
+import uk.co.iceconchy.aerowarptics.rail.RailLaneState;
+import uk.co.iceconchy.aerowarptics.rail.RailTransit;
+import uk.co.iceconchy.aerowarptics.rail.RailWorks;
+import uk.co.iceconchy.aerowarptics.rail.RiftPortalTracks;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkRules;
+import uk.co.iceconchy.aerowarptics.warpnet.WarpNetworkRegistry;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,6 +81,13 @@ import java.util.UUID;
  * there is nowhere at the far end for it to be that is not inside the frame it would be arriving
  * through.
  *
+ * <h2>The passage</h2>
+ * A mob, an item or an empty vehicle that crosses is at the far gate in the same tick, and that is the
+ * end of it. A player is too - but for them it is the start of a passage: {@link GatePassages} holds them
+ * there, unseen and unharmed, while their client draws the journey, and it is the passage that says they
+ * have arrived. A vehicle with a crew aboard is held with them. So both movers below have two endings,
+ * and anybody already in a passage is none of a gate's business at all.
+ *
  * <h2>The pane</h2>
  * A gate holding a connection fills its opening with Rift Portal blocks and empties it again
  * afterwards. That is the whole of what a player sees of the hole; it used to be a client-side
@@ -87,6 +113,26 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
     private static final int CLOSE_TICKS = 20;
 
     private UUID gateId;
+    /**
+     * Whoever set this controller down, or {@code null} for a gate from before gates had owners.
+     *
+     * <p>Kept on the block and not only in the registry's record, because that record is thrown away when
+     * the ring comes apart and made afresh when it is mended.
+     */
+    @Nullable
+    private UUID owner;
+    private String ownerName = "";
+    /**
+     * What this gate was called, who it was open to and which network it was on when its ring last came
+     * apart, to be given back when it is mended.
+     *
+     * <p>A gate's record goes when its ring does. Mended, it used to come back unnamed and public - so
+     * knocking one block out of a private gate's ring and putting it back opened that gate to everybody.
+     */
+    private String keptName = "";
+    private WarpAnchorAccess keptAccess = WarpAnchorAccess.PUBLIC;
+    @Nullable
+    private UUID keptNetwork;
     @Nullable
     private RiftGateShape shape;
     private RiftGateState state = RiftGateState.UNFORMED;
@@ -106,6 +152,20 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
     private int ticketTimer;
     /** Ticks until the next upkeep charge. Not saved: a sub-second countdown is not worth a tag. */
     private int upkeepTimer;
+
+    /**
+     * Whether a train, rather than a player, struck this connection - which makes it the gate's to shut again once
+     * trains are done with it. A connection a player struck is theirs, and is left alone.
+     */
+    private boolean railOpened;
+    /** Ticks a train-struck connection has stood with no train waiting or running through. Not saved. */
+    private int railIdleTicks;
+    /**
+     * The cells of the opening a rail lane runs through, either end. They hold the pane while the gate is open and
+     * a {@link RiftSocketBlock} while it is shut, and are never left empty - see that class for why. Server only,
+     * and read from the lane registry, which is the authority.
+     */
+    private Set<BlockPos> laneCells = Set.of();
 
     /** Travellers who have just arrived, and must not immediately be sent back. */
     private final Map<UUID, Integer> settling = new HashMap<>();
@@ -218,9 +278,13 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         RiftGateStructure.Opening opening =
                 RiftGateStructure.find(worldPosition, this::isFrame, this::isOpen);
         if (opening == null) {
+            Trace.changed("gate-form:" + worldPosition.asLong(), Trace.GATE,
+                    "{} is not a complete ring with a clear opening", Trace.pos(worldPosition));
             unform();
             return false;
         }
+        Trace.changed("gate-form:" + worldPosition.asLong(), Trace.GATE, "{} formed: {}x{} opening on the {} axis",
+                Trace.pos(worldPosition), opening.shape().width(), opening.shape().height(), opening.shape().span());
         shape = opening.shape();
         if (state == RiftGateState.UNFORMED) {
             state = RiftGateState.IDLE;
@@ -239,15 +303,31 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         if (state.hasAperture()) {
             hangUp(GateFailure.NOT_FORMED);
         }
+        // Rail lanes go with the ring. Their cells are emptied with the rest of the opening first - no socket
+        // kept - so that the tracks they leave behind find no portal there and stay ordinary track.
+        List<RailLane> lanes = level instanceof ServerLevel here && gateId != null
+                ? RailLaneRegistry.get(here.getServer()).touching(gateId) : List.of();
+        laneCells = Set.of();
         // After the hang-up, not instead of it: `hangUp` moves to CLOSING, which still counts as
         // having an aperture, so nothing has taken the pane down yet and there is about to be no
         // shape left to take it down with.
         setAperture(shape, false);
+        if (level instanceof ServerLevel here && !lanes.isEmpty()) {
+            takeUpLanes(here, lanes);
+        }
         shape = null;
         state = RiftGateState.UNFORMED;
         stateTicks = 0;
         if (level instanceof ServerLevel serverLevel && gateId != null) {
-            RiftGateRegistry.get(serverLevel).remove(gateId);
+            RiftGateRegistry registry = RiftGateRegistry.get(serverLevel);
+            RiftGate record = registry.byId(gateId);
+            if (record != null) {
+                keptName = record.name();
+                keptAccess = record.access();
+                keptNetwork = record.network();
+                setChanged();
+            }
+            registry.remove(gateId);
         }
         notifyUpdate();
     }
@@ -266,7 +346,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
      */
     private boolean isOpen(BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        return state.is(AWBlocks.RIFT_PORTAL.get()) || state.isAir() || state.canBeReplaced();
+        // A socket too: it is a rail lane's cell of this very opening, standing in for the pane while the gate
+        // is shut, and a ring that stopped recognising it would unform the moment a lane was laid.
+        return RiftSocketBlock.isLaneCell(state) || state.isAir() || state.canBeReplaced();
     }
 
     // ------------------------------------------------------------------ the pane
@@ -297,16 +379,43 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         // setPortalStage.
         BlockState pane = AWBlocks.RIFT_PORTAL.get().defaultBlockState()
                 .setValue(RiftPortalBlock.AXIS, which.span());
+        // A rail lane's cell is never emptied: shut, it gets a socket instead of air, because a Create portal track
+        // pointing into a cell that is not a portal turns itself to air - see RiftSocketBlock.
+        BlockState socket = AWBlocks.RIFT_SOCKET.get().defaultBlockState();
         int flags = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
         for (BlockPos cell : which.cells()) {
             BlockState there = serverLevel.getBlockState(cell);
+            boolean lane = laneCells.contains(cell);
             if (!present) {
-                if (there.is(pane.getBlock())) {
-                    serverLevel.setBlock(cell, Blocks.AIR.defaultBlockState(), flags);
+                if (there.is(pane.getBlock()) || there.is(socket.getBlock()) && !lane) {
+                    serverLevel.setBlock(cell, lane ? socket : Blocks.AIR.defaultBlockState(), flags);
+                } else if (lane && (there.isAir() || there.canBeReplaced())) {
+                    serverLevel.setBlock(cell, socket, flags);
                 }
-            } else if (there != pane && (there.isAir() || there.canBeReplaced())) {
+            } else if (there != pane && (there.isAir() || there.canBeReplaced() || there.is(socket.getBlock()))) {
                 serverLevel.setBlock(cell, pane, flags);
             }
+        }
+    }
+
+    /**
+     * Reads which cells of the opening a rail lane runs through, either end, from the lane registry.
+     *
+     * <p>Asked every time the pane is put in or taken out, and on every revalidation, rather than kept up to date
+     * by being told: a lane laid out of this gate from somewhere else entirely is laid while this gate's block
+     * entity may not even be loaded.
+     */
+    private void refreshLaneCells() {
+        if (level instanceof ServerLevel serverLevel && gateId != null && shape != null) {
+            laneCells = RailLaneRegistry.get(serverLevel.getServer()).laneCells(gateId);
+        }
+    }
+
+    /** A lane has been laid into or out of this gate, so its cells may need a socket now. */
+    public void laneCellsChanged() {
+        refreshLaneCells();
+        if (shape != null && !state.hasAperture()) {
+            setAperture(shape, false);
         }
     }
 
@@ -339,9 +448,84 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         }
         RiftGateRegistry registry = RiftGateRegistry.get(serverLevel);
         RiftGate existing = registry.byId(gateId());
-        registry.register(existing == null
-                ? RiftGate.create(gateId(), serverLevel.dimension(), worldPosition, shape, null)
-                : existing.withShape(shape));
+        if (existing != null) {
+            // A record with no owner is one made before the block knew who placed it - the gate forms as the
+            // controller goes down, a moment before anybody is told who set it there.
+            registry.register(existing.owner() == null && owner != null
+                    ? existing.withShape(shape).withOwner(owner, ownerName) : existing.withShape(shape));
+            reviveLanes(serverLevel);
+            return;
+        }
+        // A network that has gone, or that the owner has left, while the ring was down is not come back to.
+        UUID network = NetworkRules.mayStay(WarpNetworkRegistry.get(serverLevel).byId(keptNetwork), owner)
+                ? keptNetwork : null;
+        WarpAnchorAccess access = keptAccess == WarpAnchorAccess.NETWORK && network == null
+                ? WarpAnchorAccess.PRIVATE : keptAccess;
+        registry.register(RiftGate.create(gateId(), serverLevel.dimension(), worldPosition, shape, owner, ownerName)
+                .withAccess(access).withNetwork(network));
+        // Last, and allowed to fail: another gate may have taken the name while this one was in pieces.
+        registry.rename(gateId(), keptName);
+        reviveLanes(serverLevel);
+    }
+
+    /**
+     * Lanes routed here that were left with nowhere to come out while this gate was in pieces are laid again.
+     *
+     * <p>A gate keeps its id across a broken ring, so a lane from elsewhere still points at it; it only stopped
+     * being something a far end could be laid out of.
+     */
+    private void reviveLanes(ServerLevel serverLevel) {
+        RailLaneRegistry lanes = RailLaneRegistry.get(serverLevel.getServer());
+        for (RailLane lane : lanes.comingOutOf(gateId())) {
+            if (lane.state() == RailLaneState.NO_ROUTE) {
+                lanes.put(lane.withState(RailLaneState.FAR_PENDING));
+            }
+        }
+    }
+
+    /**
+     * Takes up every lane that touches this gate, because its ring has come apart.
+     *
+     * <p>Its own lanes go entirely, the player's track left as ordinary track. Lanes laid out of it from elsewhere
+     * lose their far end only: their own gate still has its track and its corridor, and they come out of here again
+     * if the ring is mended.
+     */
+    private void takeUpLanes(ServerLevel serverLevel, List<RailLane> lanes) {
+        net.minecraft.server.MinecraftServer server = serverLevel.getServer();
+        for (RailLane lane : lanes) {
+            if (lane.gate().equals(gateId)) {
+                RailWorks.tearDown(server, lane, "the ring of the gate it runs into came apart");
+            } else {
+                RailWorks.takeUpFar(server, lane);
+                RailLaneRegistry.get(server).put(lane.routedTo(lane.far()).withState(RailLaneState.NO_ROUTE));
+            }
+        }
+    }
+
+    /**
+     * Records who set this controller down, so the gate has an owner.
+     *
+     * <p>The ring is usually finished by placing the controller, so the gate has already formed and
+     * registered itself, unowned, by the time this is called - which is why it claims the record as well.
+     */
+    public void onPlaced(@Nullable Player placer) {
+        if (placer == null || !(level instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        owner = placer.getUUID();
+        ownerName = placer.getGameProfile().getName();
+        setChanged();
+        RiftGateRegistry registry = RiftGateRegistry.get(serverLevel);
+        RiftGate record = registry.byId(gateId());
+        if (record != null && record.owner() == null) {
+            registry.register(record.withOwner(owner, ownerName));
+        }
+        Trace.log(Trace.GATE, "{} set down by {}, who owns it", Trace.pos(worldPosition), ownerName);
+    }
+
+    @Nullable
+    public UUID owner() {
+        return owner;
     }
 
     // -------------------------------------------------------------- dialling
@@ -353,6 +537,32 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
      * has exactly one interesting property and it is why.
      */
     public GateFailure dial(@Nullable ServerPlayer player, @Nullable UUID target) {
+        GateFailure result = tryDial(player, target, false);
+        Trace.log(Trace.GATE, "{} dialled {} by {} -> {} (state {} essence {}/{} rpm {} needs {})",
+                Trace.pos(worldPosition), target, player == null ? "a circuit" : Trace.who(player),
+                result.getSerializedName(), state, tank.getFluidAmount(), dialCost(),
+                Trace.num(Math.abs(getSpeed())), AWConfig.GATE_MINIMUM_RPM.get());
+        return result;
+    }
+
+    /**
+     * Strikes a connection for a train waiting at this gate, to the far end of the lane it is waiting in.
+     *
+     * <p>Exactly a dial - the same essence, the same rotation, the same refusals - except that nobody is standing
+     * here, so nobody's access is asked (whoever laid the lane could dial it), the far gate may be in another
+     * dimension if the server allows rail routes there, and the gate's route is not touched: a train coming back
+     * through a lane laid out of this gate from elsewhere dials that lane's own gate, not wherever this one is routed.
+     * A connection struck this way is the gate's to shut again, once trains are done with it.
+     */
+    public GateFailure dialForTrain(UUID target) {
+        GateFailure result = tryDial(null, target, true);
+        Trace.log(Trace.RAIL, "{} dialled {} for a train -> {} (state {} essence {}/{} rpm {} needs {})",
+                Trace.pos(worldPosition), target, result.getSerializedName(), state, tank.getFluidAmount(), dialCost(),
+                Trace.num(Math.abs(getSpeed())), AWConfig.GATE_MINIMUM_RPM.get());
+        return result;
+    }
+
+    private GateFailure tryDial(@Nullable ServerPlayer player, @Nullable UUID target, boolean forTrain) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return GateFailure.NOT_FORMED;
         }
@@ -374,17 +584,44 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         if (!far.enabled()) {
             return fail(GateFailure.DESTINATION_DISABLED);
         }
-        if (!far.isInSameDimension(serverLevel)) {
-            return fail(GateFailure.DESTINATION_ANOTHER_DIMENSION);
+        if (!far.isInSameDimension(serverLevel) && !(forTrain && railsCrossDimensions())) {
+            // A person can never follow a train into another dimension through a gate, so a route there is
+            // something to set, not to dial - and said so, rather than as a plain "another dimension".
+            return fail(railsCrossDimensions() ? GateFailure.DESTINATION_RAIL_ONLY
+                    : GateFailure.DESTINATION_ANOTHER_DIMENSION);
         }
-        if (player != null && !far.isVisibleTo(player)) {
+        if (player != null && !far.isVisibleTo(player, WarpNetworkRegistry.get(serverLevel))) {
             return fail(GateFailure.UNAUTHORISED);
+        }
+        net.minecraft.server.MinecraftServer server = serverLevel.getServer();
+        if (!forTrain && player != null && !target.equals(destination)
+                && !RailLaneRegistry.get(server).ownedBy(gateId()).isEmpty()) {
+            // Dialling elsewhere turns this gate's track elsewhere too - a whole railway's worth of routing - so it is
+            // the gate's owner's to do, not every passer-by's who may dial.
+            RiftGate own = RiftGateRegistry.get(serverLevel).byId(gateId());
+            if (own != null && !own.mayEdit(player)) {
+                return fail(GateFailure.UNAUTHORISED);
+            }
+            if (RailTransit.ownLanesInTransit(server, gateId())) {
+                return fail(GateFailure.RAIL_TRAIN_IN_TRANSIT);
+            }
+        }
+        ServerLevel farLevel = server.getLevel(far.dimension());
+        if (farLevel == null) {
+            return fail(GateFailure.DESTINATION_MISSING);
         }
 
         // The far end has to be loaded before anything else can be said about it. This is the one
-        // place a gate is allowed to pull chunks in, and it is a deliberate player action.
-        GateTicket.hold(serverLevel, far.shape().centre(), Math.max(far.shape().width(), far.shape().height()));
-        RiftGateBlockEntity farGate = resolve(serverLevel, far.controller());
+        // place a gate is allowed to pull chunks in, and it is a deliberate player action - or a train's.
+        GateTicket.hold(farLevel, far.shape().centre(), Math.max(far.shape().width(), far.shape().height()));
+        RiftGateBlockEntity farGate = resolve(farLevel, far.controller());
+        if (farGate == null && Holds.inPlot(farLevel, far.controller())
+                && Holds.shipAt(farLevel, far.controller()) != null) {
+            // Aboard a ship that has sailed off and unloaded. A plot is not ground that loads on request -
+            // the hold above has instead started bringing the ship back where it was last seen, which takes
+            // longer than a dial does. Said as what it is, rather than as a broken ring nobody can mend.
+            return fail(GateFailure.DESTINATION_LOADING);
+        }
         if (farGate == null || !farGate.isFormed()) {
             return fail(GateFailure.DESTINATION_UNFORMED);
         }
@@ -401,10 +638,83 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         }
 
         tank.drain(cost, IFluidHandler.FluidAction.EXECUTE);
-        destination = target;
+        if (!forTrain) {
+            UUID previous = destination;
+            destination = target;
+            if (!target.equals(previous)) {
+                RailWorks.reroute(server, gateId(), target);
+            }
+        }
+        railOpened = forTrain;
+        railIdleTicks = 0;
         connect(target, true);
         farGate.connect(gateId(), false);
+        // Both ends are loaded now, which is the moment a lane's far end that could not be laid before can be.
+        RailWorks.layBetween(server, gateId(), target);
         lastFailure = GateFailure.NONE;
+        return GateFailure.NONE;
+    }
+
+    private static boolean railsCrossDimensions() {
+        return AWConfig.RAIL_GATES.get() && AWConfig.RAIL_CROSS_DIMENSION.get();
+    }
+
+    /**
+     * Sets where this gate's rail lanes come out, without dialling.
+     *
+     * <p>A route is the gate's destination - the gate a dial from here strikes, and the gate every lane run into it
+     * comes out of. Setting it here costs nothing, opens nothing, and may name a gate in another dimension, which a
+     * dial may not: that is the only way a gate is routed to one.
+     */
+    public GateFailure setRoute(ServerPlayer player, @Nullable UUID target) {
+        GateFailure result = trySetRoute(player, target);
+        Trace.log(Trace.RAIL, "{} routed to {} by {} -> {}", Trace.pos(worldPosition), target, Trace.who(player),
+                result.getSerializedName());
+        return result;
+    }
+
+    private GateFailure trySetRoute(ServerPlayer player, @Nullable UUID target) {
+        if (!(level instanceof ServerLevel serverLevel) || shape == null || state == RiftGateState.UNFORMED) {
+            return fail(GateFailure.NOT_FORMED);
+        }
+        if (target == null) {
+            return fail(GateFailure.NO_DESTINATION);
+        }
+        if (target.equals(gateId())) {
+            return fail(GateFailure.DESTINATION_IS_SELF);
+        }
+        RiftGateRegistry registry = RiftGateRegistry.get(serverLevel);
+        RiftGate own = registry.byId(gateId());
+        RiftGate far = registry.byId(target);
+        if (far == null) {
+            return fail(GateFailure.DESTINATION_MISSING);
+        }
+        if (!far.enabled()) {
+            return fail(GateFailure.DESTINATION_DISABLED);
+        }
+        if (own != null && !own.mayEdit(player) || !far.isVisibleTo(player, WarpNetworkRegistry.get(serverLevel))) {
+            return fail(GateFailure.UNAUTHORISED);
+        }
+        if (!far.isInSameDimension(serverLevel) && !railsCrossDimensions()) {
+            return fail(GateFailure.DESTINATION_ANOTHER_DIMENSION);
+        }
+        net.minecraft.server.MinecraftServer server = serverLevel.getServer();
+        if (target.equals(destination)) {
+            // The same route again: worth something all the same, as the way to have a far end that was found
+            // blocked tried again.
+            RailWorks.layBetween(server, gateId(), target);
+            lastFailure = GateFailure.NONE;
+            notifyUpdate();
+            return GateFailure.NONE;
+        }
+        if (!RailGateLogic.mayChange(RailTransit.ownLanesInTransit(server, gateId()))) {
+            return fail(GateFailure.RAIL_TRAIN_IN_TRANSIT);
+        }
+        destination = target;
+        setChanged();
+        RailWorks.reroute(server, gateId(), target);
+        lastFailure = GateFailure.NONE;
+        notifyUpdate();
         return GateFailure.NONE;
     }
 
@@ -412,6 +722,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
     private void connect(UUID other, boolean paying) {
         connected = other;
         dialler = paying;
+        if (!paying) {
+            railOpened = false; // only the end that dialled shuts a train's connection
+        }
         // A full interval before the first charge: the dial cost has only just been taken, and
         // billing again on the same tick reads as the dial costing more than it said it would.
         upkeepTimer = AWConfig.GATE_UPKEEP_INTERVAL.get();
@@ -424,10 +737,15 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         if (!state.hasAperture()) {
             return;
         }
+        Trace.log(Trace.GATE, "{} hanging up on {}: {} (essence {} upkeep {} rpm {})", Trace.pos(worldPosition),
+                connected, reason == GateFailure.NONE ? "closed" : reason.getSerializedName(), tank.getFluidAmount(),
+                upkeepCost(), Trace.num(Math.abs(getSpeed())));
         UUID other = connected;
         boolean wasPaying = dialler;
         connected = null;
         dialler = false;
+        railOpened = false;
+        railIdleTicks = 0;
         lastFailure = reason;
         transition(RiftGateState.CLOSING);
         playSound(SoundEvents.BEACON_DEACTIVATE, 0.7F, 0.8F);
@@ -439,8 +757,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
 
         if (level instanceof ServerLevel serverLevel && other != null) {
             RiftGate far = RiftGateRegistry.get(serverLevel).byId(other);
-            if (far != null) {
-                RiftGateBlockEntity farGate = resolve(serverLevel, far.controller());
+            ServerLevel farLevel = far == null ? null : serverLevel.getServer().getLevel(far.dimension());
+            if (far != null && farLevel != null) {
+                RiftGateBlockEntity farGate = resolve(farLevel, far.controller());
                 // Only if it is still pointed at us: a gate that has since been re-dialled elsewhere
                 // is somebody else's connection now and closing it would be closing a stranger's door.
                 if (farGate != null && gateId().equals(farGate.connected)) {
@@ -451,6 +770,25 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                 }
             }
         }
+    }
+
+    /**
+     * A player's Hang Up: refused while a train is part of the way through, which would otherwise be cut in two -
+     * Create keeps a carriage that is half through a pane in both dimensions, and a shut gate cannot be gone on
+     * through.
+     */
+    public GateFailure playerHangUp() {
+        if (!state.hasAperture()) {
+            return GateFailure.NONE;
+        }
+        if (level instanceof ServerLevel serverLevel
+                && !RailGateLogic.mayChange(RailTransit.inTransitBetween(serverLevel.getServer(), gateId(), connected))) {
+            Trace.log(Trace.RAIL, "{} would not hang up on {}: a train is part of the way through",
+                    Trace.pos(worldPosition), connected);
+            return fail(GateFailure.RAIL_TRAIN_IN_TRANSIT);
+        }
+        hangUp(GateFailure.NONE);
+        return GateFailure.NONE;
     }
 
     private GateFailure fail(GateFailure reason) {
@@ -472,6 +810,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         state = next;
         stateTicks = 0;
         if (apertureChanged) {
+            refreshLaneCells();
             refreshKinetics();
             // The pane goes in as the gate starts dialling and comes out when it has finished
             // closing, which is what `hasAperture` already means everywhere else.
@@ -603,6 +942,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                 }
                 renewTicket();
                 tickTraversal();
+                lingerForTrains();
             }
             case CLOSING -> {
                 if (stateTicks >= CLOSE_TICKS) {
@@ -611,6 +951,26 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             }
             default -> {
             }
+        }
+    }
+
+    /**
+     * Shuts a connection a train struck, once nothing has used it for {@code lingerTicks}.
+     *
+     * <p>Only at the end that dialled, and only for a connection a train struck: one a player struck is theirs to
+     * hang up. A second train close behind the first keeps it open - it is waiting at the pane, or on its way with
+     * the gate on its path - and so does one still running through.
+     */
+    private void lingerForTrains() {
+        if (!railOpened || !dialler || !(level instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        boolean busy = RailTransit.busy(serverLevel.getServer(), gateId(), connected);
+        railIdleTicks = busy ? 0 : railIdleTicks + 1;
+        if (RailGateLogic.shutsNow(true, busy, railIdleTicks, AWConfig.RAIL_LINGER_TICKS.get())) {
+            Trace.log(Trace.RAIL, "{} shutting the connection to {} it struck for trains: none for {} ticks",
+                    Trace.pos(worldPosition), connected, railIdleTicks);
+            hangUp(GateFailure.NONE);
         }
     }
 
@@ -672,6 +1032,12 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             tryForm();
             return;
         }
+        // A gate aboard a ship says where that ship is, so the far end of a dial can reach for it once it
+        // has sailed off and unloaded. Cheap: the ledger only changes when the ship has moved.
+        Airship own = Airship.containing(this);
+        if (own != null) {
+            Holds.noteShip(own);
+        }
         RiftGateStructure.Opening opening =
                 RiftGateStructure.find(worldPosition, this::isFrame, this::isOpen);
         if (opening == null) {
@@ -686,6 +1052,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             registerSelf();
             notifyUpdate();
         }
+        tendLanes();
         if (state.hasAperture()) {
             // Re-asserted rather than assumed. This is what heals a pane that was interfered with -
             // a cell filled with water, a chunk that came back without it - and it costs a few
@@ -694,6 +1061,87 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             // corrected to whatever the gate is actually doing.
             setAperture(shape, true);
             setPortalStage(shape, RiftPortalStage.of(state));
+        } else {
+            // Shut, the same pass puts a socket back in any lane's cell that lost one, and takes away any socket
+            // left standing where no lane runs any more.
+            setAperture(shape, false);
+        }
+        // Last, after the sockets are tidied: the socket this puts down for new track is not a lane's yet, and
+        // tidying after it would take it straight away again before Create had looked.
+        if (level instanceof ServerLevel serverLevel) {
+            noticeTracks(serverLevel, RailLaneRegistry.get(serverLevel.getServer()));
+        }
+    }
+
+    /**
+     * Looks after the rail lanes that run through this gate: takes up any whose track has gone, notes any whose
+     * far stub here has been taken up, and notices track run up to the gate while it was shut.
+     *
+     * <p>Track run up to an open gate meets a pane and Create asks for a lane at once. Shut, the cell is empty, so
+     * Create sees no portal and lays ordinary track. This notices that track on its next pass, puts a socket in the
+     * cell, and has Create look at the track again - and then it finds a portal.
+     */
+    private void tendLanes() {
+        if (!(level instanceof ServerLevel serverLevel) || shape == null) {
+            return;
+        }
+        net.minecraft.server.MinecraftServer server = serverLevel.getServer();
+        RailLaneRegistry lanes = RailLaneRegistry.get(server);
+        Set<BlockPos> cells = new HashSet<>(shape.cells());
+        for (RailLane lane : lanes.ownedBy(gateId())) {
+            if (!serverLevel.isLoaded(lane.track())) {
+                continue;
+            }
+            boolean cellGone = !cells.contains(lane.cell());
+            if (cellGone || !RiftPortalTracks.isBoundPortal(serverLevel, lane.track())) {
+                RailWorks.tearDown(server, lane, cellGone ? "its cell is no longer part of the opening"
+                        : "its track was taken up");
+            }
+        }
+        for (RailLane lane : lanes.comingOutOf(gateId())) {
+            if (lane.state() != RailLaneState.READY || lane.farStub() == null
+                    || !serverLevel.dimension().equals(lane.farDimension()) || !serverLevel.isLoaded(lane.farStub())) {
+                continue;
+            }
+            if (!RiftPortalTracks.isBoundPortal(serverLevel, lane.farStub())) {
+                // Taken up by somebody here. Left so until the gates are next dialled, rather than put straight
+                // back under their pickaxe - see RailWorks.layBetween.
+                Trace.log(Trace.RAIL, "lane {}'s stub out of {} was taken up", lane.id(), Trace.pos(worldPosition));
+                lanes.put(lane.withState(RailLaneState.FAR_BLOCKED));
+            }
+        }
+        refreshLaneCells();
+    }
+
+    private void noticeTracks(ServerLevel serverLevel, RailLaneRegistry lanes) {
+        if (!AWConfig.RAIL_GATES.get() || destination == null || state.hasAperture() || airship() != null) {
+            return;
+        }
+        Direction.Axis normal = shape.normal();
+        for (int across = 0; across < shape.width(); across++) {
+            int up = RailLaneMap.lowestOpen(shape, across);
+            if (up < 0) {
+                continue;
+            }
+            BlockPos cell = RailLaneMap.cellAt(shape, across, up);
+            BlockState there = serverLevel.getBlockState(cell);
+            if (!there.isAir() && !there.canBeReplaced()) {
+                continue; // a socket already: track laid against one is a lane the moment it is laid
+            }
+            for (Direction.AxisDirection sign : Direction.AxisDirection.values()) {
+                BlockPos track = cell.relative(Direction.fromAxisAndDirection(normal, sign));
+                if (!serverLevel.isLoaded(track)) {
+                    continue;
+                }
+                BlockState laid = serverLevel.getBlockState(track);
+                if (RiftPortalTracks.runsInto(laid, normal) && lanes.atTrack(serverLevel.dimension(), track) == null) {
+                    serverLevel.setBlock(cell, AWBlocks.RIFT_SOCKET.get().defaultBlockState(), Block.UPDATE_CLIENTS);
+                    serverLevel.scheduleTick(track, laid.getBlock(), 1);
+                    Trace.log(Trace.RAIL, "{} noticed track at {} run up to it while shut", Trace.pos(worldPosition),
+                            Trace.pos(track));
+                    break;
+                }
+            }
         }
     }
 
@@ -704,8 +1152,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         ticketTimer = GateTicket.RENEW_INTERVAL;
         GateTicket.hold(serverLevel, shape.centre(), Math.max(shape.width(), shape.height()));
         RiftGate far = farGate();
-        if (far != null) {
-            GateTicket.hold(serverLevel, far.shape().centre(),
+        ServerLevel farLevel = far == null ? null : serverLevel.getServer().getLevel(far.dimension());
+        if (far != null && farLevel != null) {
+            GateTicket.hold(farLevel, far.shape().centre(),
                     Math.max(far.shape().width(), far.shape().height()));
         }
     }
@@ -736,6 +1185,11 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             hangUp(GateFailure.DESTINATION_MISSING);
             return;
         }
+        if (!far.isInSameDimension(serverLevel)) {
+            // Open for trains to another dimension, which Create carries and nothing else here can follow.
+            turnBackWalkers(serverLevel);
+            return;
+        }
         // Resolved once per tick rather than cached on the field - see Airship's own note on why an
         // instance is a cheap, short-lived view rather than something to hold onto.
         Airship nearAirship = airship();
@@ -745,6 +1199,25 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         moveEntities(serverLevel, far, nearAirship, farAirship, seen);
         // Anything that has left the catchment is forgotten, so walking away and coming back is a
         // fresh approach rather than half of a crossing recorded minutes ago.
+        watch.retain(seen);
+    }
+
+    /**
+     * Tells anybody who walks through a gate open to another dimension that it is for trains, and leaves them where
+     * they are. The crossing is noted as any other is, so it is said once per crossing, not every tick.
+     */
+    private void turnBackWalkers(ServerLevel serverLevel) {
+        Airship nearAirship = airship();
+        Set<UUID> seen = new HashSet<>();
+        for (ServerPlayer player : serverLevel.getEntitiesOfClass(ServerPlayer.class,
+                worldCatchment(nearAirship, CATCHMENT_DEPTH), candidate -> !candidate.isPassenger())) {
+            boolean stepped = stepped(player.getUUID(), toLocalPoint(player.position(), nearAirship), seen);
+            if (stepped && !settling.containsKey(player.getUUID())) {
+                player.displayClientMessage(
+                        AWLang.translate(GateFailure.DESTINATION_RAIL_ONLY.translationKey()).component(), true);
+                settling.put(player.getUUID(), REENTRY_TICKS);
+            }
+        }
         watch.retain(seen);
     }
 
@@ -849,8 +1322,19 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             }
         }
 
+        // A vehicle takes everything joined to it through with it, so a trailer the car has already carried
+        // across is not in the catchment any more - and must not be moved a second time from where it was.
+        Set<SubLevel> carried = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
         for (ServerSubLevel sub : crossing) {
+            if (carried.contains(sub)) {
+                continue;
+            }
             Airship vehicle = Airship.of(sub);
+            if (GatePassages.holding(vehicle.uuid())) {
+                // Held at a far gate while its crew are in passage - very likely this one, with its middle
+                // sitting in this catchment. Not noted, so that it is a fresh sighting once it is let go.
+                continue;
+            }
             // Measured on the hull's centre, not its pose origin. On most builds those are not the
             // same point, and a vehicle whose origin is out at one corner would be judged to have
             // crossed while most of it was still on the near side.
@@ -865,13 +1349,27 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             AABB bounds = vehicle.assemblyBounds().toMojang();
             if (!shape.admits(shape.extentAcross(bounds), bounds.getYsize())
                     || !far.shape().admits(far.shape().extentAcross(bounds), bounds.getYsize())) {
-                refuse(level, vehicle, origin, localCentre, nearAirship);
+                Trace.log(Trace.GATE, "{} turned back vehicle {}: {} across by {} high will not fit {} (here {}x{},"
+                                + " far end {}x{})", Trace.pos(worldPosition), vehicle.uuid(),
+                        Trace.num(shape.extentAcross(bounds)), Trace.num(bounds.getYsize()),
+                        shape.admits(shape.extentAcross(bounds), bounds.getYsize()) ? "the far end" : "this end",
+                        shape.width(), shape.height(), far.shape().width(), far.shape().height());
+                refuse(level, vehicle, origin, localCentre, nearAirship, GateFailure.TOO_LARGE);
+                continue;
+            }
+            Fastening tie = Fastenings.holding(vehicle).orElse(null);
+            if (tie != null) {
+                Trace.log(Trace.GATE, "{} turned back vehicle {}: tied down by {}", Trace.pos(worldPosition),
+                        vehicle.uuid(), tie);
+                refuse(level, vehicle, origin, localCentre, nearAirship, GateFailure.FASTENED);
                 continue;
             }
 
             // Read the crew before the hull moves: afterwards it is somewhere else entirely, and
             // whoever was aboard is found by looking at where it is now.
             List<ServerPlayer> aboard = vehicle.crew();
+            List<Airship> vessel = vehicle.vessel();
+            vessel.forEach(member -> carried.add(member.subLevel()));
 
             // Position and detection are exact under any tilt - see the note above worldCatchment.
             // The turn a hull itself is given below is not: it is the same local, cardinal-yaw delta
@@ -892,26 +1390,42 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
 
             Quaterniond orientation = new Quaterniond(vehicle.orientation())
                     .rotateY(Math.toRadians(-arrival.yawDelta()));
-            if (vehicle.relocate(new Vector3d(arrivalOrigin.x, arrivalOrigin.y, arrivalOrigin.z),
-                    orientation, 0.0D)) {
-                vehicle.driveVelocity(
-                        new Vector3d(worldArrivalMotion.x, worldArrivalMotion.y, worldArrivalMotion.z));
-                settling.put(vehicle.uuid(), REENTRY_TICKS);
-                watch.forget(vehicle.uuid());
+            boolean moved = vehicle.relocate(new Vector3d(arrivalOrigin.x, arrivalOrigin.y, arrivalOrigin.z),
+                    orientation, 0.0D);
+            Trace.log(Trace.GATE, "{} carried vehicle {} ({} crew) from {} to {} turned {} degrees{}",
+                    Trace.pos(worldPosition), vehicle.uuid(), aboard.size(), Trace.vec(origin), Trace.vec(arrivalOrigin),
+                    Trace.num(arrival.yawDelta()), moved ? "" : " - Sable REFUSED the move");
+            if (moved) {
+                // A crew is carried through as a passage: the hull waits at the far gate, stopped, until
+                // they arrive, and is driven off then. With nobody aboard there is nobody to wait for.
+                boolean passage = GatePassages.enabled() && !aboard.isEmpty();
+                vehicle.driveVelocity(passage ? new Vector3d()
+                        : new Vector3d(worldArrivalMotion.x, worldArrivalMotion.y, worldArrivalMotion.z));
+                for (Airship member : vessel) {
+                    settling.put(member.uuid(), REENTRY_TICKS);
+                    watch.forget(member.uuid());
+                }
                 markArrived(level, far);
-                AWCriteria.gateTravelled(aboard, true);
+                if (passage) {
+                    // Which also does the announcing and the awarding, when they come out.
+                    GatePassages.beginAboard(level, vehicle, vessel, aboard, farAirship, arrival.motion());
+                } else {
+                    SpatialWaveDetectorBlockEntity.announce(level, vehicle.assemblyBounds().toMojang());
+                    AWCriteria.gateTravelled(aboard, true);
+                }
             }
         }
     }
 
     /**
-     * A vehicle too big for one of the openings, put back rather than passed.
+     * A vehicle that may not cross - too big for one of the openings, or tied to something it would leave
+     * behind - put back rather than passed.
      *
      * <p>Refusing has to be visible or it reads as the gate being broken, so the vehicle is stopped
      * dead on the near side rather than being allowed to drift through a hole it does not fit.
      */
     private void refuse(ServerLevel level, Airship vehicle, Vec3 origin, Vec3 localCentreBefore,
-                        @Nullable Airship nearAirship) {
+                        @Nullable Airship nearAirship, GateFailure reason) {
         // Which way to put it back is decided by where its middle was, and where to put it is its
         // origin - the two are different points and mixing them up parks a vehicle in its own gate.
         // outwardTowards answers in the gate's own local frame, so it is turned back into world before
@@ -921,7 +1435,7 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         vehicle.relocate(new Vector3d(back.x, back.y, back.z), new Quaterniond(vehicle.orientation()), 0.0D);
         vehicle.driveVelocity(new Vector3d());
         settling.put(vehicle.uuid(), REENTRY_TICKS);
-        lastFailure = GateFailure.TOO_LARGE;
+        lastFailure = reason;
         level.playSound(null, worldPosition, SoundEvents.BEACON_DEACTIVATE, SoundSource.BLOCKS, 0.7F, 0.6F);
         notifyUpdate();
     }
@@ -932,6 +1446,17 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                 candidate -> !candidate.isRemoved())) {
             if (entity.isPassenger()) {
                 continue; // moved by whatever is carrying it
+            }
+            if (entity instanceof com.simibubi.create.content.trains.entity.CarriageContraptionEntity) {
+                // A train's carriage, posed through the pane by Create as it crosses a rail lane. Create carries it,
+                // and its riders; a gate that also "noticed" it cross would tear it off its own track.
+                continue;
+            }
+            if (GatePassages.inPassage(entity)) {
+                // Part of the way through a gate already - most likely held just beyond this one, having
+                // come out of it. Not this gate's to move, and not noted either: a side remembered now
+                // would be half of a crossing the moment they are let go.
+                continue;
             }
             SubLevel tracking = Sable.HELPER.getTrackingOrVehicleSubLevel(entity);
             // Aboard a DIFFERENT hull, which crosses as one thing or not at all - moveVehicles' job,
@@ -949,6 +1474,11 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             }
             AABB bounds = entity.getBoundingBox();
             if (!far.shape().admits(far.shape().extentAcross(bounds), bounds.getYsize())) {
+                // Silent to the traveller - they simply walk through the frame - so this is the only record.
+                Trace.changed("gate-too-big:" + entity.getUUID(), Trace.GATE,
+                        "{} let {} walk through without crossing: too big for the far end ({}x{})",
+                        Trace.pos(worldPosition), entity.getName().getString(), far.shape().width(),
+                        far.shape().height());
                 continue;
             }
 
@@ -957,6 +1487,15 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             Vec3 worldArrivalPosition = toWorldPoint(arrival.position(), farAirship);
             Vec3 worldArrivalMotion = toWorldDirection(arrival.motion(), farAirship);
             float yaw = worldYaw(entity.getYRot(), arrival.yawDelta(), nearAirship, farAirship);
+            // A player, on foot or riding, goes through as a passage: put at the far gate now, held there
+            // unseen and unharmed, and given their momentum back when they arrive. Begun before they are
+            // moved, so their client is drawing the passage before it is told where it is.
+            List<ServerPlayer> travellers = GatePassages.travellers(entity);
+            Vec3 from = entity.position();
+            if (!travellers.isEmpty()) {
+                GatePassages.begin(level, entity, travellers, from, worldArrivalPosition, farAirship,
+                        arrival.position(), arrival.motion());
+            }
             if (entity instanceof ServerPlayer player) {
                 player.connection.teleport(worldArrivalPosition.x, worldArrivalPosition.y,
                         worldArrivalPosition.z, yaw, player.getXRot());
@@ -964,12 +1503,18 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                 entity.teleportTo(worldArrivalPosition.x, worldArrivalPosition.y, worldArrivalPosition.z);
                 entity.setYRot(yaw);
             }
-            entity.setDeltaMovement(worldArrivalMotion);
+            Trace.log(Trace.GATE, "{} carried {} from {} to {}", Trace.pos(worldPosition),
+                    entity.getName().getString(), Trace.vec(from), Trace.vec(worldArrivalPosition));
+            entity.setDeltaMovement(travellers.isEmpty() ? worldArrivalMotion : Vec3.ZERO);
             entity.hurtMarked = true;
             entity.fallDistance = 0.0F;
             settling.put(entity.getUUID(), REENTRY_TICKS);
             watch.forget(entity.getUUID());
             markArrived(level, far);
+            if (!travellers.isEmpty()) {
+                continue; // announced, and awarded, by the passage as they come out of it
+            }
+            SpatialWaveDetectorBlockEntity.announce(level, entity.getBoundingBox());
             if (entity instanceof ServerPlayer walker) {
                 AWCriteria.gateTravelled(List.of(walker), false);
             }
@@ -1042,6 +1587,22 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
             tag.putUUID("Connected", connected);
         }
         tag.putBoolean("Dialler", dialler);
+        if (clientPacket) {
+            return;
+        }
+        tag.putBoolean("RailOpened", railOpened);
+        // The server's business only: nothing a client draws depends on who owns a gate.
+        if (owner != null) {
+            tag.putUUID("Owner", owner);
+            tag.putString("OwnerName", ownerName);
+        }
+        if (!keptName.isBlank()) {
+            tag.putString("KeptName", keptName);
+        }
+        tag.putString("KeptAccess", keptAccess.getSerializedName());
+        if (keptNetwork != null) {
+            tag.putUUID("KeptNetwork", keptNetwork);
+        }
     }
 
     @Override
@@ -1056,6 +1617,15 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
         destination = tag.hasUUID("Destination") ? tag.getUUID("Destination") : null;
         connected = tag.hasUUID("Connected") ? tag.getUUID("Connected") : null;
         dialler = tag.getBoolean("Dialler");
+        if (clientPacket) {
+            return;
+        }
+        railOpened = tag.getBoolean("RailOpened");
+        owner = tag.hasUUID("Owner") ? tag.getUUID("Owner") : null;
+        ownerName = tag.getString("OwnerName");
+        keptName = tag.getString("KeptName");
+        keptAccess = WarpAnchorAccess.byName(tag.getString("KeptAccess"));
+        keptNetwork = tag.hasUUID("KeptNetwork") ? tag.getUUID("KeptNetwork") : null;
     }
 
     private static RiftGateState byName(String name) {

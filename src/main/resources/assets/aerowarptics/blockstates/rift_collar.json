@@ -1,0 +1,34 @@
+{
+  "variants": {
+    "facing=north,formed=false": {
+      "model": "aerowarptics:block/rift_collar"
+    },
+    "facing=north,formed=true": {
+      "model": "aerowarptics:block/rift_collar"
+    },
+    "facing=east,formed=false": {
+      "model": "aerowarptics:block/rift_collar",
+      "y": 90
+    },
+    "facing=east,formed=true": {
+      "model": "aerowarptics:block/rift_collar",
+      "y": 90
+    },
+    "facing=south,formed=false": {
+      "model": "aerowarptics:block/rift_collar",
+      "y": 180
+    },
+    "facing=south,formed=true": {
+      "model": "aerowarptics:block/rift_collar",
+      "y": 180
+    },
+    "facing=west,formed=false": {
+      "model": "aerowarptics:block/rift_collar",
+      "y": 270
+    },
+    "facing=west,formed=true": {
+      "model": "aerowarptics:block/rift_collar",
+      "y": 270
+    }
+  }
+}

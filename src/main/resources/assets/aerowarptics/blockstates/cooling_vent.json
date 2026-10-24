@@ -1,0 +1,27 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "aerowarptics:block/cooling_vent"
+    },
+    "facing=east": {
+      "model": "aerowarptics:block/cooling_vent",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "aerowarptics:block/cooling_vent",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "aerowarptics:block/cooling_vent",
+      "y": 270
+    },
+    "facing=up": {
+      "model": "aerowarptics:block/cooling_vent",
+      "x": 270
+    },
+    "facing=down": {
+      "model": "aerowarptics:block/cooling_vent",
+      "x": 90
+    }
+  }
+}

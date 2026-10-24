@@ -9,6 +9,7 @@ import uk.co.iceconchy.aerowarptics.probe.ProbeBearing;
 import uk.co.iceconchy.aerowarptics.probe.ProbeSounding;
 import uk.co.iceconchy.aerowarptics.probe.ProbeState;
 import uk.co.iceconchy.aerowarptics.probe.ProbeVerdict;
+import uk.co.iceconchy.aerowarptics.probe.RiftProbeBlockEntity;
 import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
 
@@ -30,6 +31,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ProbeTest {
 
     private static final double EPSILON = 1.0e-9D;
+
+    // ---------------------------------------------------------------- buffer
+
+    @Test
+    void theBufferAlwaysHoldsTheLongestSounding() {
+        int fullSupply = 35_400;
+        assertEquals(RiftProbeBlockEntity.CAPACITY, RiftProbeBlockEntity.capacityOf(0, fullSupply),
+                "nought is meant to leave the probe unlimited");
+        assertEquals(64_000, RiftProbeBlockEntity.capacityOf(64_000, fullSupply));
+        assertEquals(fullSupply, RiftProbeBlockEntity.capacityOf(1_000, fullSupply),
+                "a buffer smaller than the longest sounding left a range nobody could pay for");
+    }
 
     // -------------------------------------------------------------- bearings
 
@@ -216,6 +229,51 @@ class ProbeTest {
         assertEquals(course.fix(), renamed.fix());
         assertEquals(12, renamed.arrivalHeight(), "relabelling does not move the ship up or down");
         assertEquals("new", renamed.label());
+    }
+
+    /**
+     * Holding altitude is saved with the course, on either kind.
+     *
+     * <p>A redstone edge replays the standing course off the drive, which may have been through a
+     * restart since the chart was clicked - a flag that did not survive saving would fly the destination's
+     * own height with nothing to say why.
+     */
+    @Test
+    void holdingAltitudeSurvivesBeingSavedAndLoaded() {
+        WarpCourse anchor = WarpCourse.toAnchor(
+                java.util.UUID.nameUUIDFromBytes("home".getBytes()), "Home").withHoldAltitude(true);
+        WarpCourse fix = WarpCourse.toFix(new BlockPos(1, 2, 3), 40, "NE").withHoldAltitude(true);
+
+        assertTrue(WarpCourse.load(anchor.save()).holdAltitude());
+        assertEquals(fix, WarpCourse.load(fix.save()));
+        assertEquals(40, WarpCourse.load(fix.save()).arrivalHeight(),
+                "a held fix keeps its own height for when it is let go");
+    }
+
+    /** Everything saved before the toggle existed flies the destination's height, as it did then. */
+    @Test
+    void aCourseSavedBeforeHoldingAltitudeDoesNotHold() {
+        CompoundTag tag = WarpCourse.toFix(new BlockPos(1, 2, 3), 40, "old").withHoldAltitude(true).save();
+        tag.remove("HoldAltitude");
+        assertFalse(WarpCourse.load(tag).holdAltitude());
+        assertFalse(WarpCourse.toAnchor(java.util.UUID.randomUUID(), "new").holdAltitude(),
+                "a course is only held when somebody asks");
+    }
+
+    /**
+     * Holding is part of what a course is: a held course is not the same course unheld.
+     *
+     * <p>A drive that arrives at the altitude it left at is not going where the course without the flag
+     * would take it, so the two must never compare equal - and letting go of the altitude, or renaming
+     * the course, must not quietly change which of the two it is.
+     */
+    @Test
+    void holdingAltitudeIsPartOfTheCourse() {
+        WarpCourse plain = WarpCourse.toFix(new BlockPos(1, 2, 3), 12, "NE");
+        WarpCourse held = plain.withHoldAltitude(true);
+        assertFalse(plain.equals(held));
+        assertEquals(plain, held.withHoldAltitude(false));
+        assertTrue(held.withLabel("renamed").holdAltitude(), "relabelling does not let go of the altitude");
     }
 
     // -------------------------------------------------------------- easing

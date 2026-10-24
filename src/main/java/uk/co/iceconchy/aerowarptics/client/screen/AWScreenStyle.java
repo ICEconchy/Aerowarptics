@@ -227,6 +227,27 @@ public final class AWScreenStyle {
         graphics.fill(right - 2, y, right, y + barHeight, 0x88_D9_C3_92);
     }
 
+    /** A one-pixel outline, for a box that is a control rather than a recess. */
+    public static void frame(GuiGraphics graphics, int x, int y, int width, int height, int colour) {
+        graphics.fill(x, y, x + width, y + 1, colour);
+        graphics.fill(x, y + height - 1, x + width, y + height, colour);
+        graphics.fill(x, y + 1, x + 1, y + height - 1, colour);
+        graphics.fill(x + width - 1, y + 1, x + width, y + height - 1, colour);
+    }
+
+    /**
+     * The mark on a box that opens into a list: five pixels across, pointing down, or up while it is open.
+     *
+     * <p>Drawn rather than written, for the reason {@link #marker} is - a triangle glyph is not something
+     * every font has, and a box ending in a hollow square reads as broken rather than as a list.
+     */
+    public static void chevron(GuiGraphics graphics, int x, int y, boolean up, int colour) {
+        for (int row = 0; row < 3; row++) {
+            int inset = up ? 2 - row : row;
+            graphics.fill(x + inset, y + row, x + 5 - inset, y + row + 1, colour);
+        }
+    }
+
     /** A rounded-looking status chip. Used where a word needs to read as a state, not a sentence. */
     public static void pill(GuiGraphics graphics, Font font, int x, int y, String text, int colour) {
         int width = font.width(text) + 8;

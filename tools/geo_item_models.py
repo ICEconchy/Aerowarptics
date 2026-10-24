@@ -51,14 +51,28 @@ GEO_RENDERED = {
     "spatial_siphon": "spatial_siphon",
     "rift_chute": "rift_chute",
     "rift_modulator": "rift_modulator",
+    "rift_coupler": "rift_coupler",
+    "rift_brazier": "rift_brazier",
+    "collapse_cradle": "collapse_cradle",
+    "rift_plotter": "rift_plotter",
+    "rift_ward": "rift_ward",
 }
 
 # Drawn from a baked model: item name -> the block model it is held as.
 MODELLED = {
     "astrolabe": "aerowarptics:block/astrolabe",
+    "berth": "aerowarptics:block/berth",
+    "cooling_vent": "aerowarptics:block/cooling_vent",
+    "drive_extender": "aerowarptics:block/drive_extender",
+    "rift_bond": "aerowarptics:block/rift_bond",
     "rift_probe": "aerowarptics:block/rift_probe",
     "rift_gate": "aerowarptics:block/rift_gate",
     "rift_gate_frame": "aerowarptics:block/rift_gate_frame",
+    "spatial_stabiliser": "aerowarptics:block/spatial_stabiliser",
+    "spatial_wave_detector": "aerowarptics:block/spatial_wave_detector",
+    "rift_casing": "aerowarptics:block/rift_casing",
+    "rift_sunderer": "aerowarptics:block/rift_sunderer",
+    "warp_glass": "aerowarptics:block/warp_glass",
 }
 
 

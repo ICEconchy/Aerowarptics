@@ -75,6 +75,23 @@ public final class AWAnim {
         return (a << 24) | (r << 16) | (g << 8) | b;
     }
 
+    /**
+     * A colour as a control drawn in it looks when it is switched off: its brightness kept as a grey,
+     * and pulled in towards a dull middle, so the brightest and darkest of a set of them no longer stand
+     * out from each other or from the panel. Alpha is kept.
+     */
+    public static int greyed(int argb) {
+        int r = (argb >> 16) & 0xFF;
+        int g = (argb >> 8) & 0xFF;
+        int b = argb & 0xFF;
+        int luminance = Math.round(0.299F * r + 0.587F * g + 0.114F * b);
+        int grey = Math.round(lerp(luminance, GREYED_MIDDLE, 0.6F));
+        return (argb & 0xFF00_0000) | (grey << 16) | (grey << 8) | grey;
+    }
+
+    /** The dull grey {@link #greyed} pulls everything towards. */
+    private static final int GREYED_MIDDLE = 0x48;
+
     /** The same colour at a different opacity, as a fraction of its own. */
     public static int fade(int argb, float alpha) {
         int a = Math.round(((argb >>> 24) & 0xFF) * clamp(alpha));

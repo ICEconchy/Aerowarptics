@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/block",
+  "loader": "aerowarptics:connected",
+  "method": "compact",
+  "tiles": "aerowarptics:block/ctm/rift_wellhead_part",
+  "connect_with": [
+    {"block": "aerowarptics:rift_wellhead_part", "properties": {"glass": "false"}}
+  ],
+  "textures": {
+    "particle": "aerowarptics:block/ctm/rift_wellhead_part/0"
+  }
+}

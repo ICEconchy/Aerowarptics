@@ -1,0 +1,26 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "aerowarptics:item/stormglass"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "aerowarptics:reading": 0.25
+      },
+      "model": "aerowarptics:item/stormglass_gathering"
+    },
+    {
+      "predicate": {
+        "aerowarptics:reading": 0.5
+      },
+      "model": "aerowarptics:item/stormglass_raging"
+    },
+    {
+      "predicate": {
+        "aerowarptics:reading": 0.75
+      },
+      "model": "aerowarptics:item/stormglass_still"
+    }
+  ]
+}

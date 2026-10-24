@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:scar_heart"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.heart_of_a_scar.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.heart_of_a_scar.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "scar_heart": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "aerowarptics:scar_heart"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "scar_heart"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:fissure_closed"
+}

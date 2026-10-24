@@ -7,13 +7,16 @@ import com.simibubi.create.foundation.block.IBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
+import org.jetbrains.annotations.Nullable;
 import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 
@@ -77,6 +80,19 @@ public class RiftGateBlock extends DirectionalKineticBlock implements IBE<RiftGa
         if (!level.isClientSide && !oldState.is(this)
                 && level.getBlockEntity(pos) instanceof RiftGateBlockEntity gate) {
             gate.tryForm();
+        }
+    }
+
+    /**
+     * Tells the gate who set it down. Called after {@link #onPlace}, so after a ring this controller
+     * completed has already formed - see {@link RiftGateBlockEntity#onPlaced}.
+     */
+    @Override
+    public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer,
+                            ItemStack stack) {
+        super.setPlacedBy(level, pos, state, placer, stack);
+        if (!level.isClientSide) {
+            withBlockEntityDo(level, pos, gate -> gate.onPlaced(placer instanceof Player player ? player : null));
         }
     }
 

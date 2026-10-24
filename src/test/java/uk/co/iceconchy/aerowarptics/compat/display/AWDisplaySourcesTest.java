@@ -59,7 +59,12 @@ class AWDisplaySourcesTest {
                 RiftProbeBlockEntity.class,
                 SpatialSiphonBlockEntity.class,
                 RiftChuteBlockEntity.class,
-                RiftModulatorBlockEntity.class);
+                RiftModulatorBlockEntity.class,
+                uk.co.iceconchy.aerowarptics.flotilla.RiftCouplerBlockEntity.class,
+                uk.co.iceconchy.aerowarptics.rifting.RiftBrazierBlockEntity.class,
+                uk.co.iceconchy.aerowarptics.collapse.CollapseCradleBlockEntity.class,
+                uk.co.iceconchy.aerowarptics.ward.RiftWardBlockEntity.class,
+                uk.co.iceconchy.aerowarptics.wellhead.RiftCollarBlockEntity.class);
 
         Set<Class<?>> covered = AWDisplaySources.ALL.stream()
                 .map(AWDisplaySource::machineType)
@@ -76,6 +81,7 @@ class AWDisplaySourcesTest {
         for (AWDisplaySource<?> source : AWDisplaySources.ALL) {
             assertTrue(seen.add(source.sourceId()), "duplicate source id: " + source.sourceId());
         }
+        assertTrue(seen.add(RiftCouplerRosterDisplaySource.SOURCE_ID), "the roster shares an id with a source");
     }
 
     /**
@@ -88,7 +94,8 @@ class AWDisplaySourcesTest {
     void sourceIdsAreStable() {
         assertEquals(
                 List.of("rift_drive", "rift_gate", "rift_probe", "spatial_siphon", "rift_chute",
-                        "rift_modulator"),
+                        "rift_modulator", "rift_coupler", "rift_brazier", "collapse_cradle", "rift_ward",
+                        "rift_wellhead"),
                 AWDisplaySources.ALL.stream().map(AWDisplaySource::sourceId).toList());
     }
 
@@ -131,6 +138,8 @@ class AWDisplaySourcesTest {
                 check(lang, missing, "create.display_source." + id + "." + mode);
             }
         }
+        // The roster is not an AWDisplaySource and has no modes, but it has a name like any source.
+        check(lang, missing, "aerowarptics.display_source." + RiftCouplerRosterDisplaySource.SOURCE_ID);
 
         if (!missing.isEmpty()) {
             fail("these would render as raw keys in the Display Link screen:\n  "

@@ -30,6 +30,7 @@ import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 import uk.co.iceconchy.aerowarptics.network.AWNetwork;
 import uk.co.iceconchy.aerowarptics.network.ClientboundRiftStormPacket;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 
 /**
@@ -55,8 +56,15 @@ public final class RiftStorm extends SavedData {
     private static final String FILE_ID = AeroWarptics.MODID + "_rift_storm";
     private static final String KEY_STORM = "StormTicks";
     private static final String KEY_CALM = "CalmTicks";
+    private static final String KEY_ENDED = "LastEnded";
 
     private final RiftStormCycle cycle;
+
+    /** Overworld game time the last storm ended, or {@code -1} if none has. A Stormglass may not call the next too soon. */
+    private long lastEnded = -1L;
+
+    /** What the players were last told a Stormglass reads, so they are told again only when it changes. */
+    private StormForecast.Reading lastReading;
 
     private RiftStorm(RiftStormCycle cycle) {
         this.cycle = cycle;
@@ -67,13 +75,16 @@ public final class RiftStorm extends SavedData {
     }
 
     private static RiftStorm load(CompoundTag tag, HolderLookup.Provider registries) {
-        return new RiftStorm(new RiftStormCycle(tag.getInt(KEY_STORM), tag.getInt(KEY_CALM)));
+        RiftStorm storm = new RiftStorm(new RiftStormCycle(tag.getInt(KEY_STORM), tag.getInt(KEY_CALM)));
+        storm.lastEnded = tag.contains(KEY_ENDED) ? tag.getLong(KEY_ENDED) : -1L;
+        return storm;
     }
 
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
         tag.putInt(KEY_STORM, cycle.stormTicks());
         tag.putInt(KEY_CALM, cycle.calmTicks());
+        tag.putLong(KEY_ENDED, lastEnded);
         return tag;
     }
 
@@ -101,6 +112,44 @@ public final class RiftStorm extends SavedData {
                 && get(serverLevel.getServer()).cycle.raging();
     }
 
+    /** What a Stormglass reads on this server now. */
+    public static StormForecast.Reading reading(MinecraftServer server) {
+        RiftStorm storm = get(server);
+        return StormForecast.read(storm.cycle.raging(), AWConfig.NATURAL_RIFT_STORMS.get(),
+                server.overworld().getGameRules().getBoolean(GameRules.RULE_WEATHER_CYCLE), storm.cycle.calmTicks());
+    }
+
+    /**
+     * A player has broken a set Stormglass: calls a storm if the rules allow, and says so to everyone - a storm
+     * is server-wide and changes every pilot's warps, so calling one is a public act.
+     *
+     * @return what happened; nothing is changed unless it is {@link StormForecast.Call#CALLED}
+     */
+    public static StormForecast.Call call(ServerPlayer caller) {
+        MinecraftServer server = caller.getServer();
+        if (server == null) {
+            return StormForecast.Call.FORBIDDEN;
+        }
+        RiftStorm storm = get(server);
+        long now = server.overworld().getGameTime();
+        long sinceEnded = storm.lastEnded < 0L ? -1L : Math.max(0L, now - storm.lastEnded);
+        StormForecast.Call result = StormForecast.call(AWConfig.RIFT_STORM_CALLABLE.get(),
+                AWConfig.NATURAL_RIFT_STORMS.get(), storm.cycle.raging(),
+                server.overworld().getGameRules().getBoolean(GameRules.RULE_WEATHER_CYCLE), sinceEnded,
+                AWConfig.RIFT_STORM_CALL_MINIMUM_CALM.get());
+        Trace.log(Trace.STORM, "{} broke a stormglass: {} (raging {}, {}t since the last storm ended, callable {})",
+                caller.getGameProfile().getName(), result.getSerializedName(), storm.cycle.raging(), sinceEnded,
+                AWConfig.RIFT_STORM_CALLABLE.get());
+        if (result == StormForecast.Call.CALLED) {
+            Component line = AWLang.component("weather.rift_storm.called", caller.getDisplayName());
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                player.displayClientMessage(line, false);
+            }
+            start(server, -1);
+        }
+        return result;
+    }
+
     /** The cooldown a warp completed now, in this level, earns a drive of this tier. */
     public static int cooldownTicks(Level level, RiftDriveTier tier) {
         return RiftStormRules.cooldownTicks(tier.cooldownTicks(), ragingOver(level),
@@ -125,6 +174,8 @@ public final class RiftStorm extends SavedData {
         int length = duration > 0 ? duration : rollStorm(server.overworld().getRandom());
         boolean began = storm.cycle.start(length);
         storm.setDirty();
+        Trace.log(Trace.STORM, "{} for {}t{}", began ? "rift storm began" : "rift storm re-set", length,
+                duration > 0 ? " (commanded)" : "");
         if (began) {
             announce(server, true);
         }
@@ -140,6 +191,8 @@ public final class RiftStorm extends SavedData {
         boolean ended = storm.cycle.stop(calm);
         storm.setDirty();
         if (ended) {
+            storm.lastEnded = server.overworld().getGameTime();
+            Trace.log(Trace.STORM, "rift storm ended{}", calm > 0 ? ", calm for " + calm + "t" : "");
             announce(server, false);
         }
     }
@@ -160,7 +213,25 @@ public final class RiftStorm extends SavedData {
             storm.setDirty();
         }
         if (change != RiftStormCycle.Change.NONE) {
+            Trace.log(Trace.STORM, "rift storm {} on its own", change == RiftStormCycle.Change.BEGAN ? "began" : "ended");
+            if (change == RiftStormCycle.Change.ENDED) {
+                storm.lastEnded = server.overworld().getGameTime();
+            }
             announce(server, change == RiftStormCycle.Change.BEGAN);
+        }
+        // A Stormglass's reading changes on its own - a storm drawing within a day, the weather frozen - not
+        // only when one begins or ends, so the players are told whenever it does.
+        StormForecast.Reading reading = StormForecast.read(storm.cycle.raging(), AWConfig.NATURAL_RIFT_STORMS.get(),
+                advance, storm.cycle.calmTicks());
+        if (reading != storm.lastReading) {
+            if (storm.lastReading != null) {
+                Trace.log(Trace.STORM, "stormglasses now read {}", reading.getSerializedName());
+            }
+            storm.lastReading = reading;
+            ClientboundRiftStormPacket packet = new ClientboundRiftStormPacket(storm.cycle.raging(), reading.ordinal());
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                AWNetwork.sendTo(player, packet);
+            }
         }
     }
 
@@ -168,7 +239,8 @@ public final class RiftStorm extends SavedData {
     @SubscribeEvent
     public static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player && player.getServer() != null) {
-            AWNetwork.sendTo(player, new ClientboundRiftStormPacket(get(player.getServer()).cycle.raging()));
+            AWNetwork.sendTo(player, new ClientboundRiftStormPacket(get(player.getServer()).cycle.raging(),
+                    reading(player.getServer()).ordinal()));
         }
     }
 
@@ -236,7 +308,7 @@ public final class RiftStorm extends SavedData {
     // ------------------------------------------------------------ helpers
 
     private static void announce(MinecraftServer server, boolean raging) {
-        ClientboundRiftStormPacket packet = new ClientboundRiftStormPacket(raging);
+        ClientboundRiftStormPacket packet = new ClientboundRiftStormPacket(raging, reading(server).ordinal());
         Component line = raging
                 ? AWLang.component("weather.rift_storm.began")
                 : AWLang.component("weather.rift_storm.ended");

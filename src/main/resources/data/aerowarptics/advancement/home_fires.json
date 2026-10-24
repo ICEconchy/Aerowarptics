@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_collar"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.home_fires.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.home_fires.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "held": {
+      "trigger": "aerowarptics:sunderer",
+      "conditions": {
+        "event": "held"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "held"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:where_it_went_wrong"
+}

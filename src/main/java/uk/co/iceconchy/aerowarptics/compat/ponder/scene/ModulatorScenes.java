@@ -37,14 +37,14 @@ public final class ModulatorScenes {
         scene.idle(15);
 
         scene.overlay().showText(80)
-                .text("A Rift Modulator bolted beside a Rift Drive lets its pilot choose the colour of the rift it tears, and even how it tears open")
+                .text("A Rift Modulator bolted beside a Rift Drive lets its pilot choose the colour of the rift it opens, and even how the rift opens")
                 .pointAt(modulatorTop)
                 .placeNearTarget()
                 .attachKeyFrame();
         scene.idle(90);
 
         scene.overlay().showText(80)
-                .text("It reads whichever drive it happens to be touching, and takes its own facing from that drive the moment it is placed")
+                .text("It reads whichever drive it touches, and takes its facing from that drive when it is placed")
                 .pointAt(util.vector().blockSurface(modulator, Direction.EAST))
                 .placeNearTarget()
                 .attachKeyFrame();
@@ -54,7 +54,7 @@ public final class ModulatorScenes {
         scene.idle(20);
 
         scene.overlay().showText(90)
-                .text("It spends a trickle of Rift Essence, and only while the drive is actually running a warp - an idle drive costs it nothing")
+                .text("It uses a trickle of Rift Essence, and only while the drive is warping. An idle drive costs it nothing")
                 .pointAt(util.vector().topOf(util.grid().at(1, 2, 0)))
                 .colored(PonderPalette.MEDIUM)
                 .placeNearTarget()
@@ -65,14 +65,14 @@ public final class ModulatorScenes {
                 .rightClick();
         scene.idle(10);
         scene.overlay().showText(90)
-                .text("Right-click for a swatch of colours - left click sets the core, right click sets the rim - a theme to match, and how strongly it all reads")
+                .text("Right-click for a choice of colours (left-click sets the core, right-click sets the rim), a matching theme, and a slider for how strong the effect is")
                 .pointAt(modulatorTop)
                 .placeNearTarget()
                 .attachKeyFrame();
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("Run the tank dry, or take the module away, and the rift falls straight back to the drive's own tier colours")
+                .text("If it runs out of essence or is removed, the rift goes back to the drive's own tier colours")
                 .pointAt(modulatorTop)
                 .colored(PonderPalette.RED)
                 .placeNearTarget()

@@ -54,8 +54,10 @@ public final class WarpRules {
      *
      * @param anchorEnabled           the anchor's owner has it switched on
      * @param sameDimension           the anchor is in the airship's own dimension
-     * @param crossDimensionSupported a handler is registered and the config allows it
-     * @param distance                world distance to the anchor
+     * @param crossDimensionSupported the server allows warps into other dimensions
+     * @param distance                world distance to the anchor, or the configured figure a warp into
+     *                                another dimension counts as - which is then held to the same range
+     *                                and charge as any other jump
      * @param mass                    airship mass used by the cost formula
      * @param charge                  the drive's stored charge, 0..1
      * @param formula                 the tier's cost settings
@@ -70,8 +72,10 @@ public final class WarpRules {
         if (!anchorEnabled) {
             return WarpFailure.ANCHOR_DISABLED;
         }
-        if (!sameDimension) {
-            return crossDimensionSupported ? WarpFailure.NONE : WarpFailure.DIMENSION_UNSUPPORTED;
+        // Across dimensions there is no real distance to measure, which used to mean a crossing skipped
+        // the range and the price altogether. It is a jump of the configured length instead.
+        if (!sameDimension && !crossDimensionSupported) {
+            return WarpFailure.DIMENSION_UNSUPPORTED;
         }
 
         WarpFailure range = formula.checkRange(distance);

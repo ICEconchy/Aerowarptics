@@ -70,6 +70,22 @@ ordering = "AFTER"
 side = "CLIENT"
 
 [[dependencies."${mod_id}"]]
+modId = "dimensional_sable"
+type = "optional"
+reason = "Lets a Rift Drive warp a ship into another dimension, when the server turns that on. Nothing else needs it."
+versionRange = "[1.0.5,2.0.0)"
+ordering = "AFTER"
+side = "SERVER"
+
+[[dependencies."${mod_id}"]]
+modId = "curios"
+type = "optional"
+reason = "Lets Rift Goggles be worn in a Curios head slot. Without it they go in the helmet slot, as before."
+versionRange = "[9.0.0,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
 modId = "geckolib"
 type = "required"
 reason = "Drives and anchors are animated GeckoLib models."

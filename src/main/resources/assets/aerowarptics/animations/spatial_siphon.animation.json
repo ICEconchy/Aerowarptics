@@ -1,74 +1,56 @@
 {
-  "format_version": "1.8.0",
-  "animations": {
-    "animation.spatial_siphon.idle": {
-      "loop": true,
-      "animation_length": 6.0,
-      "bones": {
-        "funnel": {
-          "rotation": {
-            "0.0": [
-              0,
-              0,
-              0
-            ],
-            "6.0": [
-              0,
-              360,
-              0
-            ]
-          }
-        },
-        "essence": {
-          "position": {
-            "0.00": [
-              0,
-              0,
-              0
-            ],
-            "1.50": [
-              0,
-              0.15,
-              0
-            ],
-            "3.00": [
-              0,
-              0,
-              0
-            ],
-            "4.50": [
-              0,
-              0.15,
-              0
-            ],
-            "6.00": [
-              0,
-              0,
-              0
-            ]
-          }
-        }
-      }
-    },
-    "animation.spatial_siphon.drawing": {
-      "loop": true,
-      "animation_length": 1.5,
-      "bones": {
-        "funnel": {
-          "rotation": {
-            "0.0": [
-              0,
-              0,
-              0
-            ],
-            "1.5": [
-              0,
-              720,
-              0
-            ]
-          }
-        }
-      }
-    }
-  }
+	"format_version": "1.8.0",
+	"animations": {
+		"animation.spatial_siphon.idle": {
+			"loop": true,
+			"animation_length": 6,
+			"bones": {
+				"funnel": {
+					"rotation": {
+						"0.0": {
+							"vector": [0, 0, 0]
+						},
+						"6.0": {
+							"vector": [0, -360, 0]
+						}
+					}
+				},
+				"essence": {
+					"position": {
+						"0.0": {
+							"vector": [0, 0, 0]
+						},
+						"1.5": {
+							"vector": [0, 0.15, 0]
+						},
+						"3.0": {
+							"vector": [0, 0, 0]
+						},
+						"4.5": {
+							"vector": [0, 0.15, 0]
+						},
+						"6.0": {
+							"vector": [0, 0, 0]
+						}
+					}
+				}
+			}
+		},
+		"animation.spatial_siphon.drawing": {
+			"loop": true,
+			"animation_length": 1.5,
+			"bones": {
+				"funnel": {
+					"rotation": {
+						"0.0": {
+							"vector": [0, 0, 0]
+						},
+						"1.5": {
+							"vector": [0, 720, 0]
+						}
+					}
+				}
+			}
+		}
+	}
 }

@@ -3,11 +3,16 @@ package uk.co.iceconchy.aerowarptics.client.fx;
 import dev.ryanhcode.sable.Sable;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.particles.BlockParticleOption;
+import net.minecraft.core.particles.ItemParticleOption;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 import net.neoforged.api.distmarker.Dist;
@@ -34,6 +39,9 @@ import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 @OnlyIn(Dist.CLIENT)
 public final class WarpEffects {
 
+    /** Ticks a drive's aperture takes to tear open, however it comes to be opened. */
+    private static final int APERTURE_OPEN_TICKS = 20;
+
     private WarpEffects() {
     }
 
@@ -41,8 +49,9 @@ public final class WarpEffects {
         return AWConfig.PARTICLE_DENSITY.get();
     }
 
-    private static float volume() {
-        return (float) (double) AWConfig.EFFECT_VOLUME.get();
+    /** Forgets what belongs to the world the client has just left: the wind-up of every drive in it. */
+    public static void clear() {
+        DriveSpinUpSound.clear();
     }
 
     /** Converts a position inside an airship's plot into the world position the player sees. */
@@ -57,6 +66,8 @@ public final class WarpEffects {
         if (!(drive.getLevel() instanceof ClientLevel level)) {
             return;
         }
+        // Before the particles' own switch: turning those off is not asking for a silent machine.
+        DriveSpinUpSound.follow(drive);
         double scale = density();
         if (scale <= 0.0D) {
             return;
@@ -96,7 +107,7 @@ public final class WarpEffects {
                 }
                 if (random.nextFloat() < (inCorridor ? 0.12F : 0.05F)) {
                     level.playLocalSound(centre.x, centre.y, centre.z, AWSounds.WARP_TRAVEL.get(),
-                            SoundSource.BLOCKS, 0.6F * volume(), 0.8F + random.nextFloat() * 0.4F, false);
+                            SoundSource.BLOCKS, 0.6F, 0.8F + random.nextFloat() * 0.4F, false);
                 }
             }
             case ARRIVING -> {
@@ -152,6 +163,14 @@ public final class WarpEffects {
             case EVENTFUL_HORIZON -> ParticleTypes.SOUL_FIRE_FLAME; // cold blue fire off the core
             case VWORP -> ParticleTypes.ENCHANT;
             case IMPROBABILITY -> ParticleTypes.TOTEM_OF_UNDYING; // confetti, essentially
+            // The End's own violet mote - the reversed one, because the plain portal particle ignores the
+            // way it is thrown and falls back into where it started.
+            case ENDER -> ParticleTypes.REVERSE_PORTAL;
+            // Scraps of paper. Built when asked for rather than held, because a stack is not something to
+            // make while the item registry might still be loading; it is asked for once a burst.
+            case SKETCH -> new ItemParticleOption(ParticleTypes.ITEM, new ItemStack(Items.PAPER));
+            // Dark smoke, drawn in across the face as the cloud gathers and thrown out as it goes.
+            case MOSTLY_DANGEROUS -> ParticleTypes.LARGE_SMOKE;
             default -> AWParticles.RIFT_SPARK.get();
         };
     }
@@ -195,18 +214,48 @@ public final class WarpEffects {
                 // how long the hull spends inside the aperture. It is closed explicitly when the hull
                 // is done with it, so this is only a backstop against a cue going missing.
                 RiftEffectManager.open(packet, colour, accentColour, theme,
-                        20, Math.max(60, packet.duration() + 40), 25);
+                        APERTURE_OPEN_TICKS, Math.max(60, packet.duration() + 40), ThemeLook.closeTicks(theme));
                 aperture(level, riftCentre, packet.normal(), random,
                         Math.max(3.0D, packet.radius() * 0.6D), (int) (140 * scale), theme);
                 WarpScreenShake.add(0.6F * shakeScale);
             }
             case RIFT_TRANSIT -> {
+                // A client can be told a hull is going through an aperture it never saw open. The crew
+                // are the ones who always are: the far aperture's open cue goes out while they are still
+                // at the entry, thousands of blocks out of range, and without this they came out of an
+                // aperture that was not there. Anyone who comes within range after an open cue is the
+                // same. The cue carries the throat, so it is opened here - and the transit below jumps it
+                // straight to open, with no wind-up, because there is already a hull inside it.
+                if (!RiftEffectManager.isOpen(riftCentre)) {
+                    uk.co.iceconchy.aerowarptics.trace.ClientTrace.log(uk.co.iceconchy.aerowarptics.trace.ClientTrace.CUE,
+                            "transit through an aperture this client never saw open at {}: opening it now",
+                            uk.co.iceconchy.aerowarptics.trace.Trace.vec(riftCentre));
+                    RiftEffectManager.open(packet, colour, accentColour, theme,
+                            APERTURE_OPEN_TICKS, 0, ThemeLook.closeTicks(theme));
+                }
                 // A hull is going through. The aperture keeps the fire going off its own clock from
                 // here, so this is one packet rather than one per tick for three seconds.
                 RiftEffectManager.transit(riftCentre, packet.duration());
                 WarpScreenShake.add(0.5F * shakeScale);
             }
-            case RIFT_CLOSE -> RiftEffectManager.collapse(riftCentre);
+            case RIFT_HOLD -> {
+                // Kept up while it is wanted; one this client never saw open - it came up while the aperture stood -
+                // is opened, quietly, since the tear it would have seen is long over.
+                if (!RiftEffectManager.renew(riftCentre, packet.duration() + 40)) {
+                    RiftEffectManager.open(packet, colour, accentColour, theme,
+                            APERTURE_OPEN_TICKS, Math.max(60, packet.duration() + 40), ThemeLook.closeTicks(theme));
+                }
+            }
+            case RIFT_CLOSE -> {
+                // A close for an aperture this client does not have is harmless, but it is also the sign that
+                // this client missed the open - worth seeing beside a report of a rift that never appeared.
+                if (!RiftEffectManager.isOpen(riftCentre)) {
+                    uk.co.iceconchy.aerowarptics.trace.ClientTrace.log(uk.co.iceconchy.aerowarptics.trace.ClientTrace.CUE,
+                            "close for an aperture this client does not have at {}",
+                            uk.co.iceconchy.aerowarptics.trace.Trace.vec(riftCentre));
+                }
+                RiftEffectManager.collapse(riftCentre);
+            }
             case CORRIDOR -> {
                 // The corridor overlay is driven by its own packet, sent to the crew by name. This cue
                 // is only here for anyone watching the hull streak overhead.
@@ -229,7 +278,7 @@ public final class WarpEffects {
                             jitter(random, 0.08D), 0.05D, jitter(random, 0.08D));
                 }
                 level.playLocalSound(driveOrigin.x, driveOrigin.y, driveOrigin.z, AWSounds.WARP_FAILED.get(),
-                        SoundSource.BLOCKS, 0.9F * volume(), 0.7F, false);
+                        SoundSource.BLOCKS, 0.9F, 0.7F, false);
             }
             case SCATTER -> {
                 // Outward burst of sparks — the opposite of the converging sparks during
@@ -252,7 +301,7 @@ public final class WarpEffects {
                 }
                 WarpScreenShake.add(0.3F * shakeScale);
                 level.playLocalSound(driveOrigin.x, driveOrigin.y, driveOrigin.z,
-                        AWSounds.WARP_SCATTER.get(), SoundSource.BLOCKS, 0.9F * volume(), 1.0F, false);
+                        AWSounds.WARP_SCATTER.get(), SoundSource.BLOCKS, 0.9F, 1.0F, false);
             }
         }
     }
@@ -318,7 +367,8 @@ public final class WarpEffects {
             case IMPROBABILITY -> 0.4F;
             case EVENTFUL_HORIZON -> 0.35F;
             case VWORP -> 0.25F;
-            case EMBER, STARLIGHT, CLOCKWORK, STARBLOCKS, BEDROCK, BOLDLY_GONE, LUDICROUS -> 0.0F;
+            case MOSTLY_DANGEROUS -> 0.4F; // the cloud arrives crackling, and never stops
+            case EMBER, STARLIGHT, CLOCKWORK, STARBLOCKS, BEDROCK, BOLDLY_GONE, LUDICROUS, ENDER, SKETCH -> 0.0F;
             default -> 0.15F;
         };
         Vector3f[] basis = planeOf(normal);
@@ -337,7 +387,7 @@ public final class WarpEffects {
             }
         }
         level.playLocalSound(centre.x, centre.y, centre.z, AWSounds.RIFT_OPEN.get(),
-                SoundSource.BLOCKS, 1.1F * volume(), 0.9F, false);
+                SoundSource.BLOCKS, 1.1F, 0.9F, false);
     }
 
     /**
@@ -369,6 +419,65 @@ public final class WarpEffects {
                         centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
                         jitter(random, 0.2D), jitter(random, 0.2D), jitter(random, 0.2D));
             }
+        }
+    }
+
+    /**
+     * What a Mostly Dangerous cloud leaves when it has fallen in on itself: heavy smoke hanging where it
+     * was, dark wreckage thrown out of it and falling, and the last of its lightning spitting as it goes.
+     *
+     * <p>Called by the rift itself at the moment the collapse arrives in the middle - at both ends of a
+     * jump, since the cloud a ship went into goes the same way as the one it came out of.
+     */
+    public static void dispersal(ClientLevel level, Vec3 centre, Vector3f right, Vector3f up, Vector3f normal,
+                                 double radius) {
+        double scale = density();
+        if (scale <= 0.0D) {
+            return;
+        }
+        RandomSource random = level.random;
+        Vector3f[] basis = {right, up};
+
+        // Most of it close in, where the cloud was thickest, thinning out towards where its edge was.
+        int smoke = (int) Math.max(1, 60 * scale);
+        for (int i = 0; i < smoke; i++) {
+            double angle = random.nextDouble() * Math.PI * 2.0D;
+            double out = radius * 2.2D * Math.pow(random.nextDouble(), 0.7D);
+            Vec3 offset = inPlane(basis, angle, out).add(
+                    normal.x * jitter(random, radius * 0.4D),
+                    normal.y * jitter(random, radius * 0.4D),
+                    normal.z * jitter(random, radius * 0.4D));
+            Vec3 drift = offset.normalize().scale(0.02D + random.nextDouble() * 0.04D);
+            // Some of it the long-lived kind that climbs and hangs, so the place a ship arrived stays marked
+            // for a while after the ship has gone.
+            ParticleOptions kind = random.nextFloat() < 0.3F ? ParticleTypes.CAMPFIRE_COSY_SMOKE
+                    : ParticleTypes.LARGE_SMOKE;
+            level.addParticle(kind, centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
+                    drift.x, drift.y, drift.z);
+        }
+
+        // Dark rock and the odd scrap of metal. A block particle picks its own speed and falls, so the
+        // direction is all this can give it.
+        ParticleOptions[] wreckage = {
+                new BlockParticleOption(ParticleTypes.BLOCK, Blocks.BLACKSTONE.defaultBlockState()),
+                new BlockParticleOption(ParticleTypes.BLOCK, Blocks.BASALT.defaultBlockState()),
+                new BlockParticleOption(ParticleTypes.BLOCK, Blocks.IRON_BLOCK.defaultBlockState())};
+        int debris = (int) Math.max(1, 45 * scale);
+        for (int i = 0; i < debris; i++) {
+            double angle = random.nextDouble() * Math.PI * 2.0D;
+            Vec3 offset = inPlane(basis, angle, radius * (0.3D + random.nextDouble() * 1.4D));
+            Vec3 thrown = offset.normalize();
+            ParticleOptions chip = wreckage[random.nextFloat() < 0.15F ? 2 : random.nextInt(2)];
+            level.addParticle(chip, centre.x + offset.x, centre.y + offset.y, centre.z + offset.z,
+                    thrown.x, thrown.y, thrown.z);
+        }
+
+        int sparks = (int) Math.max(1, 24 * scale);
+        for (int i = 0; i < sparks; i++) {
+            double angle = random.nextDouble() * Math.PI * 2.0D;
+            Vec3 offset = inPlane(basis, angle, radius * random.nextDouble() * 1.6D);
+            level.addParticle(ParticleTypes.ELECTRIC_SPARK, centre.x + offset.x, centre.y + offset.y,
+                    centre.z + offset.z, jitter(random, 0.2D), jitter(random, 0.2D), jitter(random, 0.2D));
         }
     }
 
@@ -422,6 +531,7 @@ public final class WarpEffects {
             case BEDROCK -> 0.04D;
             case EVENTFUL_HORIZON -> 0.16D;
             case BOLDLY_GONE -> 0.18D;
+            case MOSTLY_DANGEROUS -> 0.14D;
             case STARBLOCKS -> 0.20D;
             default -> 0.08D;
         };
@@ -437,7 +547,7 @@ public final class WarpEffects {
         }
         level.addParticle(ParticleTypes.FLASH, centre.x, centre.y, centre.z, 0.0D, 0.0D, 0.0D);
         level.playLocalSound(centre.x, centre.y, centre.z, AWSounds.WARP_EXIT.get(),
-                SoundSource.BLOCKS, 1.2F * volume(), 1.0F, false);
+                SoundSource.BLOCKS, 1.2F, 1.0F, false);
     }
 
     private static double jitter(RandomSource random, double magnitude) {

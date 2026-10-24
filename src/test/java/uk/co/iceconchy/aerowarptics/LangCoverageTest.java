@@ -107,7 +107,24 @@ class LangCoverageTest {
                 new Family("probe.state.", names(uk.co.iceconchy.aerowarptics.probe.ProbeState.values())),
                 new Family("probe.verdict.", names(uk.co.iceconchy.aerowarptics.probe.ProbeVerdict.values())),
                 new Family("warp.failure.", names(uk.co.iceconchy.aerowarptics.warp.WarpFailure.values())),
-                new Family("gate.failure.", names(uk.co.iceconchy.aerowarptics.gate.GateFailure.values())));
+                new Family("warp.fastening.kind.", names(uk.co.iceconchy.aerowarptics.airship.Fastening.Kind.values())),
+                new Family("warp.fastening.end.", names(uk.co.iceconchy.aerowarptics.airship.Fastening.End.values())),
+                new Family("drive.mode.", names(uk.co.iceconchy.aerowarptics.drive.DriveMode.values())),
+                new Family("gate.failure.", names(uk.co.iceconchy.aerowarptics.gate.GateFailure.values())),
+                new Family("anchor.access.", names(uk.co.iceconchy.aerowarptics.anchor.WarpAnchorAccess.values())),
+                new Family("flotilla.role.", names(uk.co.iceconchy.aerowarptics.flotilla.CouplerRole.values())),
+                new Family("flotilla.status.", names(uk.co.iceconchy.aerowarptics.flotilla.StationStatus.values())),
+                new Family("flotilla.flagship.", names(uk.co.iceconchy.aerowarptics.flotilla.FlagshipStatus.values())),
+                new Family("flotilla.join.", names(uk.co.iceconchy.aerowarptics.flotilla.JoinResult.values())),
+                new Family("collapse.failure.", names(uk.co.iceconchy.aerowarptics.collapse.CollapseFailure.values())),
+                new Family("plotter.failure.", names(uk.co.iceconchy.aerowarptics.plotter.PlotFailure.values())),
+                new Family("wellhead.failure.", names(uk.co.iceconchy.aerowarptics.wellhead.WellheadFailure.values())),
+                new Family("wellhead.tier.", names(uk.co.iceconchy.aerowarptics.wellhead.WellheadTier.values())),
+                new Family("wellhead.band.", names(uk.co.iceconchy.aerowarptics.wellhead.WellheadReactor.Band.values())),
+                new Family("plotter.state.", names(uk.co.iceconchy.aerowarptics.plotter.PlotterState.values())),
+                new Family("gui.collapse_cradle.outcome.", names(uk.co.iceconchy.aerowarptics.collapse.CollapseRules.Outcome.values())),
+                new Family("item.stormglass.reading.", names(uk.co.iceconchy.aerowarptics.weather.StormForecast.Reading.values())),
+                new Family("stormglass.call.", names(uk.co.iceconchy.aerowarptics.weather.StormForecast.Call.values())));
 
         for (Family family : families) {
             for (String name : family.names()) {

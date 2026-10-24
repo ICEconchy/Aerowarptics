@@ -78,6 +78,19 @@ class RiftModulatorThemeTest {
         assertEquals(4, RiftModulatorTheme.CLOCKWORK.ordinal());
     }
 
+    /**
+     * Themes are appended, never inserted - so the ones added since keep their indices too, and the
+     * newest two land at the end of the list rather than anywhere a saved Modulator already points.
+     */
+    @Test
+    void theLaterThemesAreAppendedInOrder() {
+        assertEquals(11, RiftModulatorTheme.IMPROBABILITY.ordinal());
+        assertEquals(12, RiftModulatorTheme.ENDER.ordinal());
+        assertEquals(13, RiftModulatorTheme.SKETCH.ordinal());
+        assertEquals(14, RiftModulatorTheme.MOSTLY_DANGEROUS.ordinal());
+        assertEquals(15, RiftModulatorTheme.values().length, "a theme was added - pin its index here");
+    }
+
     @Test
     void indexRoundTripIsStableAndBoundsSafe() {
         for (RiftModulatorTheme theme : RiftModulatorTheme.values()) {

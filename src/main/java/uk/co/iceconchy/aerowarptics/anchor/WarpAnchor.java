@@ -13,6 +13,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
+import uk.co.iceconchy.aerowarptics.warpnet.Membership;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkAccess;
 
 import java.util.UUID;
 
@@ -30,7 +32,9 @@ import java.util.UUID;
  * @param owner     player who placed it, or {@code null} for anchors placed by non-players
  * @param ownerName last known name of the owner, for display
  * @param access    who may warp here
- * @param network   optional grouping label, used to filter long anchor lists
+ * @param network   the network this anchor is on, by id, or {@code null} for none - see
+ *                  {@link uk.co.iceconchy.aerowarptics.warpnet.WarpNetwork}. The id and not the name, so
+ *                  that a network renamed while this anchor's chunk is unloaded stays renamed
  * @param enabled   whether the anchor currently accepts arrivals
  * @param arrivalHeight blocks between the top of the anchor and an arriving hull's underside - see
  *                  {@link ArrivalHeight}; never negative
@@ -42,7 +46,7 @@ public record WarpAnchor(UUID id,
                          @Nullable UUID owner,
                          String ownerName,
                          WarpAnchorAccess access,
-                         String network,
+                         @Nullable UUID network,
                          boolean enabled,
                          int arrivalHeight) {
 
@@ -54,7 +58,6 @@ public record WarpAnchor(UUID id,
     public WarpAnchor {
         name = name == null ? UNNAMED : name;
         ownerName = ownerName == null ? "" : ownerName;
-        network = network == null ? "" : network;
         access = access == null ? WarpAnchorAccess.PUBLIC : access;
         arrivalHeight = Math.max(0, arrivalHeight);
     }
@@ -63,7 +66,7 @@ public record WarpAnchor(UUID id,
         return new WarpAnchor(id, UNNAMED, dimension, pos.immutable(),
                 placer == null ? null : placer.getUUID(),
                 placer == null ? "" : placer.getGameProfile().getName(),
-                WarpAnchorAccess.PUBLIC, "", true, ArrivalHeight.serverDefault());
+                WarpAnchorAccess.PUBLIC, null, true, ArrivalHeight.serverDefault());
     }
 
     public WarpAnchor withName(String newName) {
@@ -74,8 +77,19 @@ public record WarpAnchor(UUID id,
         return new WarpAnchor(id, name, dimension, pos, owner, ownerName, newAccess, network, enabled, arrivalHeight);
     }
 
-    public WarpAnchor withNetwork(String newNetwork) {
+    public WarpAnchor withNetwork(@Nullable UUID newNetwork) {
         return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, newNetwork, enabled, arrivalHeight);
+    }
+
+    /**
+     * This anchor taken off whatever network it was on.
+     *
+     * <p>One set to Network access becomes Private rather than keeping a mode with nothing behind it:
+     * leaving a network must never be what opens an anchor to somebody new.
+     */
+    public WarpAnchor withoutNetwork() {
+        return new WarpAnchor(id, name, dimension, pos, owner, ownerName,
+                access == WarpAnchorAccess.NETWORK ? WarpAnchorAccess.PRIVATE : access, null, enabled, arrivalHeight);
     }
 
     public WarpAnchor withEnabled(boolean newEnabled) {
@@ -104,15 +118,12 @@ public record WarpAnchor(UUID id,
      * Whether a player may select this anchor as a destination.
      *
      * <p>Operators bypass the access mode so a server admin can always recover a ship.
+     *
+     * @param networks who is in which network, for an anchor set to Network access
      */
-    public boolean isVisibleTo(Player player) {
-        if (!access.permitted()) {
-            return isOwnedBy(player.getUUID());
-        }
-        return switch (access) {
-            case PUBLIC -> true;
-            case PRIVATE -> isOwnedBy(player.getUUID()) || player.hasPermissions(2);
-        };
+    public boolean isVisibleTo(Player player, Membership networks) {
+        return NetworkAccess.permits(access, access.permitted(), isOwnedBy(player.getUUID()),
+                player.hasPermissions(2), networks.isMember(network, player.getUUID()));
     }
 
     public boolean isInSameDimension(ServerLevel level) {
@@ -132,7 +143,9 @@ public record WarpAnchor(UUID id,
         }
         tag.putString("OwnerName", ownerName);
         tag.putString("Access", access.getSerializedName());
-        tag.putString("Network", network);
+        if (network != null) {
+            tag.putUUID("NetworkId", network);
+        }
         tag.putBoolean("Enabled", enabled);
         tag.putInt("ArrivalHeight", arrivalHeight);
         return tag;
@@ -165,7 +178,9 @@ public record WarpAnchor(UUID id,
                 tag.hasUUID("Owner") ? tag.getUUID("Owner") : null,
                 tag.getString("OwnerName"),
                 WarpAnchorAccess.byName(tag.getString("Access")),
-                tag.getString("Network"),
+                // The "Network" a save from before networks were real may hold was a label nothing read. It is
+                // not read here either: the anchor's own block still has it, and adopts it as it next loads.
+                tag.hasUUID("NetworkId") ? tag.getUUID("NetworkId") : null,
                 !tag.contains("Enabled") || tag.getBoolean("Enabled"),
                 // An anchor saved before heights were adjustable comes in where every anchor used to.
                 tag.contains("ArrivalHeight") ? tag.getInt("ArrivalHeight") : ArrivalHeight.serverDefault());
@@ -182,7 +197,10 @@ public record WarpAnchor(UUID id,
                 .encode(buf, java.util.Optional.ofNullable(anchor.owner).map(UUID::toString));
         buf.writeUtf(anchor.ownerName, 32);
         buf.writeEnum(anchor.access);
-        buf.writeUtf(anchor.network, 32);
+        buf.writeBoolean(anchor.network != null);
+        if (anchor.network != null) {
+            buf.writeUUID(anchor.network);
+        }
         buf.writeBoolean(anchor.enabled);
         buf.writeVarInt(anchor.arrivalHeight);
     }
@@ -196,7 +214,7 @@ public record WarpAnchor(UUID id,
                 .map(WarpAnchor::parseUuid).orElse(null);
         String ownerName = buf.readUtf(32);
         WarpAnchorAccess access = buf.readEnum(WarpAnchorAccess.class);
-        String network = buf.readUtf(32);
+        UUID network = buf.readBoolean() ? buf.readUUID() : null;
         boolean enabled = buf.readBoolean();
         int arrivalHeight = buf.readVarInt();
         return new WarpAnchor(id, name, dimension, pos, owner, ownerName, access, network, enabled, arrivalHeight);

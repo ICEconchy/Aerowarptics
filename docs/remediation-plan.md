@@ -13,7 +13,7 @@ as written. A second scan on the same date added items 10 to 15, which are set o
 | 1 | 256-anchor packet crash | High | S | 0 | **Done** |
 | 9 | Repo hygiene and licensing | Blocking release | S | 0 | Open |
 | 3 | Astrolabe holds a removed sub-level | Low | XS | 1 | Open |
-| 4 | Client state survives a dimension change | Low | S | 1 | Open — wider than written, see 14 |
+| 4 | Client state survives a dimension change | Low | S | 1 | **Done** — `client/LevelChangeReset`, with 14 |
 | 5 | Paired constants with nothing binding them | Low | XS | 1 | Open |
 | 6 | `DestinationSurvey` record array equality | Low (latent) | XS | 1 | Open |
 | 7 | `instability` is a dead config knob | Low | S–M | 2 | **Done** — implemented |
@@ -22,8 +22,8 @@ as written. A second scan on the same date added items 10 to 15, which are set o
 | 10 | An airship's name overruns the packet codec | High | S | 0 | Open |
 | 11 | Two registries load unhardened records | Medium | S | 1 | Open |
 | 12 | `indexName` steals a colliding name | Low | XS | 1 | Open |
-| 13 | A cross-dimension warp moves before it plans | Low (latent) | S | 1 | Open |
-| 14 | Three more classes keep client state across a dimension change | Low | — | 1 | Open |
+| 13 | A cross-dimension warp moves before it plans | Low (latent) | S | 1 | **Done** — nothing moves at launch; the crossing rebuilds the hull |
+| 14 | Three more classes keep client state across a dimension change | Low | — | 1 | **Done** — same hook as 4 |
 | 15 | Open-ended upper version bounds | Low | XS | 0 | Open |
 
 ---
@@ -88,6 +88,10 @@ rule, and have both block entities own one. That also closes half of item 5.
 removed, assert the reference is dropped.
 
 ### 4. Clear client state on a dimension change
+
+**Resolved (2026-09-15), together with 14,** by the shared hook this recommends: `client/LevelChangeReset`
+clears all five on `ClientPlayerNetworkEvent.Clone` (and on logout). It became necessary rather than
+cosmetic once a warp could cross dimensions. Still verify manually as below.
 
 `FoldCrossings.sweep` and `RiftEffectManager.onClientTick` clear only when `level == null`.
 
@@ -173,6 +177,27 @@ move, and `read()` deliberately drops any running flight:
 If that is right, the crossing *inherently* serialises the drive mid-flight, and no amount of keeping
 chunks loaded will prevent it. The flight has to survive an NBT round trip.
 
+**A second hypothesis, and a fix already shipped for it (1.3.1).** `stage=BREACH after 0t` also fits
+the arrival ticket not reaching the hull. `BREACH` is set on the very tick of the relocate. The old
+ticket was one square about the *resting* place, radius capped at eight chunks, while the hull is put
+down `emergeDistance` behind that — over 500 blocks for a 400-block Mk II hull, ~260 for a 200-block
+one, inside the square only for hulls under about a hundred blocks. The chunks `ensureLoaded` touched
+at plan time had long since dropped their temporary tickets by the crossing, so the hull landed over
+unheld ground, Sable unloaded the sub-level (serialising the drive), and the crew's own view loaded it
+straight back — `read()` at 0t. That explains "large hulls only" without needing Sable to round-trip
+block entities on every teleport. `ArrivalTicket.hold` now lays tickets from the reappearance point to
+the resting place and is re-asserted at `EXIT_CORRIDOR`, and `WarpTrace.arrivalHeld` logs what was
+held. **If `INTERRUPTED` still appears at the breach with that line showing the reappearance held, this
+hypothesis is dead** and Step 1 below is next.
+
+**A second fix for the same hypothesis (1.3.1, with the hold system).** Every running sequence now holds
+its ship with Sable's own force-load ticket (`HoldPurpose.FLIGHT`, taken by `RiftDriveBlockEntity.tickHolds`).
+Sable honours that wherever the hull is put: it keeps the ground under the whole box block-ticking and
+never unloads a ticketed ship - so a relocate onto ground the arrival ticket missed, or only reached at
+level 33 on its rim, no longer drops the hull either. The trace shows `[hold] ... holds ship ... for flight`
+at lock-in. **If `INTERRUPTED stage=BREACH after 0t` still appears with that hold in place**, the unload
+hypothesis is dead for certain, and Step 1 is next.
+
 **Step 1 — confirm or kill the hypothesis.** Add temporary logging in `read()` and `saveAdditional()`
 recording the position, stage and `sequenceTicks`, and whether the block entity instance identity
 changed. Do one large-hull warp. This is diagnosis, not a fix, and it should be a throwaway commit.
@@ -191,7 +216,7 @@ question becomes why the `WARP_DRIVE` ticket did not hold it. Different fix, so 
 
 **Verify.** `WarpFlight` round-trip test: save at each stage, load, assert every field survives and
 the stage machine continues from the same point. Then a manual large-hull warp with
-`debug.traceWarps` on, confirming the trace runs to `EMERGE` with no `INTERRUPTED` line.
+`debug.trace` on, confirming the trace runs to `EMERGE` with no `INTERRUPTED` line.
 
 **Acceptance criteria carried over from the warp-stability plan (its phase 6, folded in here).**
 The stability plan does not duplicate this item; it adds these to it, because the drop-and-recover
@@ -320,6 +345,12 @@ together.
 that name.
 
 ## 13. A cross-dimension warp moves before it plans
+
+**Resolved (2026-09-15)** by cross-dimension warps being built rather than socketed. `beginWarp` no longer
+calls anything irreversible: it plans the arrival in the destination level, then asks
+`CrossDimensionWarp.preflight`, and the hull is rebuilt only at the crossing - where a refusal leaves the
+original untouched for `abort` to put back. The `Handler` socket and its static field are gone, so the
+threading note below no longer applies. The text is kept as written.
 
 **Problem.** `beginWarp` calls `CrossDimensionWarp.transfer` — the irreversible step — and only
 afterwards calls `WarpFlight.plan`, which can still return null and abort with `NO_SAFE_ARRIVAL`. A

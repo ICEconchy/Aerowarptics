@@ -7,6 +7,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
+import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.network.ClientboundCorridorPacket;
 
@@ -125,7 +126,9 @@ public final class WarpCorridorOverlay {
     @SubscribeEvent
     public static void onFov(ViewportEvent.ComputeFov event) {
         float amount = intensity((float) event.getPartialTick());
-        if (amount > 0.0F) {
+        // Asked only while there is something to apply, and never before a warp: a moving lens is the one
+        // part of this that some players cannot watch, and warpFov is how they say so.
+        if (amount > 0.0F && AWConfig.WARP_FOV.get()) {
             event.setFOV(event.getFOV() * (1.0D + FOV_STRETCH * amount));
         }
     }

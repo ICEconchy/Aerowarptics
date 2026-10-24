@@ -3,9 +3,9 @@ package uk.co.iceconchy.aerowarptics.warp;
 import net.minecraft.core.BlockPos;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
-import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
 
 import java.util.Locale;
 
@@ -16,9 +16,10 @@ import java.util.Locale;
  * the plane before the teleport fired". This writes the numbers behind each stage so that question has
  * an answer rather than an impression.
  *
- * <p>Off unless {@code debug.traceWarps} is set, and every entry point returns immediately when it is
+ * <p>Off unless {@code debug.trace} is set, and every entry point returns immediately when it is
  * off, before formatting anything. When it is on it logs at INFO, so it lands in {@code latest.log}
- * without anyone having to reconfigure logging to collect it.
+ * without anyone having to reconfigure logging to collect it. This is the warp's share of the mod-wide
+ * trace - see {@link Trace} - kept apart because of how much of it is arithmetic worth testing.
  */
 public final class WarpTrace {
 
@@ -77,7 +78,51 @@ public final class WarpTrace {
     // ----------------------------------------------------------------- output
 
     public static boolean enabled() {
-        return AWConfig.TRACE_WARPS.get();
+        return Trace.enabled();
+    }
+
+    /**
+     * What a jump costs and why, term by term, against what the drive can reach at all.
+     *
+     * <p>The line that answers "it is in range and it still will not go". A refusal for range names
+     * {@link WarpFailure#DESTINATION_TOO_FAR} both when the anchor is past the tier's range and when the
+     * jump costs more than a full charge, and only the second is fixed by a lighter ship; this says which,
+     * with the hull's mass shown doing it.
+     */
+    public static String pricing(WarpCost.Formula formula, double distance, double mass) {
+        double unclamped = formula.unclampedCost(distance, mass);
+        double reach = formula.reach(mass);
+        return String.format(Locale.ROOT,
+                "distance=%s mass=%s cost=(base %.3f + distance %.3f + mass %.3f) / efficiency %.2f = %.3f"
+                        + " of a full charge%s; range %s-%s; reach at this mass %s",
+                Trace.blocks(distance), Trace.blocks(mass),
+                formula.baseCost(), formula.distanceTerm(distance), formula.massTerm(mass),
+                formula.efficiency(), unclamped, unclamped > 1.0D ? " (OVER A FULL CHARGE)" : "",
+                Trace.blocks(formula.minimumDistance()), Trace.blocks(formula.maximumDistance()),
+                reach < 0.0D ? "NONE" : Trace.blocks(reach));
+    }
+
+    /**
+     * A drive refusing to start: a warp, a cruise, or its part in a fold.
+     *
+     * <p>Every one of these used to be silent in the log, and a redstone start's are silent to the pilot
+     * too - the only record was the drive's own last-failure field. The state is the drive's whole
+     * situation at that moment, see {@code RiftDriveBlockEntity.traceState}.
+     */
+    public static void refused(BlockPos drivePos, WarpFailure reason, String state) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[drive] {} REFUSED {} - {}", pos(drivePos), reason.getSerializedName(), state);
+    }
+
+    /** A drive changing state, with what it is running on. */
+    public static void state(BlockPos drivePos, String from, String to, float charge, double rpm, int sequenceTicks) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[drive] {} {} -> {} charge={} rpm={} after {}t", pos(drivePos), from, to,
+                Trace.percent(charge), num(rpm), sequenceTicks);
     }
 
     /** The whole journey, as planned, before any of it happens. */
@@ -108,6 +153,26 @@ public final class WarpTrace {
     }
 
     /**
+     * A flight going through its fleet's one rift: the run every ship in it shares, and the two apertures.
+     * Logged by every ship, so a trace from any of them shows whether they were all given the same passage.
+     */
+    public static void passage(BlockPos drivePos, FleetPassage passage, int wait) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info(
+                "[warp]   fleet passage drive={} span={} run={} approach={} wait={} start={} corridor={} emerge={}/{}",
+                pos(drivePos), num(passage.span()), num(passage.transitRun()), num(passage.approach()), wait,
+                passage.startTick(), passage.corridorTicks(), num(passage.emergeDistance()), passage.emergeTicks());
+        WarpFlight.Rift entry = passage.entry();
+        WarpFlight.Rift exit = passage.exit();
+        AeroWarptics.LOGGER.info("[warp]   fleet entry={} {}x{} exit={} {}",
+                vec(entry.centre()), num(entry.radius() * 2.0D), num(entry.radius() * entry.aspect() * 2.0D),
+                exit == null ? "-" : vec(exit.centre()),
+                exit == null ? "" : num(exit.radius() * 2.0D) + "x" + num(exit.radius() * exit.aspect() * 2.0D));
+    }
+
+    /**
      * One stage handing over to the next.
      *
      * <p>The crossing is the interesting part. At the start of a passage the bow should read about
@@ -129,6 +194,56 @@ public final class WarpTrace {
                 from, to, ticks, vec(centre), crossing(airship, rift, flight.hullSpan()));
     }
 
+    /**
+     * Somebody switched a drive's clearance checks on or off at its console.
+     *
+     * <p>Not gated behind the trace setting, unlike everything else here. It is a rare and deliberate
+     * act, and when a ship is later found set down inside a hillside the first question an admin has is
+     * whether the drive was told not to look - which the log should be able to answer without anybody
+     * having thought to turn tracing on beforehand.
+     */
+    public static void clearanceChecks(BlockPos drivePos, String player, boolean on) {
+        AeroWarptics.LOGGER.info("[warp] clearance checks {} drive={} by {}", on ? "ON" : "OFF",
+                pos(drivePos), player);
+    }
+
+    /** A warp opening its rift with this drive's clearance checks switched off. */
+    public static void uncheckedLaunch(BlockPos drivePos, BlockPos target) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] launching with clearance checks OFF drive={} target={}",
+                pos(drivePos), pos(target));
+    }
+
+    /** A free cruise setting off: which way, how fast it may go, and how far its charge will carry it. */
+    public static void cruiseEngaged(BlockPos drivePos, Airship airship, Vector3dc bow, double topSpeed,
+                                     double throttle, double limit) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] cruise engaged drive={} ship={} heading={} top={}b/s throttle={} limit={}",
+                pos(drivePos), airship.uuid(), vec(bow), num(topSpeed), num(throttle), num(limit));
+    }
+
+    /** A cruise starting to let go, and why - asked, throttle cut, stalled, out of charge or out of range. */
+    public static void cruiseDropOut(BlockPos drivePos, String why, double flown, double speed, float charge) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] cruise dropping out drive={} ({}) flown={} speed={}b/t charge={}",
+                pos(drivePos), why, num(flown), num(speed), num(charge));
+    }
+
+    /** A cruise brought to a stop and handed back. */
+    public static void cruiseComplete(BlockPos drivePos, double flown, float charge) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] cruise complete drive={} flown={} charge left={}",
+                pos(drivePos), num(flown), num(charge));
+    }
+
     /** A hull actually being moved, which happens exactly twice and should never be visible. */
     public static void teleport(String what, Vector3dc from, Vector3dc to, int crew) {
         if (!enabled()) {
@@ -138,13 +253,53 @@ public final class WarpTrace {
                 what, vec(from), vec(to), num(new Vector3d(to).distance(from)), crew);
     }
 
-    /** A warp that ended early, and where it was when it did. */
-    public static void abort(BlockPos drivePos, WarpFailure reason, WarpFlight flight, int ticks) {
+    /**
+     * A vessel moved into another dimension by Dimensional Sable.
+     *
+     * <p>Logged whether tracing is on or not, like {@link #interrupted}: a crossing rebuilds the whole
+     * vessel in one tick, and is new, so its cost is always on record.
+     *
+     * @param parts    sub-levels moved, the hull and everything joined to it
+     * @param bearings running bearings to start again on arrival
+     */
+    public static void crossDimension(java.util.UUID ship, String from, String to, int parts, int bearings,
+                                      long micros) {
+        AeroWarptics.LOGGER.info("[warp] crossed {} {} -> {} parts={} bearings={} in {}ms",
+                ship, from, to, parts, bearings, num(micros / 1_000.0D));
+    }
+
+    /**
+     * A new drive picking up a flight its old self handed across a dimension.
+     *
+     * @param moved how far the drive's plot position moved, which every plot-space memory moves by too
+     */
+    public static void handoff(BlockPos drivePos, String dimension, String stage, BlockPos moved,
+                               java.util.UUID from, java.util.UUID to) {
+        AeroWarptics.LOGGER.info("[warp] handoff drive={} in {} resumes stage={} plot moved {} ship {} -> {}",
+                pos(drivePos), dimension, stage, pos(moved), from, to);
+    }
+
+    /** A warp that ended early, where it was when it did, and the drive's whole situation at that moment. */
+    public static void abort(BlockPos drivePos, WarpFailure reason, WarpFlight flight, int ticks, String state) {
         if (!enabled()) {
             return;
         }
-        AeroWarptics.LOGGER.info("[warp] ABORT {} at {} stage={} after {}t",
-                reason, pos(drivePos), flight == null ? "none" : flight.stage(), ticks);
+        AeroWarptics.LOGGER.info("[warp] ABORT {} at {} stage={} after {}t - {}",
+                reason, pos(drivePos), flight == null ? "none" : flight.stage(), ticks, state);
+    }
+
+    /**
+     * How far a hull came out of a warp turned from the attitude it was planned to arrive at.
+     *
+     * <p>The measure of the tilt {@code AttitudeHold} exists to stop: anything over a degree or two is the
+     * hull having been twisted in flight and not held.
+     */
+    public static void attitude(BlockPos drivePos, double degrees) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] attitude drive={} off the planned arrival by {} degrees{}",
+                pos(drivePos), num(degrees), degrees > 2.0D ? " TILTED" : "");
     }
 
     /**
@@ -159,6 +314,43 @@ public final class WarpTrace {
     public static void interrupted(BlockPos drivePos, String stage, int ticks) {
         AeroWarptics.LOGGER.warn("[warp] INTERRUPTED at {} stage={} after {}t - the drive was reloaded "
                 + "mid-flight, so the sequence was dropped", pos(drivePos), stage, ticks);
+    }
+
+    /** The landing claimed at the start of spin-up, so the arrival search finds it loaded. */
+    public static void preloadClaimed(BlockPos drivePos, int chunks) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] preload drive={} claimed {} chunks of landing", pos(drivePos), chunks);
+    }
+
+    /**
+     * A fully spun drive that had to hold for its landing, and whether the landing arrived in time.
+     *
+     * <p>Only written when the drive actually waited. A timeout means the search went on to load the
+     * rest synchronously, which is the stall the preload exists to prevent - so if a large ship still
+     * hitches at launch, this is the line that says whether that is why.
+     */
+    public static void preloadReady(BlockPos drivePos, int waited, boolean loaded) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] preload drive={} {} after {}t", pos(drivePos),
+                loaded ? "ready" : "TIMED OUT - loading the rest synchronously", waited);
+    }
+
+    /**
+     * The arrival coast held, at launch and again at the crossing.
+     *
+     * <p>The line that answers remediation item 2: if a large hull still ends {@code INTERRUPTED} at
+     * the breach with this line showing its reappearance point held, the ground was not the reason.
+     */
+    public static void arrivalHeld(BlockPos drivePos, Vector3dc reappears, Vector3dc rests, int chunks) {
+        if (!enabled()) {
+            return;
+        }
+        AeroWarptics.LOGGER.info("[warp] holding arrival drive={} from={} to={} ({} chunks)",
+                pos(drivePos), vec(reappears), vec(rests), chunks);
     }
 
     /** A warp that finished. */

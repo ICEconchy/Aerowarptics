@@ -66,6 +66,11 @@ public final class SummonBeacons {
     private SummonBeacons() {
     }
 
+    /** Drops every beam, for a client whose world has just been replaced. */
+    public static void clear() {
+        ACTIVE.clear();
+    }
+
     /** Lights a beam and throws the shockwave, from the packet the server sent on the summon. */
     public static void mark(ClientboundRiftBeaconPacket packet) {
         Minecraft minecraft = Minecraft.getInstance();
@@ -127,6 +132,10 @@ public final class SummonBeacons {
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
+        // Under a shader pack this is drawn once the pack has finished the frame - see AfterShaders.
+        if (AfterShaders.defer(event)) {
+            return;
+        }
         // Additive and writing no depth: a beam of light should brighten what is behind it rather
         // than cut a hole in it.
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES || ACTIVE.isEmpty()) {
@@ -141,7 +150,7 @@ public final class SummonBeacons {
         poseStack.translate(-eye.x, -eye.y, -eye.z);
         Matrix4f matrix = poseStack.last().pose();
 
-        MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
+        MultiBufferSource.BufferSource buffers = AfterShaders.buffers();
         VertexConsumer buffer = buffers.getBuffer(AWRenderTypes.RIFT_FIRE);
         for (Beam beam : ACTIVE) {
             draw(buffer, matrix, beam, partialTick);

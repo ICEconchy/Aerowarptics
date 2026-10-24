@@ -48,6 +48,8 @@ import java.util.UUID;
  *                       this warp.
  * @param intensityOverride how strongly the one-shot bursts and screen shake for this cue should read,
  *                       already resolved server-side - {@code 1.0} when nothing is dressing this warp.
+ * @param aspect         how much taller than wide the aperture is: 1 for the circle every drive tears,
+ *                       an ellipse for a flotilla's one rift - see {@code FleetPassage}
  */
 public record ClientboundWarpEffectPacket(BlockPos drivePos,
                                           Stage stage,
@@ -61,7 +63,8 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
                                           int colourOverride,
                                           int accentColourOverride,
                                           int themeOverride,
-                                          float intensityOverride) implements CustomPacketPayload {
+                                          float intensityOverride,
+                                          float aspect) implements CustomPacketPayload {
 
     /** Points in the sequence that have a distinct visual and audible signature. */
     public enum Stage {
@@ -87,7 +90,13 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
          * <p>Appended rather than inserted, matching the convention in {@code WarpFailure}:
          * ordinal-based wire formats break when a constant is added mid-enum.
          */
-        SCATTER
+        SCATTER,
+        /**
+         * An aperture already standing is kept up for {@code duration} ticks more - or, on a client that never saw it
+         * open, opened. A Rift Plotter's exit stands only while traffic is coming, for as long as it is, so it is kept
+         * up in steps rather than opened once for a length nobody knows. Appended, as SCATTER was.
+         */
+        RIFT_HOLD
     }
 
     private static final UUID NO_AIRSHIP = new UUID(0L, 0L);
@@ -105,7 +114,7 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
                                                    int themeOverride, float intensityOverride) {
         return new ClientboundWarpEffectPacket(drivePos, stage, tierIndex, airship,
                 toVec3(rift.centre()), toVec3(rift.normal()), rift.radius(), duration, (float) throat,
-                colourOverride, accentColourOverride, themeOverride, intensityOverride);
+                colourOverride, accentColourOverride, themeOverride, intensityOverride, (float) rift.aspect());
     }
 
     /** A cue with no aperture - sparks, a failure, a lock-on - anchored at a point. */
@@ -115,7 +124,7 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
                                                  float intensityOverride) {
         return new ClientboundWarpEffectPacket(drivePos, stage, tierIndex, airship,
                 centre, new Vec3(0.0D, 1.0D, 0.0D), 0.0D, 0, 0.0F, colourOverride, accentColourOverride,
-                themeOverride, intensityOverride);
+                themeOverride, intensityOverride, 1.0F);
     }
 
     /** Whether this cue carries an aperture that should be drawn. */
@@ -150,6 +159,7 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
         buf.writeVarInt(packet.accentColourOverride);
         buf.writeVarInt(packet.themeOverride);
         buf.writeFloat(packet.intensityOverride);
+        buf.writeFloat(packet.aspect);
     }
 
     private static ClientboundWarpEffectPacket decode(RegistryFriendlyByteBuf buf) {
@@ -166,6 +176,7 @@ public record ClientboundWarpEffectPacket(BlockPos drivePos,
                 buf.readVarInt(),
                 buf.readVarInt(),
                 buf.readVarInt(),
+                buf.readFloat(),
                 buf.readFloat());
     }
 

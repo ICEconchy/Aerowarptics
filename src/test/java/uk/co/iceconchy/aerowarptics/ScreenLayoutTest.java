@@ -2,6 +2,8 @@ package uk.co.iceconchy.aerowarptics;
 
 import org.junit.jupiter.api.Test;
 import uk.co.iceconchy.aerowarptics.astrolabe.DestinationSurvey;
+import uk.co.iceconchy.aerowarptics.client.screen.AWAnim;
+import uk.co.iceconchy.aerowarptics.client.screen.AWDropdown;
 import uk.co.iceconchy.aerowarptics.client.screen.AWLayout;
 import uk.co.iceconchy.aerowarptics.client.screen.AWLayout.Rect;
 import uk.co.iceconchy.aerowarptics.client.screen.AWLayouts;
@@ -35,13 +37,17 @@ class ScreenLayoutTest {
                 panels.put("readouts", layout.readouts());
                 panels.put("requirements", layout.requirements());
                 panels.put("bar", layout.bar());
-                panels.put("cancel", layout.cancel());
                 panels.put("heading", layout.heading());
+                panels.put("mode", layout.mode());
+                panels.put("clearance", layout.clearance());
+                panels.put("cancel", layout.cancel());
             }
             case "chart" -> {
                 AWLayouts.Chart layout = AWLayouts.chart();
                 panels.put("header", layout.header());
                 panels.put("course", layout.course());
+                panels.put("hold", layout.hold());
+                panels.put("filter", layout.filter());
                 panels.put("list", layout.list());
                 panels.put("preview", layout.preview());
                 panels.put("scale", layout.scale());
@@ -51,20 +57,36 @@ class ScreenLayoutTest {
                 AWLayouts.Dial layout = AWLayouts.dial();
                 panels.put("header", layout.header());
                 panels.put("name", layout.name());
+                panels.put("network", layout.network());
+                panels.put("filter", layout.filter());
                 panels.put("list", layout.list());
                 panels.put("detail", layout.detail());
+                panels.put("passage", layout.passage());
                 panels.put("dial", layout.dial());
                 panels.put("access", layout.access());
+                panels.put("members", layout.members());
             }
             case "anchor" -> {
                 AWLayouts.Anchor layout = AWLayouts.anchor();
                 panels.put("header", layout.header());
                 panels.put("name", layout.name());
                 panels.put("network", layout.network());
+                panels.put("members", layout.members());
                 panels.put("height", layout.height());
                 panels.put("access", layout.access());
                 panels.put("enabled", layout.enabled());
                 panels.put("save", layout.save());
+            }
+            case "network" -> {
+                AWLayouts.Network layout = AWLayouts.network();
+                panels.put("header", layout.header());
+                panels.put("name", layout.name());
+                panels.put("list", layout.list());
+                panels.put("add", layout.add());
+                panels.put("addButton", layout.addButton());
+                panels.put("info", layout.info());
+                panels.put("remove", layout.remove());
+                panels.put("leave", layout.leave());
             }
             case "chute" -> {
                 AWLayouts.Chute layout = AWLayouts.chute();
@@ -103,6 +125,32 @@ class ScreenLayoutTest {
                 panels.put("intensity", layout.intensity());
                 panels.put("theme", layout.theme());
             }
+            case "fleet_board" -> {
+                AWLayouts.FleetBoard layout = AWLayouts.fleetBoard();
+                panels.put("header", layout.header());
+                panels.put("formation", layout.formation());
+                panels.put("roster", layout.roster());
+                panels.put("info", layout.info());
+                panels.put("sound", layout.sound());
+                panels.put("castOff", layout.castOff());
+                panels.put("fold", layout.fold());
+                panels.put("role", layout.role());
+                panels.put("autoAccept", layout.autoAccept());
+                panels.put("beacon", layout.beacon());
+                panels.put("sharedRift", layout.sharedRift());
+                panels.put("rename", layout.rename());
+            }
+            case "station" -> {
+                AWLayouts.Station layout = AWLayouts.station();
+                panels.put("header", layout.header());
+                panels.put("box", layout.box());
+                panels.put("detail", layout.detail());
+                panels.put("info", layout.info());
+                panels.put("take", layout.take());
+                panels.put("breakOff", layout.breakOff());
+                panels.put("role", layout.role());
+                panels.put("rename", layout.rename());
+            }
             default -> throw new IllegalArgumentException(screen);
         }
         return panels;
@@ -114,16 +162,19 @@ class ScreenLayoutTest {
             case "chart" -> new int[]{AWLayouts.CHART_WIDTH, AWLayouts.CHART_HEIGHT};
             case "dial" -> new int[]{AWLayouts.DIAL_WIDTH, AWLayouts.DIAL_HEIGHT};
             case "anchor" -> new int[]{AWLayouts.ANCHOR_WIDTH, AWLayouts.ANCHOR_HEIGHT};
+            case "network" -> new int[]{AWLayouts.NETWORK_WIDTH, AWLayouts.NETWORK_HEIGHT};
             case "chute" -> new int[]{AWLayouts.CHUTE_WIDTH, AWLayouts.CHUTE_HEIGHT};
             case "probe" -> new int[]{AWLayouts.PROBE_WIDTH, AWLayouts.PROBE_HEIGHT};
             case "book" -> new int[]{AWLayouts.BOOK_WIDTH, AWLayouts.BOOK_HEIGHT};
             case "modulator" -> new int[]{AWLayouts.MODULATOR_WIDTH, AWLayouts.MODULATOR_HEIGHT};
+            case "fleet_board", "station" -> new int[]{AWLayouts.COUPLER_WIDTH, AWLayouts.COUPLER_HEIGHT};
             default -> throw new IllegalArgumentException(screen);
         };
     }
 
     private static final List<String> SCREENS =
-            List.of("console", "chart", "dial", "anchor", "probe", "chute", "book", "modulator");
+            List.of("console", "chart", "dial", "anchor", "network", "probe", "chute", "book", "modulator",
+                    "fleet_board", "station");
 
     /**
      * The panels drawn with a recessed frame around them.
@@ -133,17 +184,20 @@ class ScreenLayoutTest {
      * is what stops this test from either missing real collisions or objecting to a caption sitting
      * directly under a rule, which is exactly where a caption belongs.
      */
-    private static final Map<String, List<String>> FRAMED = Map.of(
-            "console", List.of("readouts", "requirements"),
-            "chart", List.of("list", "preview", "detail"),
-            "dial", List.of("list", "detail"),
-            "anchor", List.of(),
-            "probe", List.of("compass", "range", "height", "supply", "reading", "verdict"),
-            "chute", List.of("list", "detail"),
+    private static final Map<String, List<String>> FRAMED = Map.ofEntries(
+            Map.entry("console", List.of("readouts", "requirements")),
+            Map.entry("chart", List.of("list", "preview", "detail")),
+            Map.entry("dial", List.of("list", "detail")),
+            Map.entry("anchor", List.<String>of()),
+            Map.entry("network", List.of("list")),
+            Map.entry("probe", List.of("compass", "range", "height", "supply", "reading", "verdict")),
+            Map.entry("chute", List.of("list", "detail")),
             // The handbook's pages draw their own edge and the shadow they throw into the spine, so
             // they want the same clearance from each other that a recessed panel does.
-            "book", List.of("left", "right"),
-            "modulator", List.of("swatches", "detail"));
+            Map.entry("book", List.of("left", "right")),
+            Map.entry("modulator", List.of("swatches", "detail")),
+            Map.entry("fleet_board", List.of("formation", "roster")),
+            Map.entry("station", List.of("box", "detail")));
 
     private static Map<String, Rect> framedPanels(String screen) {
         Map<String, Rect> all = panels(screen);
@@ -284,8 +338,8 @@ class ScreenLayoutTest {
     void theConsolePanelsHoldWhatTheyDraw() {
         AWLayouts.Console console = AWLayouts.console();
 
-        // readouts: six label-and-value lines, from a two-pixel inset.
-        int readouts = AWLayout.INSET + 6 * AWLayout.LINE;
+        // readouts: seven label-and-value lines, from a two-pixel inset.
+        int readouts = AWLayout.INSET + 7 * AWLayout.LINE;
         assertTrue(console.readouts().height() >= readouts,
                 "the readouts panel is " + console.readouts().height() + "px for " + readouts + "px of lines");
 
@@ -303,12 +357,13 @@ class ScreenLayoutTest {
      * itself, which is how this one came to be 52px for 69px of content and drew the course-status pill
      * below its own bottom edge - hanging off the foot of the screen. The numbers are the ones
      * {@code AstrolabeChartScreen.renderDetails} lays out with: a two-pixel inset, a title and the rule
-     * under it, three label-and-value readouts, and the pill a gutter below them.
+     * under it, four label-and-value readouts - distance, cost, ground and network - and the pill a gutter
+     * below them.
      */
     @Test
     void theChartDetailPanelHoldsWhatItDraws() {
-        // inset, title-and-rule, three readouts, then the pill two pixels below with its own height.
-        int content = AWLayout.INSET + 15 + 3 * AWLayout.LINE + 2 + 11;
+        // inset, title-and-rule, four readouts, then the pill two pixels below with its own height.
+        int content = AWLayout.INSET + 15 + 4 * AWLayout.LINE + 2 + 11;
         assertTrue(AWLayouts.chart().detail().height() >= content,
                 "the chart's detail panel is " + AWLayouts.chart().detail().height() + "px for "
                         + content + "px of content - the course-status pill would be drawn below it");
@@ -344,6 +399,94 @@ class ScreenLayoutTest {
         assertTrue(radius >= 30, "the bearing dial's ring is only " + radius + "px across its radius");
     }
 
+    /**
+     * The probe's dimension box sits in the corner of the header nothing else was using.
+     *
+     * <p>It is not in the panel map above because it is inside the header on purpose. What it must not
+     * do is reach the header's second line, where the status is drawn right-aligned under it, or crowd
+     * the title on its own line.
+     */
+    @Test
+    void theProbeDimensionBoxSitsInTheHeadersEmptyCorner() {
+        AWLayouts.Probe probe = AWLayouts.probe();
+        Rect box = probe.dimension();
+        Rect interior = AWLayout.interior(AWLayouts.PROBE_WIDTH, AWLayouts.PROBE_HEIGHT);
+        assertTrue(box.x() >= 0 && box.y() >= 0 && box.right() <= interior.right(), box + " is off the window");
+        assertEquals(probe.header().right(), box.right(), "the box is not flush with the header's right edge");
+        // AWScreenStyle.header draws the subtitle and the status eleven pixels under the header's top.
+        assertTrue(box.bottom() <= probe.header().y() + 11,
+                box + " reaches the status line at y " + (probe.header().y() + 11));
+        // And the title on the box's own line. "Rift Probe" is under sixty pixels in the game's font.
+        assertTrue(box.x() - probe.header().x() >= 80, "only " + (box.x() - probe.header().x())
+                + "px left of the dimension box for the title");
+        // A line of text is eight pixels tall and is drawn two below the box's top.
+        assertTrue(box.height() >= 2 + 8 + 2, box + " is too short for a line of text");
+    }
+
+    /** However many dimensions a server has, the open list stays on the window and under its box. */
+    @Test
+    void theProbeDimensionListStaysInsideTheWindow() {
+        Rect box = AWLayouts.probe().dimension();
+        Rect interior = AWLayout.interior(AWLayouts.PROBE_WIDTH, AWLayouts.PROBE_HEIGHT);
+        for (int options = 1; options <= 64; options++) {
+            Rect list = AWDropdown.list(box, options);
+            assertEquals(box.x(), list.x());
+            assertEquals(box.width(), list.width());
+            assertTrue(list.y() >= box.bottom(), "the list of " + options + " opens over its own box");
+            assertTrue(list.bottom() <= interior.bottom() && list.right() <= interior.right(),
+                    "a list of " + options + " runs off the window: " + list);
+            assertTrue(list.height() <= AWDropdown.MAX_ROWS * AWDropdown.ROW + AWLayout.INSET * 2,
+                    "a list of " + options + " grew past its rows");
+        }
+    }
+
+    /**
+     * The option a click lands on is the one drawn under it, scrolled or not.
+     *
+     * <p>Off by one here aims the probe at the dimension next to the one the player chose, which they
+     * would find out about after paying for the scan.
+     */
+    @Test
+    void aDropdownRowIsTheOptionDrawnThere() {
+        int row = AWDropdown.ROW;
+        int most = AWDropdown.MAX_ROWS;
+        Rect box = AWLayouts.probe().dimension();
+        for (int options : new int[]{1, 3, most, most + 4}) {
+            Rect list = AWDropdown.list(box, options);
+            int rows = Math.min(most, options);
+            for (int scroll = 0; scroll <= Math.max(0, options - most); scroll++) {
+                for (int line = 0; line < rows; line++) {
+                    // The top and bottom pixel of each row, as RiftProbeScreen draws them.
+                    int top = list.y() + AWLayout.INSET + line * row;
+                    for (int y : new int[]{top, top + row - 1}) {
+                        assertEquals(line + scroll, AWDropdown.optionAt(list, list.x() + 4, y, scroll, options),
+                                options + " options scrolled " + scroll + ", row " + line + " at y " + y);
+                    }
+                }
+            }
+            // The frame round the rows is not a row, and nor is anywhere off the list.
+            assertEquals(-1, AWDropdown.optionAt(list, list.x() + 4, list.y(), 0, options));
+            assertEquals(-1, AWDropdown.optionAt(list, list.x() + 4, list.bottom() - 1, 0, options));
+            assertEquals(-1, AWDropdown.optionAt(list, list.x() - 1, list.y() + AWLayout.INSET + 1, 0, options));
+        }
+    }
+
+    /** A list opens on the row that is chosen, and can never be scrolled past its last option. */
+    @Test
+    void aDropdownOpensOnItsChoiceAndStopsAtItsEnds() {
+        int most = AWDropdown.MAX_ROWS;
+        for (int options = 1; options <= most * 3; options++) {
+            for (int selected = 0; selected < options; selected++) {
+                int scroll = AWDropdown.scrollToShow(selected, options);
+                assertTrue(scroll <= selected && selected < scroll + most,
+                        "option " + selected + " of " + options + " is off a list opened at " + scroll);
+                assertTrue(scroll >= 0 && scroll <= Math.max(0, options - most));
+            }
+            assertEquals(0, AWDropdown.clampScroll(-3, options));
+            assertEquals(Math.max(0, options - most), AWDropdown.clampScroll(999, options));
+        }
+    }
+
     /** An anchor's height slider sits inside its own band, under its caption. */
     @Test
     void theAnchorHeightSliderSitsUnderItsCaption() {
@@ -373,6 +516,48 @@ class ScreenLayoutTest {
                 "the probe's reading panel is shorter than the survey it draws");
     }
 
+    /**
+     * A list's filter strip sits directly over the list it filters, and is exactly as wide - so it reads as
+     * that list's heading, and a click on either half of it is a click over the list.
+     */
+    @Test
+    void aFilterStripIsTheHeadingOfItsList() {
+        Rect[][] pairs = {
+                {AWLayouts.chart().filter(), AWLayouts.chart().list()},
+                {AWLayouts.dial().filter(), AWLayouts.dial().list()}};
+        for (Rect[] pair : pairs) {
+            Rect strip = pair[0];
+            Rect list = pair[1];
+            assertEquals(list.x(), strip.x());
+            assertEquals(list.width(), strip.width());
+            assertEquals(AWLayouts.FILTER_STRIP, strip.height());
+            assertTrue(strip.bottom() + AWLayout.INSET <= list.y(), "the strip is drawn into the list's frame");
+            assertTrue(list.y() - strip.bottom() <= AWLayout.GUTTER, "the strip has drifted away from its list");
+        }
+    }
+
+    /**
+     * The list of a player's networks hangs under the anchor panel's network box, over the controls below.
+     * Open at its fullest it has still to be inside the window, or its last rows cannot be clicked.
+     */
+    @Test
+    void theAnchorsNetworkListOpensInsideTheWindow() {
+        Rect interior = AWLayout.interior(AWLayouts.ANCHOR_WIDTH, AWLayouts.ANCHOR_HEIGHT);
+        Rect list = uk.co.iceconchy.aerowarptics.client.screen.AWDropdown.list(AWLayouts.anchor().network(),
+                AWDropdown.MAX_ROWS + 10);
+        assertTrue(list.bottom() <= interior.bottom(),
+                "the network list runs to " + list.bottom() + ", past the window's " + interior.bottom());
+        assertTrue(list.right() <= interior.right());
+    }
+
+    /** The members panel has two text boxes, so it is one of the screens that must never be scaled down. */
+    @Test
+    void theMembersPanelFitsTheAutoScaleFloorUnscaled() {
+        assertEquals(1.0F, AWLayout.fitScale(320, 240, AWLayouts.NETWORK_WIDTH, AWLayouts.NETWORK_HEIGHT));
+        assertTrue(AWLayouts.network().visibleRows() >= 5,
+                "the members panel shows only " + AWLayouts.network().visibleRows() + " members");
+    }
+
     /** A list that shows three rows is not a list. */
     @Test
     void everyListShowsEnoughRowsToBeWorthScrolling() {
@@ -387,10 +572,11 @@ class ScreenLayoutTest {
     /** Buttons sit in a row with a gap between them, and the row fills the width exactly. */
     @Test
     void footerButtonsFillTheirRow() {
-        for (String screen : List.of("console", "dial", "probe", "chute")) {
+        for (String screen : List.of("console", "dial", "network", "probe", "chute")) {
             int[] size = size(screen);
             Rect footer = AWLayout.footer(size[0], size[1]);
-            List<Rect> buttons = AWLayout.buttons(footer, 2);
+            // The dial has a third: the way into its gate's network.
+            List<Rect> buttons = AWLayout.buttons(footer, screen.equals("dial") ? 3 : 2);
             assertEquals(footer.x(), buttons.getFirst().x(), screen + ": first button is not flush left");
             assertEquals(footer.right(), buttons.getLast().right(),
                     screen + ": last button does not reach the right edge");
@@ -518,5 +704,47 @@ class ScreenLayoutTest {
 
         // Never produces a negative origin, whatever comes in.
         assertTrue(AWLayout.anchor(200, 320, -400) >= 0);
+    }
+
+    /**
+     * Under the Modulator's swatch grid there is room for whichever of its two legends is showing: the
+     * two chips that say what a click does, or - with the grid greyed out - the note that stands in
+     * for them, at its longest.
+     */
+    @Test
+    void theSwatchLegendAndTheNoteInItsPlaceBothFit() {
+        Rect panel = AWLayouts.modulator().swatches();
+        int swatches = 16;
+        int top = AWLayouts.swatchLegendTop(swatches);
+        int grid = AWLayouts.swatchRows(swatches) * (AWLayouts.SWATCH + AWLayouts.SWATCH_GAP) - AWLayouts.SWATCH_GAP;
+        assertTrue(top > grid, "the legend starts inside the grid");
+        int chips = AWLayouts.CHIP * 2 + AWLayouts.CHIP_GAP;
+        assertTrue(top + chips <= panel.height(), "the legend runs out of the swatch panel");
+        int note = AWLayouts.SWATCH_NOTE_LINES * AWLayouts.NOTE_LINE;
+        assertTrue(top + note <= panel.height(),
+                "the greyed-out note runs out of the swatch panel: " + (top + note) + " > " + panel.height());
+    }
+
+    /**
+     * A greyed-out colour is a grey, keeps its opacity, and sits in a band narrow enough that the
+     * brightest and darkest swatches no longer stand out - which is the whole of what makes a switched-off
+     * grid look switched off rather than merely dim.
+     */
+    @Test
+    void greyingOutLeavesOnlyAQuietGrey() {
+        int darkest = 255;
+        int brightest = 0;
+        for (int colour : new int[]{0xFF_000000, 0xFF_FFFFFF, 0xFF_FF0000, 0xFF_00FF00, 0xFF_1D1D21,
+                0xFF_F9FFFE, 0x80_3C44AA}) {
+            int grey = AWAnim.greyed(colour);
+            int r = (grey >> 16) & 0xFF;
+            assertEquals(r, (grey >> 8) & 0xFF, "a greyed colour still has colour in it");
+            assertEquals(r, grey & 0xFF, "a greyed colour still has colour in it");
+            assertEquals(colour >>> 24, grey >>> 24, "greying changed how opaque a colour is");
+            darkest = Math.min(darkest, r);
+            brightest = Math.max(brightest, r);
+        }
+        assertTrue(brightest - darkest <= 110, "greyed-out swatches still range from " + darkest + " to " + brightest);
+        assertTrue(darkest >= 0x20, "a greyed-out swatch is black, which reads as a hole rather than as off");
     }
 }

@@ -34,6 +34,12 @@ import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.hold.Holds;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
+import net.minecraft.server.level.TicketType;
+import net.minecraft.world.level.ChunkPos;
+import java.util.Comparator;
+import uk.co.iceconchy.aerowarptics.airship.DrawnAboard;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWFluids;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
@@ -109,6 +115,18 @@ public class RiftChuteBlockEntity extends SmartBlockEntity
 
     /** What the last decision was, so the panel and the goggles can say why nothing is moving. */
     private ChuteTransfer.Reason lastReason = ChuteTransfer.Reason.UNBOUND;
+
+    /** How long a hold on the partner lasts unrenewed: about fifteen seconds after the last item. */
+    private static final int PARTNER_LIFESPAN = 300;
+
+    /** How often a chute that is being fed renews its hold on its partner. */
+    private static final int PARTNER_RENEW_INTERVAL = 100;
+
+    private static final TicketType<ChunkPos> PARTNER_TICKET = TicketType.create("aerowarptics:chute_partner",
+            Comparator.comparingLong(ChunkPos::toLong), PARTNER_LIFESPAN);
+
+    /** Game time this chute last held its partner. Not saved: the hold does not outlive a restart either. */
+    private long partnerHeldAt = Long.MIN_VALUE / 2;
 
     /**
      * Whether this chute is showing a rift.
@@ -212,6 +230,16 @@ public class RiftChuteBlockEntity extends SmartBlockEntity
      * <p>The inventory face stays as well, so a funnel, hopper or chest still works for anyone who
      * wants one. This is an additional way in, not a replacement.
      */
+    /**
+     * Asks a client to draw this machine, in case it arrived after the blocks round it were drawn - see
+     * {@link DrawnAboard}.
+     */
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        DrawnAboard.redraw(this);
+    }
+
     @Override
     public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
         behaviours.add(new DirectBeltInputBehaviour(this)
@@ -269,6 +297,17 @@ public class RiftChuteBlockEntity extends SmartBlockEntity
                 isWarping() || partner != null && partner.isWarping());
 
         lastReason = plan.reason();
+        // Offered something, so items are flowing: keep the far end loaded for as long as they do, or start
+        // loading it if it is not. Asked on every offer, success included - a partner loaded only by this
+        // would otherwise be let go mid-flow and drop out from under the next item. A full far end is held
+        // too, so whatever is taking items away from it there keeps running; an empty tank or a warp is not
+        // something a loaded partner would help with.
+        ChuteTransfer.Reason reason = plan.reason();
+        if ((reason == ChuteTransfer.Reason.READY || reason == ChuteTransfer.Reason.PARTNER_ABSENT
+                || reason == ChuteTransfer.Reason.PARTNER_FULL) && holdPartner(serverLevel, self)
+                && reason == ChuteTransfer.Reason.PARTNER_ABSENT) {
+            lastReason = ChuteTransfer.Reason.PARTNER_LOADING;
+        }
         if (!plan.moves()) {
             return incoming;
         }
@@ -448,11 +487,13 @@ public class RiftChuteBlockEntity extends SmartBlockEntity
         if (self == null || !self.isBound()) {
             lastReason = ChuteTransfer.Reason.UNBOUND;
         } else if (partner == null) {
-            lastReason = ChuteTransfer.Reason.PARTNER_ABSENT;
+            lastReason = holdingPartner(serverLevel)
+                    ? ChuteTransfer.Reason.PARTNER_LOADING : ChuteTransfer.Reason.PARTNER_ABSENT;
         } else if (!live) {
             lastReason = ChuteTransfer.Reason.NO_ESSENCE;
         } else if (lastReason == ChuteTransfer.Reason.UNBOUND
                 || lastReason == ChuteTransfer.Reason.PARTNER_ABSENT
+                || lastReason == ChuteTransfer.Reason.PARTNER_LOADING
                 || lastReason == ChuteTransfer.Reason.NO_ESSENCE) {
             lastReason = ChuteTransfer.Reason.READY;
         }
@@ -462,16 +503,70 @@ public class RiftChuteBlockEntity extends SmartBlockEntity
             setChanged();
             sendData();
         }
+
+        // A chute aboard a ship says where that ship is, so its partner can reach for it once it has sailed
+        // off and unloaded. Cheap: the ledger only changes when the ship has moved.
+        Airship airship = airship();
+        if (airship != null) {
+            Holds.noteShip(airship);
+        }
     }
 
     /**
-     * Finds the partner's block entity, or {@code null} when it is not reachable.
+     * Keeps this chute's partner loaded while items are flowing to it, renewing the hold at most every
+     * {@link #PARTNER_RENEW_INTERVAL} ticks.
      *
-     * <p>Deliberately no chunk ticket. A chute that held its partner's chunks open would be a chunk
-     * loader built from two blocks and a bucket, which is a far larger decision than a logistics
-     * fitting should be making.
+     * <p>This used to be refused outright, on the grounds that a chute holding its partner open would be a
+     * chunk loader built from two blocks and a bucket. It is not one: nothing is held unless items are being
+     * offered to it, the hold is an expiring ticket rather than a forced chunk, and it lapses
+     * {@link #PARTNER_LIFESPAN} ticks after the last offer, so a pair nobody is feeding holds nothing. What
+     * it buys is that a pair works when nobody is standing at the far end - which is when a chute is most
+     * worth having. Servers that disagree turn it off with {@code loading.chutesHoldPartners}.
+     *
+     * <p>A partner aboard a ship is reached as a ship: the ground under wherever it was last seen, never a
+     * ticket at its plot coordinates. See {@link Holds}.
+     *
+     * @return whether the partner is being held
      */
-    /** The partner, from this tick's cache where possible. */
+    private boolean holdPartner(ServerLevel serverLevel, RiftChute self) {
+        if (!AWConfig.CHUTES_HOLD_PARTNERS.get()) {
+            return false;
+        }
+        long now = serverLevel.getGameTime();
+        if (now - partnerHeldAt < PARTNER_RENEW_INTERVAL) {
+            return true;
+        }
+        RiftChute record = RiftChuteRegistry.get(serverLevel).byId(self.partner());
+        if (record == null || !record.enabled() || !record.dimension().equals(serverLevel.dimension())) {
+            return false;
+        }
+        boolean held;
+        if (Holds.inPlot(serverLevel, record.pos())) {
+            held = Holds.reachShipAt(serverLevel, record.pos(), "chute " + self.displayName(), true)
+                    != Holds.Reach.UNKNOWN;
+        } else {
+            held = Holds.ground(serverLevel, PARTNER_TICKET, new ChunkPos(record.pos()), 2);
+        }
+        if (held) {
+            if (now - partnerHeldAt > PARTNER_LIFESPAN) {
+                Trace.log(Trace.HOLD, "chute {} is holding its partner {} at {} while items flow to it",
+                        self.displayName(), record.displayName(), Trace.pos(record.pos()));
+            }
+            partnerHeldAt = now;
+        }
+        return held;
+    }
+
+    /** Whether this chute has held its partner recently enough that the hold is still standing. */
+    private boolean holdingPartner(ServerLevel serverLevel) {
+        return serverLevel.getGameTime() - partnerHeldAt < PARTNER_LIFESPAN;
+    }
+
+    /**
+     * The partner's block entity, from this tick's cache where possible, or {@code null} when it is not
+     * reachable. Never loads anything: a partner that is not loaded is brought in by {@link #holdPartner},
+     * and only while items are flowing.
+     */
     @Nullable
     private RiftChuteBlockEntity partner(ServerLevel serverLevel, RiftChute self) {
         long now = serverLevel.getGameTime();

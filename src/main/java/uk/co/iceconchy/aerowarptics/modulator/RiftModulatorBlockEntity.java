@@ -23,7 +23,9 @@ import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.airship.DrawnAboard;
 import uk.co.iceconchy.aerowarptics.AWConfig;
+import uk.co.iceconchy.aerowarptics.drive.DriveAssembly;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWFluids;
@@ -107,6 +109,16 @@ public class RiftModulatorBlockEntity extends SmartBlockEntity implements GeoBlo
         super(AWBlockEntities.RIFT_MODULATOR.get(), pos, state);
     }
 
+    /**
+     * Asks a client to draw this machine, in case it arrived after the blocks round it were drawn - see
+     * {@link DrawnAboard}.
+     */
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        DrawnAboard.redraw(this);
+    }
+
     @Override
     public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
         // No Create behaviours: this is not a kinetic block and nothing feeds it items or fluid
@@ -137,13 +149,15 @@ public class RiftModulatorBlockEntity extends SmartBlockEntity implements GeoBlo
         return cachedDrive;
     }
 
+    /** A neighbour counts when it is a drive, or a formed Drive Extender of one - see {@link DriveAssembly#driveAt}. */
     @Nullable
     private RiftDriveBlockEntity findAdjacentDrive() {
         if (level == null) {
             return null;
         }
         for (Direction direction : Direction.values()) {
-            if (level.getBlockEntity(worldPosition.relative(direction)) instanceof RiftDriveBlockEntity drive) {
+            RiftDriveBlockEntity drive = DriveAssembly.driveAt(level, worldPosition.relative(direction));
+            if (drive != null) {
                 return drive;
             }
         }

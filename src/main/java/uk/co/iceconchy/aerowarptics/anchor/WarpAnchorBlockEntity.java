@@ -23,9 +23,14 @@ import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.airship.DrawnAboard;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkRules;
+import uk.co.iceconchy.aerowarptics.warpnet.WarpNetworkRegistry;
+import uk.co.iceconchy.aerowarptics.warpnet.WarpNetworks;
 
 import java.util.List;
 import java.util.UUID;
@@ -55,7 +60,16 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
     private UUID anchorId = UUID.randomUUID();
     private String anchorName = WarpAnchor.UNNAMED;
     private WarpAnchorAccess access = WarpAnchorAccess.PUBLIC;
-    private String network = "";
+    /** The network this anchor is on, by id - see {@link WarpAnchor#network()}. */
+    @Nullable
+    private UUID networkId;
+    /**
+     * What was typed into this anchor's Network box before networks were real, until the server has made a
+     * network of it - see {@link WarpNetworks#adopt}. Blank on any anchor placed since.
+     */
+    private String legacyNetwork = "";
+    /** The network's name, as it arrived with the last sync. Client side only: the server asks the registry. */
+    private String syncedNetworkName = "";
     private boolean enabled = true;
     /**
      * Blocks above this anchor an arriving hull's underside is set, or {@link ArrivalHeight#UNSET}
@@ -81,6 +95,16 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
     public WarpAnchorBlockEntity(BlockPos pos, BlockState state) {
         super(AWBlockEntities.WARP_ANCHOR.get(), pos, state);
         setLazyTickRate(20);
+    }
+
+    /**
+     * Asks a client to draw this machine, in case it arrived after the blocks round it were drawn - see
+     * {@link DrawnAboard}.
+     */
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        DrawnAboard.redraw(this);
     }
 
     @Override
@@ -166,19 +190,63 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
             sendData();
             return;
         }
+        tendNetwork(serverLevel);
         WarpAnchor existing = registry.byId(anchorId);
         WarpAnchor anchor = existing == null
                 ? new WarpAnchor(anchorId, anchorName, serverLevel.dimension(), worldPosition, owner, ownerName,
-                access, network, enabled, arrivalHeight)
+                access, networkId, enabled, arrivalHeight)
                 : existing.withPosition(serverLevel.dimension(), worldPosition)
                 .withName(anchorName)
                 .withAccess(access)
-                .withNetwork(network)
+                .withNetwork(networkId)
                 .withEnabled(enabled)
                 .withArrivalHeight(arrivalHeight);
         registry.register(anchor);
         registered = true;
         status = computeStatus();
+        sendData();
+    }
+
+    /**
+     * Brings this anchor's network up to date before it is written into the registry.
+     *
+     * <p>This block is what re-asserts the anchor's record, so it is also where a stale network has to be
+     * caught: a label from before networks were real is made into one, and a network that has since been
+     * disbanded, or that this anchor's owner has since left, is let go of. Both happen while the block was
+     * unloaded and could not be told.
+     */
+    private void tendNetwork(ServerLevel serverLevel) {
+        if (networkId == null && !legacyNetwork.isBlank()) {
+            networkId = WarpNetworks.adopt(serverLevel, legacyNetwork, owner, ownerName,
+                    "anchor \"" + displayName() + "\" at " + Trace.pos(worldPosition));
+            legacyNetwork = "";
+            setChanged();
+        }
+        if (networkId != null
+                && !NetworkRules.mayStay(WarpNetworkRegistry.get(serverLevel).byId(networkId), owner)) {
+            Trace.log(Trace.NETWORK, "anchor \"{}\" at {} let go of network {}: it has gone, or {} is no longer in it",
+                    displayName(), Trace.pos(worldPosition), networkId, ownerName.isBlank() ? "its owner" : ownerName);
+            dropNetwork();
+        }
+    }
+
+    /** Forgets the network, and with it a Network access that would now have nothing behind it. */
+    private void dropNetwork() {
+        networkId = null;
+        if (access == WarpAnchorAccess.NETWORK) {
+            access = WarpAnchorAccess.PRIVATE;
+        }
+        setChanged();
+    }
+
+    /**
+     * Takes this anchor off its network, the registry's record having already been changed to match.
+     *
+     * <p>Called for a loaded anchor when its network is disbanded or its owner leaves it. Without this the
+     * block would go on remembering the network and write it back the next time it re-asserted itself.
+     */
+    public void leaveNetwork() {
+        dropNetwork();
         sendData();
     }
 
@@ -237,18 +305,23 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
      *
      * @param newArrivalHeight clamped to what the server allows rather than refused, so a client whose
      *                         idea of the ceiling is stale still saves everything else it sent
+     * @param newNetwork       the network to go on, already resolved and permitted, or {@code null} for none
      * @return {@code false} when the requested name collides with another anchor
      */
     public boolean applyEdit(ServerLevel serverLevel, String newName, WarpAnchorAccess newAccess,
-                             String newNetwork, boolean newEnabled, int newArrivalHeight) {
+                             @Nullable UUID newNetwork, boolean newEnabled, int newArrivalHeight) {
         WarpAnchorRegistry registry = WarpAnchorRegistry.get(serverLevel);
         String trimmed = newName == null ? "" : newName.trim();
         if (!trimmed.isBlank() && registry.isNameTaken(trimmed, anchorId)) {
             return false;
         }
         anchorName = trimmed;
-        access = newAccess.permitted() ? newAccess : WarpAnchorAccess.PUBLIC;
-        network = newNetwork == null ? "" : newNetwork.trim();
+        // Network access with no network would be Private under another name, so it is saved as Private.
+        WarpAnchorAccess wanted = newAccess == WarpAnchorAccess.NETWORK && newNetwork == null
+                ? WarpAnchorAccess.PRIVATE : newAccess;
+        access = wanted.permitted() ? wanted : WarpAnchorAccess.PUBLIC;
+        networkId = newNetwork;
+        legacyNetwork = "";
         enabled = newEnabled;
         arrivalHeight = ArrivalHeight.clamp(newArrivalHeight, ArrivalHeight.maximum());
         registry.remove(anchorId);
@@ -293,8 +366,15 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         return access;
     }
 
-    public String network() {
-        return network;
+    @Nullable
+    public UUID networkId() {
+        return networkId;
+    }
+
+    /** The name of the network this anchor is on, or blank for none. As last synced, on a client. */
+    public String networkName() {
+        return level instanceof ServerLevel serverLevel
+                ? WarpNetworkRegistry.get(serverLevel).nameOf(networkId) : syncedNetworkName;
     }
 
     public boolean enabled() {
@@ -342,9 +422,17 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         tag.putUUID("AnchorId", anchorId);
         tag.putString("AnchorName", anchorName);
         tag.putString("Access", access.getSerializedName());
-        tag.putString("Network", network);
+        if (networkId != null) {
+            tag.putUUID("NetworkId", networkId);
+        } else if (!legacyNetwork.isBlank()) {
+            // Not adopted yet - an anchor held back by the per-player cap never reaches the registry - so
+            // kept as it was found rather than lost to a save.
+            tag.putString("Network", legacyNetwork);
+        }
         tag.putBoolean("Enabled", enabled);
         if (clientPacket) {
+            // Resolved for the client, which has no registry to look a network's name up in.
+            tag.putString("NetworkName", networkName());
             // Resolved for the client, which cannot resolve an unset height itself: an anchor held
             // back by the per-player cap never reaches syncToRegistry, and would otherwise open its
             // panel reading zero.
@@ -368,7 +456,11 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         }
         anchorName = tag.getString("AnchorName");
         access = WarpAnchorAccess.byName(tag.getString("Access"));
-        network = tag.getString("Network");
+        networkId = tag.hasUUID("NetworkId") ? tag.getUUID("NetworkId") : null;
+        legacyNetwork = networkId == null ? tag.getString("Network") : "";
+        if (clientPacket) {
+            syncedNetworkName = tag.getString("NetworkName");
+        }
         enabled = !tag.contains("Enabled") || tag.getBoolean("Enabled");
         arrivalHeight = tag.contains("ArrivalHeight") ? tag.getInt("ArrivalHeight") : ArrivalHeight.UNSET;
         if (clientPacket && tag.contains("MaxArrivalHeight")) {
@@ -392,6 +484,10 @@ public class WarpAnchorBlockEntity extends SmartBlockEntity implements GeoBlockE
         AWLang.text(displayName()).style(ChatFormatting.WHITE).forGoggles(tooltip, 1);
         AWLang.translate(status.translationKey()).style(ChatFormatting.GRAY).forGoggles(tooltip, 1);
         AWLang.translate(access.translationKey()).style(ChatFormatting.DARK_GRAY).forGoggles(tooltip, 1);
+        if (!networkName().isBlank()) {
+            AWLang.translate("gui.warp_anchor.on_network", networkName())
+                    .style(ChatFormatting.DARK_GRAY).forGoggles(tooltip, 1);
+        }
         if (!ownerName.isBlank()) {
             AWLang.translate("gui.warp_anchor.owner", ownerName)
                     .style(ChatFormatting.DARK_GRAY).forGoggles(tooltip, 1);

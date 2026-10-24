@@ -10,14 +10,16 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.BlockTags;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.advancement.AWCriteria;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
 import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
-import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
+import uk.co.iceconchy.aerowarptics.registry.AWItems;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.siphon.SpatialSiphonBlockEntity;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
@@ -63,8 +65,34 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
     /** What the client was last told, so a slow drain does not send a packet twenty times a second. */
     private int syncedReservoir = -1;
 
-    /** How many blocks of Warp Crystal Ore this fissure has crystallised so far, capped by config. */
-    private int seeded;
+    /**
+     * The Rift Collar holding this tear, or {@code null} for a tear nobody has built round. Kept here because a
+     * block of the frame knows where its fissure is and nothing else: this is how it finds its machine.
+     */
+    @org.jetbrains.annotations.Nullable
+    private BlockPos harness;
+
+    /** How open a harnessed tear is drawn, 0 to 1, by the well's strain rather than by what is left in it. */
+    private float harnessedOpenness = 1.0F;
+
+    /**
+     * Whether a Rift Sunderer tore this one rather than the world leaving it. A conjured tear holds what it was
+     * given rather than what its position rolls, hands nothing to a siphon, seals with no heart, and gutters
+     * shut unless a wellhead holds it.
+     */
+    private boolean conjured;
+
+    /** When an unheld conjured tear gutters, in game time; -1 while a wellhead holds it, or for a found one. */
+    private long unsettledUntil = -1L;
+
+    /** How long a conjured tear lasts unheld, so a frame that lets go of one can start its clock again. */
+    private long unsettledWindow;
+
+    /**
+     * Until when, in game time, the tear is drawn for everybody and not only through Rift Goggles: a newborn tear,
+     * for the end of the scene that made it. -1 for none.
+     */
+    private long revealedUntil = -1L;
 
     public RiftFissureBlockEntity(BlockPos pos, BlockState state) {
         super(AWBlockEntities.RIFT_FISSURE.get(), pos, state);
@@ -92,10 +120,137 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
         return sealTicks > 0;
     }
 
+    /** The Rift Collar holding this tear, or {@code null}. */
+    @org.jetbrains.annotations.Nullable
+    public BlockPos harnessedBy() {
+        return harness;
+    }
+
+    public boolean isHarnessed() {
+        return harness != null;
+    }
+
+    public boolean isConjured() {
+        return conjured;
+    }
+
+    /** Until when the tear is drawn for everybody, in game time, or -1 when it is not. */
+    public long revealedUntil() {
+        return revealedUntil;
+    }
+
+    /** Draws the tear for everybody for {@code ticks}, as a Rift Sunderer's newborn one is. */
+    public void reveal(long ticks) {
+        revealedUntil = level == null ? -1L : level.getGameTime() + Math.max(0L, ticks);
+        setChanged();
+        sync();
+    }
+
+    /** When an unheld conjured tear gutters, in game time, or -1 when it will not. */
+    public long unsettledUntil() {
+        return unsettledUntil;
+    }
+
+    /**
+     * Makes this a conjured tear: torn by a Rift Sunderer, holding {@code reservoir} mB, and guttering after
+     * {@code unsettledTicks} unless a wellhead harnesses it first.
+     *
+     * <p>Called by {@code SundererBreach} and nothing else, in the same tick as the block is set: a fissure that
+     * reaches its first tick with no reservoir rolls one from its position, and a conjured tear's is what it was
+     * given. A found fissure is never made one.
+     */
+    public void conjure(int reservoir, long unsettledTicks) {
+        this.reservoir = Math.max(1, reservoir);
+        this.original = this.reservoir;
+        this.conjured = true;
+        this.unsettledWindow = Math.max(1L, unsettledTicks);
+        this.unsettledUntil = level == null ? -1L : level.getGameTime() + unsettledWindow;
+        setChanged();
+        sync();
+    }
+
+    /**
+     * A Rift Wellhead takes this tear. From here it hands nothing to a siphon - what comes out of it comes out
+     * through the well - and the well says how wide it gapes.
+     */
+    public void harness(BlockPos collar) {
+        harness = collar.immutable();
+        harnessedOpenness = 1.0F;
+        drawing = false;
+        // A held tear is settled: the frame is what keeps it open now.
+        if (conjured) {
+            unsettledUntil = -1L;
+        }
+        setChanged();
+        sync();
+    }
+
+    /** The well lets go: the tear is as it was found, less whatever it bled. */
+    public void release() {
+        if (harness == null) {
+            return;
+        }
+        harness = null;
+        // A conjured tear let go of is unsettled again, for a whole window: a frame broken to be rebuilt bigger
+        // has the time it would have had when it was first torn.
+        if (conjured && level != null) {
+            unsettledUntil = level.getGameTime() + Math.max(1L, unsettledWindow);
+        }
+        setChanged();
+        sync();
+    }
+
+    /** How wide a harnessed tear gapes, from the well holding it. Told to clients only when it would show. */
+    public void gape(float openness) {
+        float clamped = Math.max(0.0F, Math.min(1.0F, openness));
+        if (Math.abs(clamped - harnessedOpenness) >= 0.05F) {
+            harnessedOpenness = clamped;
+            sync();
+        }
+    }
+
+    /**
+     * A torn well bleeds its fissure. What is lost is lost - it fills nothing - and a tear bled dry seals as one
+     * drained dry does, heart and all.
+     *
+     * @return whether the tear is now sealing
+     */
+    public boolean bleed(int millibuckets) {
+        if (millibuckets <= 0 || reservoir <= 0 || sealTicks > 0) {
+            return sealTicks > 0;
+        }
+        reservoir = Math.max(0, reservoir - millibuckets);
+        setChanged();
+        if (reservoir <= 0) {
+            beginSealing();
+            return true;
+        }
+        if (Math.abs(syncedReservoir - reservoir) >= Math.max(1, original / 20)) {
+            sync();
+        }
+        return false;
+    }
+
+    /**
+     * A meltdown takes the tear with it. No heart: a heart is what a wound leaves when it closes, and this one
+     * did not close.
+     */
+    public void consume() {
+        if (level == null) {
+            return;
+        }
+        Trace.log(Trace.WELLHEAD, "fissure at {} consumed by a meltdown, with {} mB of {} left: no heart",
+                Trace.pos(worldPosition), reservoir(), Math.max(original, 0));
+        level.removeBlock(worldPosition, false);
+    }
+
     /** How open the tear should be drawn, 0 to 1. */
     public float openness() {
         if (isSealing()) {
             return 0.0F;
+        }
+        if (harness != null) {
+            return harnessedOpenness;
         }
         // A fissure straight out of worldgen has not worked out its own size yet, and a client that
         // asks before the first tick would otherwise be told "empty" and draw a tear the size of a
@@ -114,9 +269,9 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
         // it has no airship to resolve and therefore nothing that would otherwise tell it to stop. It
         // can still end up inside a plot - a hull assembled around a tear takes the tear with it - and
         // when that plot is released the blocks are wiped to void_air while the block entities get one
-        // more tick each. Everything below touches the level: the sync announces a block change, the
-        // ore seeding sets one, and close() removes one. All three throw out of Sable if the plot has
-        // gone, and it is the server thread they throw on. This is the crash that made
+        // more tick each. Everything below touches the level: the sync announces a block change and
+        // close() removes one. Both throw out of Sable if the plot has gone, and it is the server thread
+        // they throw on. This is the crash that made
         // Airship.orphaned exist; it goes before super.tick() for the reason given there.
         if (Airship.orphaned(this)) {
             return;
@@ -148,7 +303,13 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
             return;
         }
 
-        maybeSeedOre();
+        // A conjured tear nobody has built round gutters shut when its time is up. Sealing it is the same closing
+        // a drained tear does, without the heart.
+        if (conjured && harness == null && unsettledUntil >= 0L && level.getGameTime() >= unsettledUntil) {
+            Trace.log(Trace.RIFTING, "conjured fissure at {} guttered, unheld", Trace.pos(worldPosition));
+            beginSealing();
+            return;
+        }
 
         if (--scanTimer <= 0) {
             scanTimer = SCAN_INTERVAL;
@@ -184,7 +345,10 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
      * vessels buy you is somewhere to put it all.
      */
     private int drainInto() {
-        if (siphons.isEmpty() || reservoir <= 0 || level == null) {
+        // A harnessed tear is the well's. A siphon left beside it would otherwise empty it in a minute. A conjured
+        // tear's essence is the Sunderer's own charge held under tension, and only a frame draws on it: drained
+        // into a siphon it would make tearing one and emptying it a loop that pays.
+        if (siphons.isEmpty() || reservoir <= 0 || level == null || harness != null || conjured) {
             return 0;
         }
         int rate = AWConfig.FISSURE_DRAIN_RATE.get();
@@ -203,42 +367,6 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
             }
         }
         return moved;
-    }
-
-    /**
-     * Now and then, crystallises one nearby block of natural stone into Warp Crystal Ore.
-     *
-     * <p>This is the world's only source of the raw material, and it grows outward from the tear
-     * rather than being scattered through the ground by ordinary worldgen - so the ore is always found
-     * clustered around a fissure, which is the point. Only natural stone and deepslate (and their
-     * variants) are eligible, so nothing a player placed is ever turned to ore, and a per-fissure cap
-     * keeps a long-loaded tear from converting a whole cavern.
-     */
-    private void maybeSeedOre() {
-        if (level == null || !AWConfig.FISSURE_SEEDS_ORE.get() || seeded >= AWConfig.FISSURE_ORE_MAX.get()) {
-            return;
-        }
-        if (level.random.nextInt(Math.max(1, AWConfig.FISSURE_ORE_CHANCE.get())) != 0) {
-            return;
-        }
-        int radius = AWConfig.FISSURE_ORE_RADIUS.get();
-        int dx = level.random.nextInt(radius * 2 + 1) - radius;
-        int dy = level.random.nextInt(radius * 2 + 1) - radius;
-        int dz = level.random.nextInt(radius * 2 + 1) - radius;
-        if (dx == 0 && dy == 0 && dz == 0) {
-            return;
-        }
-        BlockPos target = worldPosition.offset(dx, dy, dz);
-        if (!level.isLoaded(target)) {
-            return;
-        }
-        BlockState existing = level.getBlockState(target);
-        if (!existing.is(BlockTags.STONE_ORE_REPLACEABLES) && !existing.is(BlockTags.DEEPSLATE_ORE_REPLACEABLES)) {
-            return;
-        }
-        level.setBlock(target, AWBlocks.WARP_CRYSTAL_ORE.get().defaultBlockState(), 3);
-        seeded++;
-        setChanged();
     }
 
     private List<BlockPos> sweepForSiphons() {
@@ -270,7 +398,16 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
         }
     }
 
-    /** The tear finishes closing and there is simply nothing there any more. */
+    /**
+     * The tear finishes closing, and what is left of it is a Scar Heart.
+     *
+     * <p>One heart, whatever the fissure held: the heart is the adventure, not the yield. Spawned as an item
+     * entity rather than dropped, because {@code Block.popResource} drops nothing with {@code doTileDrops}
+     * off and a fissure has no loot table - which {@code ResourceIntegrityTest} forbids it, a fissure being
+     * nothing a player collects. And with an unlimited lifetime, because a tear often seals with nobody
+     * watching: a siphon left beside it does the work, and the heart has to be there when somebody comes
+     * back. On the mast ruin it lands on the mast head, eight blocks up. A small climb, kept.
+     */
     private void close() {
         if (level == null) {
             return;
@@ -280,6 +417,19 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
             // Told before the block goes, while there is still something at this position to have
             // been standing near.
             AWCriteria.fissureClosed(server, worldPosition, Math.max(original, 0));
+            // A conjured tear leaves nothing: the Scar Heart is what a found wound leaves as it closes, and the
+            // Singularity is gated on having found one.
+            if (conjured) {
+                Trace.log(Trace.RIFTING, "conjured fissure at {} sealed: no heart", Trace.pos(worldPosition));
+            } else {
+                ItemEntity heart = new ItemEntity(server, worldPosition.getX() + 0.5D, worldPosition.getY() + 0.5D,
+                        worldPosition.getZ() + 0.5D, new ItemStack(AWItems.SCAR_HEART.get()));
+                heart.setDeltaMovement(0.0D, 0.05D, 0.0D);
+                heart.setUnlimitedLifetime();
+                server.addFreshEntity(heart);
+                Trace.log(Trace.RIFTING, "fissure at {} sealed, having held {} mB: a scar heart left behind",
+                        Trace.pos(worldPosition), Math.max(original, 0));
+            }
         }
         level.removeBlock(worldPosition, false);
     }
@@ -300,7 +450,18 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
         tag.putInt("Original", original);
         tag.putInt("SealTicks", sealTicks);
         tag.putBoolean("Drawing", drawing);
-        tag.putInt("Seeded", seeded);
+        if (harness != null) {
+            tag.putLong("Harness", harness.asLong());
+            tag.putFloat("Gape", harnessedOpenness);
+        }
+        if (revealedUntil >= 0L) {
+            tag.putLong("Revealed", revealedUntil);
+        }
+        if (conjured) {
+            tag.putBoolean("Conjured", true);
+            tag.putLong("Unsettled", unsettledUntil);
+            tag.putLong("UnsettledWindow", unsettledWindow);
+        }
     }
 
     @Override
@@ -312,7 +473,12 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
         original = tag.getInt("Original");
         sealTicks = tag.getInt("SealTicks");
         drawing = tag.getBoolean("Drawing");
-        seeded = tag.getInt("Seeded");
+        harness = tag.contains("Harness") ? BlockPos.of(tag.getLong("Harness")) : null;
+        harnessedOpenness = tag.contains("Gape") ? tag.getFloat("Gape") : 1.0F;
+        conjured = tag.getBoolean("Conjured");
+        unsettledUntil = conjured && tag.contains("Unsettled") ? tag.getLong("Unsettled") : -1L;
+        unsettledWindow = tag.getLong("UnsettledWindow");
+        revealedUntil = tag.contains("Revealed") ? tag.getLong("Revealed") : -1L;
     }
 
     // --------------------------------------------------------------- goggles
@@ -324,12 +490,21 @@ public class RiftFissureBlockEntity extends SmartBlockEntity implements IHaveGog
         // goggles, so an engineer's plain pair reached it - and got the full readout for a tear it
         // could not see, which gives away both that one is there and exactly how much it is holding.
         // The tear, its sparks and its hit box already ask this question; this was the gap.
-        if (!AWClientHooks.seesFissures()) {
+        // A harnessed tear says nothing for itself: the well round it does the talking, on every block of its frame.
+        if (harness != null || !AWClientHooks.seesFissures()) {
             return false;
         }
         AWLang.translate("gui.goggles.rift_fissure").forGoggles(tooltip);
         AWLang.translate("gui.rift_fissure.held", AWLang.count(reservoir()), AWLang.count(Math.max(reservoir(), original)))
                 .style(ChatFormatting.LIGHT_PURPLE).forGoggles(tooltip, 1);
+        if (conjured) {
+            long left = level == null || unsettledUntil < 0L ? 0L : Math.max(0L, unsettledUntil - level.getGameTime());
+            long seconds = left / 20L;
+            AWLang.translate("gui.rift_fissure.conjured", String.format(java.util.Locale.ROOT, "%d:%02d", seconds / 60L, seconds % 60L))
+                    .style(ChatFormatting.RED).forGoggles(tooltip, 1);
+            AWLang.translate("gui.rift_fissure.conjured_hint").style(ChatFormatting.GRAY).forGoggles(tooltip, 1);
+            return true;
+        }
         AWLang.translate(drawing ? "gui.rift_fissure.draining" : "gui.rift_fissure.hint")
                 .style(drawing ? ChatFormatting.AQUA : ChatFormatting.GRAY).forGoggles(tooltip, 1);
         return true;

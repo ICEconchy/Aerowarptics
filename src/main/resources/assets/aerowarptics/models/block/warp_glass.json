@@ -1,0 +1,14 @@
+{
+  "parent": "minecraft:block/block",
+  "loader": "aerowarptics:connected",
+  "method": "compact",
+  "tiles": "aerowarptics:block/ctm/warp_glass",
+  "render_type": "minecraft:tripwire",
+  "connect_with": [
+    "aerowarptics:warp_glass",
+    {"block": "aerowarptics:rift_wellhead_part", "properties": {"glass": "true"}}
+  ],
+  "textures": {
+    "particle": "aerowarptics:block/warp_glass"
+  }
+}

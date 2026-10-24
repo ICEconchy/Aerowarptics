@@ -1,0 +1,18 @@
+{
+  "type": "create:filling",
+  "ingredients": [
+    {
+      "item": "minecraft:ender_pearl"
+    },
+    {
+      "type": "neoforge:single",
+      "amount": 250,
+      "fluid": "aerowarptics:rift_essence"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:rift_pearl"
+    }
+  ]
+}

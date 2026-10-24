@@ -8,10 +8,10 @@
   ],
   "key": {
     "B": {
-      "item": "create:brass_casing"
+      "item": "aerowarptics:rift_casing"
     },
     "L": {
-      "item": "aerowarptics:rift_lens"
+      "item": "aerowarptics:opened_rift_lens"
     }
   },
   "result": {

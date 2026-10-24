@@ -4,7 +4,7 @@
       "model": "aerowarptics:block/astrolabe"
     },
     "formed=true": {
-      "model": "aerowarptics:block/astrolabe"
+      "model": "aerowarptics:block/astrolabe_formed"
     }
   }
 }

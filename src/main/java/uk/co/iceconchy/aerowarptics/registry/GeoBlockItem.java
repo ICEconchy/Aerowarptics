@@ -37,6 +37,7 @@ public class GeoBlockItem extends BlockItem implements GeoItem {
     private final ResourceLocation animations;
     private final RawAnimation idle;
     private final List<String> hiddenBones;
+    private float drawnAt = 1.0F;
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
@@ -79,6 +80,29 @@ public class GeoBlockItem extends BlockItem implements GeoItem {
     /** Bones the item render leaves out. Empty for most of them. */
     public List<String> hiddenBones() {
         return hiddenBones;
+    }
+
+    /**
+     * Draws this item at a share of its block's size, for a machine taller than the block it stands in - the
+     * Warp Anchor's lantern stands well above its block, and at full size it would hang out of the top of the
+     * slot. {@code ResourceIntegrityTest} measures each model at the size it is drawn.
+     */
+    public GeoBlockItem drawnAt(float scale) {
+        this.drawnAt = scale;
+        return this;
+    }
+
+    /** How much the item renderer shrinks the model by: a tall machine's own share, over the blocks it spans. */
+    public float itemScale() {
+        return drawnAt / blocks();
+    }
+
+    /**
+     * How many blocks the model is along each side. One, for everything but a machine placed whole, like the
+     * Collapse Cradle, whose three-block model the item renderer draws at a third so it fits one slot.
+     */
+    public int blocks() {
+        return 1;
     }
 
     @Override

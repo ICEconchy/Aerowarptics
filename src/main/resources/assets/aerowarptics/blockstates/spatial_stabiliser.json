@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "powered=false": {
+      "model": "aerowarptics:block/spatial_stabiliser"
+    },
+    "powered=true": {
+      "model": "aerowarptics:block/spatial_stabiliser_on"
+    }
+  }
+}

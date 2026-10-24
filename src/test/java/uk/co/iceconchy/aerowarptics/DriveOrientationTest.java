@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>This exists because of a bug that shipped. A {@code DirectionalKineticBlock} takes all six
  * facings, and placing a drive while looking down at the ground sets {@code FACING} to {@code UP} -
- * which is right, because the shaft enters along the axis the drive faces. GeckoLib then turned the
+ * which is right: it is how Create places any directional machine. GeckoLib then turned the
  * model a quarter turn about the origin its block renderer sets up, which is the middle of the
  * block's <em>base</em>, not its centre. The drive's geometry stands on its base plate, so tipping
  * it about the floor put half the model under the ground and the rest in the next block along. It
@@ -96,32 +96,22 @@ class DriveOrientationTest {
     }
 
     /**
-     * The drive takes its shaft along the model's Z axis.
+     * The drive turns about the model's Z axis.
      *
-     * <p>GeckoLib's convention is that {@code NORTH} is the unrotated model, so a machine whose
-     * shafts run along Z is one whose facing and geometry agree. Shafts authored along X would mean
+     * <p>GeckoLib's convention is that {@code NORTH} is the unrotated model, so a machine whose turning
+     * parts run along Z is one whose facing and geometry agree. The artist's ring is a tube round the
+     * shaft's axis, every piece of it long in Z and short across; a ring authored round X would mean
      * every facing was a quarter turn out, which is a far more confusing version of this same bug.
      */
     @Test
-    void theShaftsRunAlongTheModelsFacingAxis() {
-        JsonArray cubes = bone("shafts").getAsJsonArray("cubes");
-        double minZ = Double.MAX_VALUE;
-        double maxZ = -Double.MAX_VALUE;
-        double minX = Double.MAX_VALUE;
-        double maxX = -Double.MAX_VALUE;
+    void theRingRunsAlongTheModelsFacingAxis() {
+        JsonArray cubes = bone("ring").getAsJsonArray("cubes");
         for (int index = 0; index < cubes.size(); index++) {
-            JsonObject cube = cubes.get(index).getAsJsonObject();
-            JsonArray origin = cube.getAsJsonArray("origin");
-            JsonArray size = cube.getAsJsonArray("size");
-            minX = Math.min(minX, origin.get(0).getAsDouble());
-            maxX = Math.max(maxX, origin.get(0).getAsDouble() + size.get(0).getAsDouble());
-            minZ = Math.min(minZ, origin.get(2).getAsDouble());
-            maxZ = Math.max(maxZ, origin.get(2).getAsDouble() + size.get(2).getAsDouble());
+            JsonArray size = cubes.get(index).getAsJsonObject().getAsJsonArray("size");
+            double depth = size.get(2).getAsDouble();
+            assertTrue(depth > size.get(0).getAsDouble() && depth > size.get(1).getAsDouble(),
+                    "ring cube " + index + " is not long in Z - the ring no longer runs along the facing axis");
         }
-        // The shafts reach the block's north and south faces, and stop well short of east and west.
-        assertEquals(-8.0D, minZ, 1.0E-6D, "shafts do not reach the model's north face");
-        assertEquals(8.0D, maxZ, 1.0E-6D, "shafts do not reach the model's south face");
-        assertTrue(maxX - minX < 16.0D, "shafts span the model's X axis - they run the wrong way");
     }
 
     // ------------------------------------------------------------------ the arithmetic under test

@@ -44,6 +44,17 @@
       }
     ]
   },
+  "drive_spin_up": {
+    "subtitle": "aerowarptics.subtitle.drive_spin_up",
+    "sounds": [
+      {
+        "name": "minecraft:block/beacon/ambient",
+        "volume": 1.0,
+        "pitch": 1.0,
+        "attenuation_distance": 32
+      }
+    ]
+  },
   "destination_lock": {
     "subtitle": "aerowarptics.subtitle.destination_lock",
     "sounds": [
@@ -134,6 +145,28 @@
       }
     ]
   },
+  "vent_blast": {
+    "subtitle": "aerowarptics.subtitle.vent_blast",
+    "sounds": [
+      {
+        "name": "create:steam",
+        "volume": 0.9,
+        "pitch": 0.85,
+        "type": "event"
+      }
+    ]
+  },
+  "coolant_hiss": {
+    "subtitle": "aerowarptics.subtitle.coolant_hiss",
+    "sounds": [
+      {
+        "name": "minecraft:block.fire.extinguish",
+        "volume": 0.5,
+        "pitch": 1.4,
+        "type": "event"
+      }
+    ]
+  },
   "anchor_configured": {
     "subtitle": "aerowarptics.subtitle.anchor_configured",
     "sounds": [
@@ -158,6 +191,528 @@
         "name": "minecraft:block.conduit.deactivate",
         "volume": 0.7,
         "pitch": 1.1,
+        "type": "event"
+      }
+    ]
+  },
+  "flotilla_horn": {
+    "subtitle": "aerowarptics.subtitle.flotilla_horn",
+    "sounds": [
+      {
+        "name": "minecraft:item.goat_horn.sound.1",
+        "volume": 1.0,
+        "pitch": 0.7,
+        "type": "event"
+      }
+    ]
+  },
+  "flotilla_tether": {
+    "subtitle": "aerowarptics.subtitle.flotilla_tether",
+    "sounds": [
+      {
+        "name": "minecraft:block.chain.place",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:block.amethyst_cluster.place",
+        "volume": 0.8,
+        "pitch": 0.8,
+        "type": "event"
+      }
+    ]
+  },
+  "flotilla_harmonised": {
+    "subtitle": "aerowarptics.subtitle.flotilla_harmonised",
+    "sounds": [
+      {
+        "name": "minecraft:block.amethyst_block.resonate",
+        "volume": 1.0,
+        "pitch": 1.2,
+        "type": "event"
+      }
+    ]
+  },
+  "flotilla_chord": {
+    "subtitle": "aerowarptics.subtitle.flotilla_chord",
+    "sounds": [
+      {
+        "name": "minecraft:block.note_block.chime",
+        "volume": 1.0,
+        "pitch": 1.0,
+        "type": "event"
+      }
+    ]
+  },
+  "flotilla_countdown": {
+    "subtitle": "aerowarptics.subtitle.flotilla_countdown",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.power_select",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      }
+    ]
+  },
+  "flotilla_bell": {
+    "subtitle": "aerowarptics.subtitle.flotilla_bell",
+    "sounds": [
+      {
+        "name": "minecraft:block.bell.use",
+        "volume": 1.0,
+        "pitch": 0.8,
+        "type": "event"
+      }
+    ]
+  },
+  "wake_echo": {
+    "subtitle": "aerowarptics.subtitle.wake_echo",
+    "sounds": [
+      {
+        "name": "minecraft:block.respawn_anchor.deplete",
+        "volume": 1.0,
+        "pitch": 0.7,
+        "type": "event"
+      }
+    ]
+  },
+  "drive_hum_mk_i": {
+    "subtitle": "aerowarptics.subtitle.drive_hum",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.ambient",
+        "volume": 1.0,
+        "pitch": 0.8,
+        "type": "event"
+      }
+    ]
+  },
+  "drive_hum_mk_ii": {
+    "subtitle": "aerowarptics.subtitle.drive_hum",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.ambient",
+        "volume": 1.0,
+        "pitch": 0.9,
+        "type": "event"
+      }
+    ]
+  },
+  "drive_hum_mk_iii": {
+    "subtitle": "aerowarptics.subtitle.drive_hum",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.ambient",
+        "volume": 1.0,
+        "pitch": 1.0,
+        "type": "event"
+      }
+    ]
+  },
+  "drive_hum_singularity": {
+    "subtitle": "aerowarptics.subtitle.drive_hum",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.ambient",
+        "volume": 1.0,
+        "pitch": 0.7,
+        "type": "event"
+      }
+    ]
+  },
+  "drive_hum_creative": {
+    "subtitle": "aerowarptics.subtitle.drive_hum",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.ambient",
+        "volume": 1.0,
+        "pitch": 1.1,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_spin_up": {
+    "subtitle": "aerowarptics.subtitle.collapse_spin_up",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.activate",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_tear": {
+    "subtitle": "aerowarptics.subtitle.collapse_tear",
+    "sounds": [
+      {
+        "name": "minecraft:block.end_portal.spawn",
+        "volume": 1.0,
+        "pitch": 0.8,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_drone": {
+    "subtitle": "aerowarptics.subtitle.collapse_drone",
+    "sounds": [
+      {
+        "name": "minecraft:block/beacon/ambient",
+        "volume": 1.0,
+        "pitch": 1.0,
+        "attenuation_distance": 48
+      }
+    ]
+  },
+  "collapse_howl": {
+    "subtitle": "aerowarptics.subtitle.collapse_howl",
+    "sounds": [
+      {
+        "name": "minecraft:portal/portal",
+        "volume": 1.0,
+        "pitch": 1.0,
+        "attenuation_distance": 48
+      }
+    ]
+  },
+  "collapse_heartbeat": {
+    "subtitle": "aerowarptics.subtitle.collapse_heartbeat",
+    "sounds": [
+      {
+        "name": "minecraft:entity.warden.heartbeat",
+        "volume": 1.0,
+        "pitch": 0.8,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_arc": {
+    "subtitle": "aerowarptics.subtitle.collapse_arc",
+    "sounds": [
+      {
+        "name": "minecraft:entity.lightning_bolt.impact",
+        "volume": 0.5,
+        "pitch": 1.5,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_fold": {
+    "subtitle": "aerowarptics.subtitle.collapse_fold",
+    "sounds": [
+      {
+        "name": "minecraft:block.respawn_anchor.charge",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_inhale": {
+    "subtitle": "aerowarptics.subtitle.collapse_inhale",
+    "sounds": [
+      {
+        "name": "minecraft:entity.warden.sonic_charge",
+        "volume": 1.0,
+        "pitch": 0.7,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_boom": {
+    "subtitle": "aerowarptics.subtitle.collapse_boom",
+    "sounds": [
+      {
+        "name": "minecraft:entity.warden.sonic_boom",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_settle": {
+    "subtitle": "aerowarptics.subtitle.collapse_settle",
+    "sounds": [
+      {
+        "name": "minecraft:block.amethyst_block.resonate",
+        "volume": 1.0,
+        "pitch": 0.8,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_fling": {
+    "subtitle": "aerowarptics.subtitle.collapse_fling",
+    "sounds": [
+      {
+        "name": "minecraft:entity.firework_rocket.launch",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      }
+    ]
+  },
+  "collapse_spit": {
+    "subtitle": "aerowarptics.subtitle.collapse_spit",
+    "sounds": [
+      {
+        "name": "minecraft:block.glass.break",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "gate_passage": {
+    "subtitle": "aerowarptics.subtitle.gate_passage",
+    "sounds": [
+      {
+        "name": "minecraft:block.portal.travel",
+        "volume": 0.55,
+        "pitch": 1.5,
+        "type": "event"
+      }
+    ]
+  },
+  "gate_arrive": {
+    "subtitle": "aerowarptics.subtitle.gate_arrive",
+    "sounds": [
+      {
+        "name": "minecraft:entity.enderman.teleport",
+        "volume": 0.9,
+        "pitch": 0.6,
+        "type": "event"
+      }
+    ]
+  },
+  "ward_toll": {
+    "subtitle": "aerowarptics.subtitle.ward_toll",
+    "sounds": [
+      {
+        "name": "minecraft:block.bell.use",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "ward_break": {
+    "subtitle": "aerowarptics.subtitle.ward_break",
+    "sounds": [
+      {
+        "name": "minecraft:entity.lightning_bolt.thunder",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      }
+    ]
+  },
+  "ward_give_way": {
+    "subtitle": "aerowarptics.subtitle.ward_give_way",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.deactivate",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "ward_return": {
+    "subtitle": "aerowarptics.subtitle.ward_return",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.activate",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      }
+    ]
+  },
+  "ward_wrench": {
+    "subtitle": "aerowarptics.subtitle.ward_wrench",
+    "sounds": [
+      {
+        "name": "minecraft:block.respawn_anchor.deplete",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "ward_hum": {
+    "subtitle": "aerowarptics.subtitle.ward_hum",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.ambient",
+        "volume": 1.0,
+        "pitch": 1.0,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_reach": {
+    "subtitle": "aerowarptics.subtitle.sunderer_reach",
+    "sounds": [
+      {
+        "name": "minecraft:block.portal.trigger",
+        "volume": 0.6,
+        "pitch": 0.6,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:block.beacon.activate",
+        "volume": 0.8,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_strain": {
+    "subtitle": "aerowarptics.subtitle.sunderer_strain",
+    "sounds": [
+      {
+        "name": "minecraft:block/beacon/ambient",
+        "volume": 1.0,
+        "pitch": 1.0,
+        "attenuation_distance": 32
+      }
+    ]
+  },
+  "sunderer_crack": {
+    "subtitle": "aerowarptics.subtitle.sunderer_crack",
+    "sounds": [
+      {
+        "name": "minecraft:block.glass.break",
+        "volume": 0.7,
+        "pitch": 0.5,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:block.amethyst_block.break",
+        "volume": 0.9,
+        "pitch": 0.6,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:block.deepslate.break",
+        "volume": 0.8,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_hand_creak": {
+    "subtitle": "aerowarptics.subtitle.sunderer_hand_creak",
+    "sounds": [
+      {
+        "name": "minecraft:entity.warden.emerge",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:block.sculk_shrieker.shriek",
+        "volume": 0.4,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_hand_breath": {
+    "subtitle": "aerowarptics.subtitle.sunderer_hand_breath",
+    "sounds": [
+      {
+        "name": "minecraft:entity.warden.sniff",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:entity.warden.heartbeat",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_breach": {
+    "subtitle": "aerowarptics.subtitle.sunderer_breach",
+    "sounds": [
+      {
+        "name": "minecraft:entity.warden.sonic_boom",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:entity.generic.explode",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_misfire": {
+    "subtitle": "aerowarptics.subtitle.sunderer_misfire",
+    "sounds": [
+      {
+        "name": "minecraft:block.beacon.deactivate",
+        "volume": 1.0,
+        "pitch": 0.5,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_rupture": {
+    "subtitle": "aerowarptics.subtitle.sunderer_rupture",
+    "sounds": [
+      {
+        "name": "minecraft:entity.generic.explode",
+        "volume": 1.0,
+        "pitch": 0.4,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:entity.lightning_bolt.thunder",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_grind": {
+    "subtitle": "aerowarptics.subtitle.sunderer_grind",
+    "sounds": [
+      {
+        "name": "minecraft:block.grindstone.use",
+        "volume": 0.6,
+        "pitch": 0.5,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:block.deepslate.step",
+        "volume": 1.0,
+        "pitch": 0.6,
+        "type": "event"
+      }
+    ]
+  },
+  "sunderer_swallow": {
+    "subtitle": "aerowarptics.subtitle.sunderer_swallow",
+    "sounds": [
+      {
+        "name": "minecraft:entity.enderman.teleport",
+        "volume": 0.8,
+        "pitch": 0.5,
+        "type": "event"
+      },
+      {
+        "name": "minecraft:block.respawn_anchor.deplete",
+        "volume": 0.8,
+        "pitch": 1.4,
         "type": "event"
       }
     ]

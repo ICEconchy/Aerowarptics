@@ -44,6 +44,7 @@ public final class AirshipWarpData {
     private static final String KEY_COOLDOWN_UNTIL = "CooldownUntil";
     private static final String KEY_CANCELLED = "Cancelled";
     private static final String KEY_ORIGIN = "Origin";
+    private static final String KEY_HEARTBEAT = "Heartbeat";
 
     /**
      * Where the backing tag comes from.
@@ -134,6 +135,19 @@ public final class AirshipWarpData {
     }
 
     /**
+     * Points a claim at the drive's new position, when a crossing into another dimension has rebuilt the
+     * ship and the drive with it somewhere else in the plot grid. Nothing happens when nobody holds one.
+     */
+    public void rebindDrive(BlockPos drivePos) {
+        CompoundTag tag = root();
+        if (!tag.contains(KEY_DRIVE)) {
+            return;
+        }
+        tag.put(KEY_DRIVE, NbtUtils.writeBlockPos(drivePos));
+        store(tag);
+    }
+
+    /**
      * Attempts to take the airship's warp lock for a drive.
      *
      * @return {@code false} when another drive already holds it, which is how simultaneous warp
@@ -151,6 +165,7 @@ public final class AirshipWarpData {
         tag.putLong(KEY_START, gameTime);
         tag.putInt(KEY_PROGRESS, 0);
         tag.putInt(KEY_DURATION, Math.max(1, durationTicks));
+        tag.putLong(KEY_HEARTBEAT, gameTime);
         tag.put(KEY_TARGET, writeVec(target));
         store(tag);
         return true;
@@ -165,6 +180,24 @@ public final class AirshipWarpData {
         tag.putString(KEY_PHASE, phase);
         tag.putInt(KEY_PROGRESS, progressTicks);
         store(tag);
+    }
+
+    /**
+     * Records progress, and that the owning drive was alive to record it at {@code gameTime}.
+     *
+     * <p>The heartbeat is what a free cruise needs. A claim used to be judged stale by when it started,
+     * which was safe while every warp finished inside a minute - but a cruise has no end, and a second
+     * drive on the same hull would otherwise decide ten minutes in that the claim was debris and release
+     * it out from under a ship still inside the fold.
+     */
+    public void advance(String phase, int progressTicks, long gameTime) {
+        CompoundTag tag = root();
+        if (!tag.getBoolean(KEY_ACTIVE)) {
+            return;
+        }
+        tag.putLong(KEY_HEARTBEAT, gameTime);
+        store(tag);
+        advance(phase, progressTicks);
     }
 
     /**
@@ -306,15 +339,46 @@ public final class AirshipWarpData {
      * <p>Called when a drive comes back with no warp of its own but finds the ship still claiming
      * one, which is the interrupted-warp recovery path.
      */
-    public void releaseIfStale(long gameTime, int maxAgeTicks) {
+    public boolean releaseIfStale(long gameTime, int maxAgeTicks) {
         CompoundTag tag = root();
         if (!tag.getBoolean(KEY_ACTIVE)) {
-            return;
+            return false;
         }
-        long age = gameTime - tag.getLong(KEY_START);
-        if (age < 0 || age > maxAgeTicks) {
+        // Measured from the last sign of life rather than the start, so a cruise that has been going
+        // for an hour is not mistaken for one abandoned an hour ago. A claim written before the
+        // heartbeat existed has none, and falls back to its start exactly as it always did.
+        long seen = Math.max(tag.getLong(KEY_START), tag.getLong(KEY_HEARTBEAT));
+        long age = gameTime - seen;
+        if (gameTime < tag.getLong(KEY_START) || age > maxAgeTicks) {
             release(true, gameTime);
+            return true;
         }
+        return false;
+    }
+
+    /**
+     * The warp lock in one line, for the trace: who holds it, how far their warp has got, and how long
+     * since they were last heard from.
+     *
+     * <p>{@code AIRSHIP_ALREADY_WARPING} means some drive holds this, and on its own does not say which
+     * or why; a lock left by a drive that has since been broken or moved, and not yet stale, looks exactly
+     * like a ship that is busy.
+     */
+    public String describe(long gameTime) {
+        CompoundTag tag = root();
+        if (!tag.getBoolean(KEY_ACTIVE)) {
+            long cooldown = tag.getLong(KEY_COOLDOWN_UNTIL) - gameTime;
+            return cooldown > 0L ? "free (hull cooling " + cooldown + "t)" : "free";
+        }
+        BlockPos owner = owningDrive();
+        long started = tag.getLong(KEY_START);
+        long heard = Math.max(started, tag.getLong(KEY_HEARTBEAT));
+        return String.format(java.util.Locale.ROOT, "held by drive %s phase=%s progress=%d/%dt started %dt ago,"
+                        + " last heard %dt ago%s",
+                owner == null ? "?" : owner.toShortString(), tag.getString(KEY_PHASE).isEmpty() ? "-"
+                        : tag.getString(KEY_PHASE),
+                tag.getInt(KEY_PROGRESS), Math.max(1, tag.getInt(KEY_DURATION)), gameTime - started, gameTime - heard,
+                tag.contains(KEY_ORIGIN) ? ", origin kept" : "");
     }
 
     private static CompoundTag writeVec(Vec3 vec) {

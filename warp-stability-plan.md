@@ -45,7 +45,7 @@ out; this plan does not restate that work.
 
 The reference the rest of the plan hangs off. Line numbers are a starting point, not a promise.
 
-A warp is **flown, not cut to**. `WarpFlight` (`warp/WarpFlight.java`) runs a five-stage state
+A warp is **flown through the rift, not teleported**. `WarpFlight` (`warp/WarpFlight.java`) runs a five-stage state
 machine, and `RiftDriveBlockEntity.tickFlight` (`drive/RiftDriveBlockEntity.java:827`) drives it one
 tick at a time by commanding the hull's velocity through `Airship.driveVelocity`
 (`airship/Airship.java:303`):

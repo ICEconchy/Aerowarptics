@@ -37,9 +37,23 @@ class CapabilityCoverageTest {
     private static final Pattern TANK = Pattern.compile(
             "public\\s+(?:IFluidHandler|FluidTank)\\s+tank\\s*\\(");
 
+    /**
+     * Only the fluid registrations. Item handlers are registered in the same method - a crucible's slots, a
+     * cradle's - and a machine with slots and no tank is not a stale fluid registration.
+     */
+    private static String fluidRegistrations() {
+        StringBuilder fluids = new StringBuilder();
+        java.util.regex.Matcher matcher = Pattern.compile(
+                "Capabilities\\.FluidHandler\\.BLOCK,\\s*AWBlockEntities\\.(\\w+)").matcher(read(CAPABILITIES));
+        while (matcher.find()) {
+            fluids.append(matcher.group(1)).append('\n');
+        }
+        return fluids.toString();
+    }
+
     @Test
     void everyBlockEntityWithATankIsRegisteredAsAFluidHandler() {
-        String registrations = read(CAPABILITIES);
+        String registrations = fluidRegistrations();
         List<String> problems = new ArrayList<>();
 
         for (Path path : blockEntitySources()) {
@@ -60,7 +74,7 @@ class CapabilityCoverageTest {
     /** And the reverse: a registration naming a class that no longer has a tank is stale. */
     @Test
     void nothingIsRegisteredThatHasNoTank() {
-        String registrations = read(CAPABILITIES);
+        String registrations = fluidRegistrations();
         List<String> problems = new ArrayList<>();
 
         for (Path path : blockEntitySources()) {

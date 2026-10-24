@@ -104,7 +104,7 @@ public final class GateScenes {
         scene.idle(90);
 
         scene.overlay().showText(80)
-                .text("A second gate has to be built somewhere else in the same world. A gate on its own goes nowhere")
+                .text("A second gate has to be built somewhere else in the same world. A gate on its own connects to nothing")
                 .pointAt(middle)
                 .colored(PonderPalette.RED)
                 .placeNearTarget()
@@ -130,7 +130,7 @@ public final class GateScenes {
         scene.idle(20);
 
         scene.overlay().showText(90)
-                .text("Rotational force is what holds an aperture open. Let the speed drop and the gate hangs up")
+                .text("Rotational force holds the gate's opening open. If the speed drops, the gate disconnects")
                 .pointAt(util.vector().blockSurface(util.grid().at(2, 1, PLANE + 1), Direction.EAST))
                 .colored(PonderPalette.FAST)
                 .placeNearTarget()
@@ -138,7 +138,7 @@ public final class GateScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("A wider opening is heavier to hold and dearer to dial, so a gate costs what it is worth")
+                .text("A wider opening is harder to hold and costs more to dial")
                 .pointAt(middle)
                 .colored(PonderPalette.MEDIUM)
                 .placeNearTarget()
@@ -146,7 +146,7 @@ public final class GateScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("Rift Essence pays to dial, and keeps paying every second the doorway stands")
+                .text("Rift Essence pays to dial, and keeps being used every second the doorway stays open")
                 .pointAt(face)
                 .colored(PonderPalette.BLUE)
                 .placeNearTarget()
@@ -157,7 +157,7 @@ public final class GateScenes {
                 .rightClick();
         scene.idle(10);
         scene.overlay().showText(80)
-                .text("Right-click the controller and choose which gate to reach for")
+                .text("Right-click the controller and choose which gate to connect to")
                 .pointAt(face)
                 .placeNearTarget()
                 .attachKeyFrame();
@@ -184,7 +184,7 @@ public final class GateScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("Walk in, or drive in. A vehicle leaves the far gate the way that gate faces, carrying its speed with it")
+                .text("Walk in, or drive in. A vehicle leaves the far gate in the direction that gate faces, keeping its speed")
                 .pointAt(middle)
                 .placeNearTarget()
                 .attachKeyFrame();

@@ -248,4 +248,155 @@ class RiftFissureTest {
         }
         return found;
     }
+
+    // -------------------------------------------------------------- the seal
+
+    private static final Path FISSURE_SOURCE =
+            Path.of("src/main/java/uk/co/iceconchy/aerowarptics/fissure/RiftFissureBlockEntity.java");
+
+    private static String source(Path path) {
+        try {
+            return Files.readString(path, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * A sealed fissure leaves exactly one Scar Heart, which never despawns.
+     *
+     * <p>Spawned rather than dropped: {@code popResource} drops nothing with {@code doTileDrops} off, and a
+     * fissure has no loot table and must not get one. And unlimited, because a tear usually seals with nobody
+     * watching - the heart has to be there when somebody comes back for it.
+     */
+    @Test
+    void aSealLeavesExactlyOneHeartThatNeverDespawns() {
+        String entity = source(FISSURE_SOURCE);
+        int close = entity.indexOf("private void close()");
+        String body = entity.substring(close, entity.indexOf("\n    }\n", close));
+        assertEquals(1, body.split("new ItemEntity\\(", -1).length - 1, "a seal should spawn exactly one item entity");
+        assertTrue(body.contains("AWItems.SCAR_HEART"), "what a seal leaves is not a Scar Heart");
+        assertTrue(body.contains("setUnlimitedLifetime()"), "the heart would despawn before anybody came back");
+        assertTrue(!Files.exists(DATA.resolve("loot_table/blocks/rift_fissure.json")), "a fissure gained a loot table");
+    }
+
+    /** A fissure refuses to move, so a hull assembled round one leaves it standing where it was. */
+    @Test
+    void aFissureRefusesToMove() {
+        String block = source(Path.of("src/main/java/uk/co/iceconchy/aerowarptics/fissure/RiftFissureBlock.java"));
+        String mod = source(Path.of("src/main/java/uk/co/iceconchy/aerowarptics/AeroWarptics.java"));
+        assertTrue(block.contains("registerMovementAllowedCheck"), "no movement check is registered");
+        assertTrue(block.contains("CheckResult.FAIL"), "the movement check never refuses");
+        assertTrue(mod.contains("RiftFissureBlock::onCommonSetup"), "the movement check is never registered");
+    }
+
+    /**
+     * A fissure changes no block but its own.
+     *
+     * <p>It once grew ore in the stone round it, and that is retired for good: a fissure never touches the
+     * ground about it. Read off the source so that seeding cannot quietly come back - the only block a fissure
+     * may set is its own, and only to remove itself.
+     */
+    @Test
+    void aFissureChangesNoBlockButItsOwn() {
+        String entity = source(FISSURE_SOURCE);
+        for (String call : List.of("setBlock(", "setBlockAndUpdate(", "destroyBlock(", "setBlocksDirty(")) {
+            assertTrue(!entity.contains(call), "a fissure calls " + call + " - it may change no block but its own");
+        }
+        // Its own block, by its two ends: sealed, which leaves a heart, and consumed by a meltdown, which does not.
+        assertEquals(2, entity.split("removeBlock\\(worldPosition", -1).length - 1,
+                "a fissure should remove exactly one block, its own, when it seals or is consumed");
+        assertTrue(!entity.contains("Seeded") && !entity.contains("maybeSeedOre"), "ore seeding has come back");
+    }
+
+    /**
+     * A tear a Rift Wellhead holds is the well's: it hands nothing to a siphon and rifts nothing, and the tear
+     * a meltdown takes leaves no heart. Read off the source, since each is one line that compiles without it.
+     */
+    @Test
+    void aHarnessedFissureIsTheWellsAlone() {
+        String entity = source(FISSURE_SOURCE);
+        int drain = entity.indexOf("private int drainInto()");
+        String guard = entity.substring(drain, entity.indexOf("int rate", drain));
+        assertTrue(guard.contains("harness != null"), "a harnessed fissure still drains into siphons");
+
+        int consume = entity.indexOf("public void consume()");
+        String body = entity.substring(consume, entity.indexOf("\n    }", consume));
+        assertTrue(!body.contains("SCAR_HEART") && !body.contains("ItemEntity"), "a meltdown left a heart");
+
+        String rifting = source(Path.of("src/main/java/uk/co/iceconchy/aerowarptics/rifting/RiftingType.java"));
+        int catalyst = rifting.indexOf("public static boolean isCatalyst");
+        assertTrue(rifting.substring(catalyst, rifting.indexOf("\n    }", catalyst)).contains("HARNESSED"),
+                "a harnessed fissure is still a rifting catalyst");
+
+        // And it is the wellhead that marks it, never the fissure: see aFissureChangesNoBlockButItsOwn.
+        String assembly = source(Path.of("src/main/java/uk/co/iceconchy/aerowarptics/wellhead/WellheadAssembly.java"));
+        assertTrue(assembly.contains("RiftFissureBlock.HARNESSED, true")
+                && assembly.contains("RiftFissureBlock.HARNESSED, false"), "nothing marks a fissure harnessed");
+    }
+
+    /**
+     * How much a found fissure holds is rolled from where it is, never stored in the ruin that places it. The one
+     * stored reservoir is a conjured tear's, handed it by the Sunderer that tore it.
+     */
+    @Test
+    void theReservoirIsRolledFromThePlaceRatherThanStored() {
+        String entity = source(FISSURE_SOURCE);
+        assertTrue(entity.contains("FissureDrain.reservoir(worldPosition.asLong()"),
+                "a fissure's size is no longer rolled from its position");
+        int roll = entity.indexOf("FissureDrain.reservoir(worldPosition.asLong()");
+        assertTrue(entity.substring(entity.lastIndexOf("if (", roll), roll).contains("reservoir < 0"),
+                "the roll no longer waits for a reservoir nobody has given it");
+        assertTrue(entity.contains("public void conjure(int reservoir, long unsettledTicks)"),
+                "a conjured tear has no way to be given its reservoir");
+        String drain = source(Path.of("src/main/java/uk/co/iceconchy/aerowarptics/fissure/FissureDrain.java"));
+        assertTrue(drain.contains("Rolled from the position rather than from the level's random"),
+                "the reason the reservoir is rolled from the place has gone from FissureDrain");
+    }
+
+    /**
+     * A conjured tear is the Sunderer's bargain and nothing more: it seals with no heart (the Singularity is gated
+     * on a found one), never drains into a siphon (or tearing one and emptying it would pay), and gutters shut
+     * only while nothing holds it. Read off the source, since each is one condition that compiles without it.
+     */
+    @Test
+    void aConjuredTearIsTheSunderersBargain() {
+        String entity = source(FISSURE_SOURCE);
+
+        int close = entity.indexOf("private void close()");
+        String seal = entity.substring(close, entity.indexOf("\n    }\n", close));
+        int guard = seal.indexOf("if (conjured)");
+        assertTrue(guard >= 0 && guard < seal.indexOf("new ItemEntity("), "a conjured tear's seal is not kept from the heart");
+        assertTrue(seal.substring(guard, seal.indexOf("new ItemEntity(")).contains("} else {"),
+                "the heart is not in the found tear's branch alone");
+
+        int drain = entity.indexOf("private int drainInto()");
+        assertTrue(entity.substring(drain, entity.indexOf("int rate", drain)).contains("conjured"),
+                "a conjured tear drains into siphons");
+
+        int tick = entity.indexOf("private void serverTick()");
+        String server = entity.substring(tick, entity.indexOf("\n    }\n", tick));
+        int gutter = server.indexOf("unsettledUntil");
+        assertTrue(gutter >= 0, "a conjured tear never gutters");
+        String condition = server.substring(server.lastIndexOf("if (", gutter), server.indexOf("{", gutter));
+        assertTrue(condition.contains("conjured") && condition.contains("harness == null"),
+                "a tear gutters whether or not a wellhead holds it: " + condition);
+
+        int release = entity.indexOf("public void release()");
+        assertTrue(entity.substring(release, entity.indexOf("\n    }\n", release)).contains("unsettledUntil ="),
+                "a frame letting go does not restart the conjured tear's clock");
+    }
+
+    /** A revealed tear is saved and sent to the client, so a newborn one is seen by everybody watching. */
+    @Test
+    void aRevealIsSavedAndSent() {
+        String entity = source(FISSURE_SOURCE);
+        int write = entity.indexOf("protected void write(");
+        assertTrue(entity.substring(write, entity.indexOf("\n    }\n", write)).contains("\"Revealed\""),
+                "a reveal is not written, so the client never hears of it");
+        int read = entity.indexOf("protected void read(");
+        assertTrue(entity.substring(read, entity.indexOf("\n    }\n", read)).contains("\"Revealed\""),
+                "a reveal is not read back");
+        assertTrue(entity.contains("public void reveal(long ticks)"));
+    }
 }

@@ -1,9 +1,11 @@
 package uk.co.iceconchy.aerowarptics.client.screen;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.util.FormattedCharSequence;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -15,8 +17,11 @@ import uk.co.iceconchy.aerowarptics.network.ClientboundAstrolabeChartPacket;
 import uk.co.iceconchy.aerowarptics.network.ServerboundAstrolabePacket;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 import uk.co.iceconchy.aerowarptics.warp.WarpQuote;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkFilter;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -37,6 +42,9 @@ public class AstrolabeChartScreen extends AWWindowScreen {
     private static final AWLayouts.Chart LAYOUT = AWLayouts.chart();
     private static final int VISIBLE_ROWS = LAYOUT.visibleRows();
 
+    /** The least room worth drawing a row's network in: anything narrower is an ellipsis and nothing else. */
+    private static final int MINIMUM_TAG = 24;
+
     private ClientboundAstrolabeChartPacket data;
     @Nullable
     private UUID selected;
@@ -51,6 +59,33 @@ public class AstrolabeChartScreen extends AWWindowScreen {
     private int ticksOpen;
 
     /**
+     * What the hold-altitude toggle was just clicked to, until the server's chart says the same.
+     *
+     * <p>Without it the box would not change until the reply came back, which on a slow connection
+     * reads as a click that did nothing and invites a second one that turns it straight back off. It is
+     * dropped on a matching reply rather than on any reply, because the chart refreshes itself on a
+     * timer and a refresh already in flight would otherwise flick the box back for a frame. A refused
+     * toggle never matches, so it also lapses after {@link #PENDING_HOLD_TICKS}.
+     */
+    @Nullable
+    private Boolean pendingHold;
+    private int pendingHoldTicks;
+    private static final int PENDING_HOLD_TICKS = 20;
+
+    /**
+     * The network the list is filtered to, or {@code null} for every destination.
+     *
+     * <p>The server applies it and says what it applied, so this is only ever what was last asked for or
+     * what was last answered. For {@link #PENDING_FILTER_TICKS} after the button is pressed an answer
+     * about any other filter is dropped whole: the chart refreshes itself on a timer, and a refresh
+     * already on its way would otherwise put the old list back for a frame.
+     */
+    @Nullable
+    private UUID filter;
+    private int pendingFilterTicks;
+    private static final int PENDING_FILTER_TICKS = 20;
+
+    /**
      * The marker beside the selected row, which slides rather than jumping.
      *
      * <p>Measured in rows from the top of the visible list, so scrolling moves it with the content.
@@ -60,6 +95,7 @@ public class AstrolabeChartScreen extends AWWindowScreen {
     public AstrolabeChartScreen(ClientboundAstrolabeChartPacket data) {
         super(AWLang.translate("gui.astrolabe.title").component());
         this.data = data;
+        this.filter = data.filter();
         this.selected = data.selected();
         if (selected == null) {
             selectFirstUsable();
@@ -73,7 +109,21 @@ public class AstrolabeChartScreen extends AWWindowScreen {
 
     /** Replaces the chart's contents with a fresh server snapshot, keeping the selection. */
     public void accept(ClientboundAstrolabeChartPacket packet) {
+        if (!Objects.equals(packet.filter(), filter)) {
+            if (pendingFilterTicks > 0) {
+                return;
+            }
+            // Not what was asked for, and not a late answer to an older question: the network has gone, or
+            // nothing the player may see is on it any more, and the server has fallen back to everything.
+            filter = packet.filter();
+            scroll = 0;
+        }
+        pendingFilterTicks = 0;
         this.data = packet;
+        scroll = Math.max(0, Math.min(scroll, packet.quotes().size() - VISIBLE_ROWS));
+        if (pendingHold != null && pendingHold == packet.holdAltitude()) {
+            pendingHold = null;
+        }
         if (selected != null && packet.quotes().stream().noneMatch(q -> q.anchorId().equals(selected))) {
             selected = null;
             dropPreview();
@@ -175,8 +225,65 @@ public class AstrolabeChartScreen extends AWWindowScreen {
 
     private void sendSelection() {
         if (selected != null) {
-            PacketDistributor.sendToServer(ServerboundAstrolabePacket.select(data.astrolabePos(), selected));
+            PacketDistributor.sendToServer(
+                    ServerboundAstrolabePacket.select(data.astrolabePos(), selected, filter));
         }
+    }
+
+    /**
+     * Steps the list on to the next network, or back to the one before, and asks for it at once.
+     *
+     * @param by {@code 1} for the next, {@code -1} for the one before
+     */
+    private void stepFilter(int by) {
+        if (data.networks().isEmpty()) {
+            playClick(0.7F);
+            return;
+        }
+        filter = by > 0 ? NetworkFilter.next(data.networks(), filter) : NetworkFilter.previous(data.networks(), filter);
+        scroll = 0;
+        pendingFilterTicks = PENDING_FILTER_TICKS;
+        refreshTimer = REFRESH_INTERVAL;
+        PacketDistributor.sendToServer(ServerboundAstrolabePacket.open(data.astrolabePos(), filter));
+        playClick(1.0F);
+    }
+
+    /** Whether the course holds altitude, as far as this screen can yet tell. */
+    private boolean shownHold() {
+        return pendingHold != null ? pendingHold : data.holdAltitude();
+    }
+
+    /**
+     * Whether the toggle can be used at all.
+     *
+     * <p>It belongs to a course, so with none set there is nothing for it to change - and a player
+     * refused the drive would only be refused again by the server.
+     */
+    private boolean holdAvailable() {
+        return data.hasCourse() && !data.access().isFailure();
+    }
+
+    /**
+     * Whether the standing course leads out of this dimension, where holding altitude is ignored.
+     *
+     * <p>A sounding says so itself, since a Rift Probe can take one in another dimension. An anchor is
+     * only known about if it made it into the list; one capped out of it is simply not warned about.
+     */
+    private boolean courseLeavesDimension() {
+        UUID course = data.selected();
+        if (course == null) {
+            return data.courseFixElsewhere();
+        }
+        for (WarpQuote quote : data.quotes()) {
+            if (quote.anchorId().equals(course)) {
+                return !quote.sameDimension();
+            }
+        }
+        return false;
+    }
+
+    private boolean overHold(double mouseX, double mouseY) {
+        return LAYOUT.hold().contains(mouseX - guiLeft, mouseY - guiTop);
     }
 
     private void playClick(float pitch) {
@@ -190,6 +297,24 @@ public class AstrolabeChartScreen extends AWWindowScreen {
         // Into window coordinates, so a click lands where the picture is when the window is scaled down.
         mouseX = unscaleX(mouseX);
         mouseY = unscaleY(mouseY);
+        if (overHold(mouseX, mouseY)) {
+            if (!holdAvailable()) {
+                playClick(0.7F);
+                return true;
+            }
+            boolean next = !shownHold();
+            pendingHold = next;
+            pendingHoldTicks = PENDING_HOLD_TICKS;
+            PacketDistributor.sendToServer(
+                    ServerboundAstrolabePacket.holdAltitude(data.astrolabePos(), next, filter));
+            playClick(next ? 1.2F : 0.9F);
+            return true;
+        }
+        int side = NetworkFilterStrip.side(LAYOUT.filter(), mouseX - guiLeft, mouseY - guiTop);
+        if (side != 0) {
+            stepFilter(side);
+            return true;
+        }
         int index = rowAt(mouseX, mouseY);
         if (index >= 0 && index < data.quotes().size()) {
             WarpQuote quote = data.quotes().get(index);
@@ -209,6 +334,11 @@ public class AstrolabeChartScreen extends AWWindowScreen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (scrollY != 0.0D
+                && NetworkFilterStrip.side(LAYOUT.filter(), unscaleX(mouseX) - guiLeft, unscaleY(mouseY) - guiTop) != 0) {
+            stepFilter(scrollY < 0.0D ? 1 : -1);
+            return true;
+        }
         int maximum = Math.max(0, data.quotes().size() - VISIBLE_ROWS);
         scroll = Math.max(0, Math.min(maximum, scroll - (int) Math.signum(scrollY)));
         return true;
@@ -235,22 +365,62 @@ public class AstrolabeChartScreen extends AWWindowScreen {
         int index = selectedIndex();
         marker.set(index < 0 ? -1.0F : index - scroll);
         marker.tick();
+        if (pendingHold != null && --pendingHoldTicks <= 0) {
+            pendingHold = null;
+        }
+        if (pendingFilterTicks > 0) {
+            pendingFilterTicks--;
+        }
         if (--refreshTimer <= 0) {
             refreshTimer = REFRESH_INTERVAL;
-            PacketDistributor.sendToServer(ServerboundAstrolabePacket.open(data.astrolabePos()));
+            PacketDistributor.sendToServer(ServerboundAstrolabePacket.open(data.astrolabePos(), filter));
         }
     }
 
     // ----------------------------------------------------------------- render
+
+    /**
+     * How far the drive reaches, for the header: how far it can throw <em>this ship</em>, and the tier's
+     * own range after it whenever the two differ.
+     *
+     * <p>The ship's figure comes first because it is the one the list below is judged against - an anchor
+     * inside the tier's range and past the ship's is refused, and a header that showed only the tier's
+     * made that refusal look like a mistake. The tier's is dropped when both will not fit beside the
+     * anchor count sharing the line, rather than have the header cut either short.
+     *
+     * @param status what sits at the other end of the subtitle's line
+     */
+    private String range(String status) {
+        String tierRange = AWLang.reach(data.maximumRange());
+        if (!data.hasShipRange()) {
+            return tierRange;
+        }
+        if (data.shipRange() < 0.0D) {
+            // No distance to set beside the tier's: the hull's own mass costs more than a full charge.
+            return AWLang.translate("gui.rift_drive.ship_range_none").string();
+        }
+        String shipRange = AWLang.reach(data.shipRange());
+        if (data.shipRange() + 0.5D >= data.maximumRange()) {
+            return shipRange;
+        }
+        String both = AWLang.translate("gui.astrolabe.range_of", shipRange, tierRange).string();
+        String lead = AWLang.translate(RiftDriveTier.byIndex(data.tierIndex()).translationKey()).string() + "  -  ";
+        int room = LAYOUT.header().width() - font.width(status) - 6;
+        return font.width(lead + both) <= room ? both : shipRange;
+    }
 
     @Override
     protected void renderWindow(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
         AWScreenStyle.window(graphics, guiLeft, guiTop, AWLayouts.CHART_WIDTH, AWLayouts.CHART_HEIGHT);
 
         RiftDriveTier tier = RiftDriveTier.byIndex(data.tierIndex());
+        Component status = data.truncated()
+                ? AWLang.translate("gui.astrolabe.anchors_capped",
+                        data.quotes().size(), data.totalAvailable()).component()
+                : Component.literal(data.quotes().size() + " "
+                        + AWLang.translate("gui.astrolabe.anchors").string());
         String subtitle = data.hasDrive()
-                ? AWLang.translate(tier.translationKey()).string() + "  -  "
-                        + AWLang.distance(data.maximumRange())
+                ? AWLang.translate(tier.translationKey()).string() + "  -  " + range(status.getString())
                 : AWLang.translate("gui.astrolabe.no_drive").string();
         String ship = data.airshipName().isBlank()
                 ? AWLang.translate("gui.rift_navigation.unnamed_ship").string()
@@ -260,15 +430,14 @@ public class AstrolabeChartScreen extends AWWindowScreen {
                 AWLang.translate("gui.astrolabe.title").component(),
                 subtitle,
                 ship,
-                data.truncated()
-                        ? AWLang.translate("gui.astrolabe.anchors_capped",
-                                data.quotes().size(), data.totalAvailable()).component()
-                        : Component.literal(data.quotes().size() + " "
-                                + AWLang.translate("gui.astrolabe.anchors").string()),
+                status,
                 data.truncated() ? AWScreenStyle.WARN : AWScreenStyle.LABEL,
                 data.hasDrive() ? AWScreenStyle.LABEL : AWScreenStyle.BAD);
 
         renderCourse(graphics);
+        renderHold(graphics, mouseX, mouseY);
+        NetworkFilterStrip.draw(graphics, font, guiLeft, guiTop, LAYOUT.filter(), data.networks(), filter,
+                mouseX, mouseY);
         renderList(graphics, mouseX, mouseY, partialTicks);
         renderPreview(graphics, partialTicks);
         renderDetails(graphics);
@@ -318,6 +487,64 @@ public class AstrolabeChartScreen extends AWWindowScreen {
         }
     }
 
+    /**
+     * The hold-altitude toggle, at the end of the course line.
+     *
+     * <p>Teal when the course holds, warning-yellow when it would but the course leaves this dimension
+     * and so will not, and the label colour otherwise. Drawn rather than a vanilla checkbox so it sits
+     * in the chart's own palette at the chart's own text height.
+     */
+    private void renderHold(GuiGraphics graphics, int mouseX, int mouseY) {
+        Rect toggle = LAYOUT.hold();
+        int left = guiLeft + toggle.x();
+        int top = guiTop + toggle.y() + 2;
+        boolean available = holdAvailable();
+        boolean on = available && shownHold();
+
+        if (available && overHold(mouseX, mouseY)) {
+            graphics.fill(left - 2, top - 2, guiLeft + toggle.right(), top + 10, 0x22_FF_FF_FF);
+        }
+
+        int colour = !available ? AWAnim.fade(AWScreenStyle.LABEL, 0.5F)
+                : !on ? AWScreenStyle.LABEL
+                : courseLeavesDimension() ? AWScreenStyle.WARN
+                : AWScreenStyle.OK;
+        graphics.fill(left, top, left + 7, top + 1, colour);
+        graphics.fill(left, top + 6, left + 7, top + 7, colour);
+        graphics.fill(left, top + 1, left + 1, top + 6, colour);
+        graphics.fill(left + 6, top + 1, left + 7, top + 6, colour);
+        if (on) {
+            graphics.fill(left + 2, top + 2, left + 5, top + 5, colour);
+        }
+
+        String label = AWLang.translate("gui.astrolabe.hold_altitude").string();
+        graphics.drawString(font, AWScreenStyle.trim(font, label, toggle.width() - 11), left + 11, top,
+                on ? colour : available ? AWScreenStyle.VALUE : colour, false);
+    }
+
+    @Override
+    protected void renderWindowForeground(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
+        super.renderWindowForeground(graphics, mouseX, mouseY, partialTicks);
+        if (!overHold(mouseX, mouseY)) {
+            return;
+        }
+        List<Component> lines = new ArrayList<>();
+        lines.add(AWLang.translate("gui.astrolabe.hold_altitude_tip").component());
+        if (!data.hasCourse()) {
+            lines.add(AWLang.translate("gui.astrolabe.hold_altitude_no_course").component()
+                    .copy().withStyle(ChatFormatting.GRAY));
+        } else if (courseLeavesDimension()) {
+            lines.add(AWLang.translate("gui.astrolabe.hold_altitude_other_dimension").component()
+                    .copy().withStyle(ChatFormatting.GOLD));
+        }
+        List<FormattedCharSequence> wrapped = new ArrayList<>();
+        wrapped.add(AWLang.translate("gui.astrolabe.hold_altitude").component().getVisualOrderText());
+        for (Component line : lines) {
+            wrapped.addAll(font.split(line, 180));
+        }
+        graphics.renderTooltip(font, wrapped, mouseX, mouseY);
+    }
+
     private void renderList(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
         Rect list = LAYOUT.list();
         AWScreenStyle.panel(graphics, guiLeft, guiTop, list);
@@ -358,10 +585,20 @@ public class AstrolabeChartScreen extends AWWindowScreen {
             int colour = quote.usable() ? AWScreenStyle.VALUE : AWScreenStyle.BAD;
             String right = quote.sameDimension() ? AWLang.distance(quote.distance()) : "--";
             int room = list.width() - font.width(right) - 16;
-            graphics.drawString(font, AWScreenStyle.trim(font, quote.name(), room),
-                    left + 6, y + 3, colour, false);
-            graphics.drawString(font, right, left + list.width() - font.width(right) - 8,
-                    y + 3, AWScreenStyle.LABEL, false);
+            String name = AWScreenStyle.trim(font, quote.name(), room);
+            graphics.drawString(font, name, left + 6, y + 3, colour, false);
+            int distanceLeft = left + list.width() - font.width(right) - 8;
+            graphics.drawString(font, right, distanceLeft, y + 3, AWScreenStyle.LABEL, false);
+
+            // The network, in whatever the name left over - and only while the list is of every network,
+            // since under a filter each row would say what the strip above them already does. The name
+            // has first call on the room: it is what a destination is picked by.
+            int tagRoom = room - font.width(name) - 8;
+            if (filter == null && !quote.network().isBlank() && tagRoom >= MINIMUM_TAG) {
+                String tag = AWScreenStyle.trim(font, quote.network(), tagRoom);
+                graphics.drawString(font, tag, distanceLeft - 6 - font.width(tag), y + 3,
+                        AWScreenStyle.ACCENT_DIM, false);
+            }
         }
 
         AWScreenStyle.scrollbar(graphics, left + list.width() - AWLayout.INSET, top,
@@ -443,6 +680,9 @@ public class AstrolabeChartScreen extends AWWindowScreen {
                 quote != null && quote.cost() > data.charge() ? AWScreenStyle.BAD : AWScreenStyle.VALUE);
         line = AWScreenStyle.readout(graphics, font, left, line, width,
                 AWLang.translate("gui.astrolabe.ground").component(), groundLabel(), AWScreenStyle.VALUE);
+        line = AWScreenStyle.readout(graphics, font, left, line, width,
+                AWLang.translate("gui.warp_anchor.network").component(),
+                quote == null || quote.network().isBlank() ? "-" : quote.network(), AWScreenStyle.VALUE);
 
         Component status;
         int statusColour;

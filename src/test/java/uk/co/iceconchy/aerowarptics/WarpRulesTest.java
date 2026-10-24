@@ -59,11 +59,23 @@ class WarpRulesTest {
     }
 
     @Test
-    void crossDimensionIsRefusedUnlessAHandlerIsRegistered() {
+    void crossDimensionIsRefusedWhileTheServerHasItSwitchedOff() {
         assertEquals(WarpFailure.DIMENSION_UNSUPPORTED,
-                WarpRules.checkDestination(true, false, false, -1.0D, 0.0D, 1.0D, FORMULA));
+                WarpRules.checkDestination(true, false, false, 1_000.0D, 0.0D, 1.0D, FORMULA));
         assertEquals(WarpFailure.NONE,
-                WarpRules.checkDestination(true, false, true, -1.0D, 0.0D, 1.0D, FORMULA));
+                WarpRules.checkDestination(true, false, true, 1_000.0D, 0.0D, 1.0D, FORMULA));
+    }
+
+    @Test
+    void aCrossingIsHeldToTheSameRangeAndChargeAsAJumpOfItsConfiguredLength() {
+        // It used to return NONE before either check, which made the far side of a dimension the one
+        // place any drive could reach for free.
+        assertEquals(WarpFailure.DESTINATION_TOO_FAR,
+                WarpRules.checkDestination(true, false, true, 30_000.0D, 0.0D, 1.0D, FORMULA));
+        assertEquals(WarpFailure.INSUFFICIENT_CHARGE,
+                WarpRules.checkDestination(true, false, true, 1_000.0D, 0.0D, 0.1D, FORMULA));
+        assertEquals(WarpFailure.DESTINATION_TOO_CLOSE,
+                WarpRules.checkDestination(true, false, true, 10.0D, 0.0D, 1.0D, FORMULA));
     }
 
     @Test
@@ -115,6 +127,9 @@ class WarpRulesTest {
         assertFalse(WarpFailure.DESTINATION_TOO_FAR.penalised());
         assertFalse(WarpFailure.ANCHOR_FORBIDDEN.penalised());
         assertFalse(WarpFailure.AIRSHIP_ALREADY_WARPING.penalised());
+        // Refused before anything moves, and all the pilot has to do is let go - even when the spin-up
+        // had already run, since a connector can lock while the drive turns.
+        assertFalse(WarpFailure.SHIP_FASTENED.penalised());
         assertFalse(WarpFailure.NONE.penalised());
     }
 

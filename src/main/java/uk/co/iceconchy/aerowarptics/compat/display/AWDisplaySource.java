@@ -145,9 +145,24 @@ public abstract class AWDisplaySource<T extends BlockEntity> extends SingleLineD
 
     // -------------------------------------------------------- line provision
 
+    /**
+     * The block entity a link attached here is reading: the one it is attached to, for every machine that is one
+     * block. A machine built of several - the Collapse Cradle - answers for the block that holds its state.
+     */
+    protected BlockEntity source(DisplayLinkContext context) {
+        return context.getSourceBlockEntity();
+    }
+
+    /**
+     * Anything besides {@link #blockEntityType()} a link may be attached to and still read this source - the
+     * cradle's parts. Run during common setup, so it may name registry objects that a test must never load.
+     */
+    public void registerExtras() {
+    }
+
     @Override
     protected MutableComponent provideLine(DisplayLinkContext context, DisplayTargetStats stats) {
-        BlockEntity be = context.getSourceBlockEntity();
+        BlockEntity be = source(context);
         if (!machineType.isInstance(be)) {
             // The block has gone, or the link is pointed at something else now. Clear the target
             // rather than leaving a message on it that will never be replaced.

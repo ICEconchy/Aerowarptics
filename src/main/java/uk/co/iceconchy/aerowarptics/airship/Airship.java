@@ -4,11 +4,13 @@ import com.simibubi.create.content.contraptions.ControlledContraptionEntity;
 import com.simibubi.create.content.contraptions.bearing.MechanicalBearingBlockEntity;
 import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.api.SubLevelHelper;
+import dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor;
 import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
 import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.companion.math.BoundingBox3d;
 import dev.ryanhcode.sable.companion.math.BoundingBox3dc;
 import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
+import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
@@ -29,9 +31,17 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniondc;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
+import uk.co.iceconchy.aerowarptics.bond.RiftBondBlockEntity;
+import uk.co.iceconchy.aerowarptics.bond.RiftBonds;
+import uk.co.iceconchy.aerowarptics.compat.simulated.CarriedRopes;
+import uk.co.iceconchy.aerowarptics.compat.simulated.SimulatedTies;
+import uk.co.iceconchy.aerowarptics.network.AWNetwork;
+import uk.co.iceconchy.aerowarptics.network.ClientboundFoldCrossedPacket;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
@@ -320,7 +330,7 @@ public final class Airship {
     public BoundingBox3d assemblyBounds() {
         BoundingBox3dc hull = subLevel.boundingBox();
         double[] box = {hull.minX(), hull.minY(), hull.minZ(), hull.maxX(), hull.maxY(), hull.maxZ()};
-        for (SubLevel connected : SubLevelHelper.getConnectedChain(subLevel)) {
+        for (SubLevel connected : chain()) {
             BoundingBox3dc b = connected.boundingBox();
             include(box, b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ());
         }
@@ -345,9 +355,187 @@ public final class Airship {
      */
     public Set<SubLevel> assemblySubLevels() {
         Set<SubLevel> own = Collections.newSetFromMap(new IdentityHashMap<>());
-        own.add(subLevel);
-        own.addAll(SubLevelHelper.getConnectedChain(subLevel));
+        own.addAll(chain());
         return own;
+    }
+
+    /**
+     * The hull, then every sub-level joined to it, found both ways there are of finding them.
+     *
+     * <p>Sable's own walk ({@link SubLevelHelper#getConnectedChain}) follows each plot's list of actors,
+     * and that list has the lifecycle {@link #machines} was written to avoid: a machine is on it only if
+     * its block has changed since the plot was made. A Swivel Bearing missing from it is a bearing whose
+     * plate - the turret, the gondola, whatever it carries - is not in the chain, and the clearance checks
+     * then read the ship's own turret as another ship standing in its path and refuse every launch. So the
+     * same question is also asked of every machine actually standing in each plot's chunks, and the two
+     * answers are put together.
+     */
+    private List<SubLevel> chain() {
+        return VesselChain.from(subLevel, Airship::joinedTo);
+    }
+
+    /** Every sub-level the machines aboard one say they are joined to. */
+    private static List<SubLevel> joinedTo(SubLevel member) {
+        LevelPlot plot = member.isRemoved() ? null : member.getPlot();
+        if (plot == null) {
+            // Nothing to read, and Sable's walk would be reading the same plot.
+            return List.of();
+        }
+        List<SubLevel> joined = new ArrayList<>(SubLevelHelper.getConnectedChain(member));
+        // A rope's joint is on no machine's list either: whatever hangs on one is part of the vessel.
+        Fastenings.probe("rope parts", () -> SimulatedTies.ropedTo(member, joined));
+        for (PlotChunkHolder holder : plot.getLoadedChunks()) {
+            LevelChunk chunk = holder.getChunk();
+            if (chunk == null) {
+                continue;
+            }
+            for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
+                if (blockEntity instanceof RiftBondBlockEntity bond && !blockEntity.isRemoved()) {
+                    // No joint, so nothing of Sable's knows of it: a section that only flies alongside is
+                    // part of the vessel because its builder has said so. See RiftBonds.
+                    joined.addAll(RiftBonds.bondedTo(bond));
+                    continue;
+                }
+                if (blockEntity.isRemoved() || !(blockEntity instanceof BlockEntitySubLevelActor actor)
+                        || UNASKABLE.contains(blockEntity.getClass())) {
+                    continue;
+                }
+                try {
+                    Iterable<SubLevel> dependencies = actor.sable$getConnectionDependencies();
+                    if (dependencies != null) {
+                        for (SubLevel dependency : dependencies) {
+                            joined.add(dependency);
+                        }
+                    }
+                } catch (RuntimeException | LinkageError e) {
+                    // Asked of machines Sable itself may never have asked, every tick of a flight. One that
+                    // cannot answer is left out from then on rather than taking the server down with it.
+                    UNASKABLE.add(blockEntity.getClass());
+                    Trace.warn(Trace.LAUNCH, "{} cannot say what it joins its ship to, and will not be asked"
+                            + " again this session: {}", blockEntity.getClass().getName(), e.toString());
+                }
+            }
+        }
+        return joined;
+    }
+
+    /** Machine classes whose connections could not be read, so that each is only tried, and reported, once. */
+    private static final Set<Class<?>> UNASKABLE = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Every sub-level joined to this hull that goes where it goes: {@link #assemblySubLevels()} without the
+     * hull itself, and only those that are loaded and have a plot to move.
+     *
+     * <p>The chain followed through each machine's connection dependencies: a Docking Connector's partner,
+     * a Swivel Bearing's plate, a Spring's pair - and through every Rift Bond, which joins nothing and is
+     * there to say that a section flying alongside belongs to the ship. Sable's own walk is what Dimensional Sable moves on a
+     * crossing; this one never finds less than that, and finds the machines Sable's list of actors has
+     * missed - see {@link #chain()}. {@link #relocate} carries all of it, and {@link Fastenings} refuses a
+     * warp for anything joined to something that is not in it.
+     */
+    public List<ServerSubLevel> parts() {
+        List<ServerSubLevel> parts = new ArrayList<>();
+        for (SubLevel connected : chain()) {
+            if (connected != subLevel && connected instanceof ServerSubLevel server && !parts.contains(server)
+                    && !server.isRemoved() && server.getPlot() != null) {
+                parts.add(server);
+            }
+        }
+        return parts;
+    }
+
+    /**
+     * How many sub-levels Sable's own walk joins to this hull, for the trace to set beside
+     * {@link #parts()}. When this is the smaller, a machine joining the vessel together is missing from
+     * Sable's list of actors - which is the case {@link #chain()} exists for, and worth being able to see.
+     */
+    public int sableParts() {
+        return Math.max(0, SubLevelHelper.getConnectedChain(subLevel).size() - 1);
+    }
+
+    /** The hull and then each of its {@link #parts()}: everything a warp moves. */
+    public List<Airship> vessel() {
+        List<Airship> vessel = new ArrayList<>();
+        vessel.add(this);
+        for (ServerSubLevel part : parts()) {
+            vessel.add(new Airship(part));
+        }
+        return vessel;
+    }
+
+    /**
+     * The whole vessel's block box in <em>this hull's own plot space</em>: the hull's plot, grown to take in
+     * every one of its {@link #parts()} where it sits against the hull now. {@code null} when the hull has
+     * no plot to measure.
+     *
+     * <p>What a warp is sized from. Measuring the hull's plot alone was right while a ship was one
+     * sub-level, and gave a ship built in sections a rift the size of whichever section the drive was in:
+     * the others flew past the aperture, and were put down at the far end in ground nobody had looked at.
+     * Kept in the hull's frame, not the world's, so that everything already written against a plot box -
+     * the arrival search's placement, {@link uk.co.iceconchy.aerowarptics.warp.FlightGeometry} - takes the
+     * larger box without knowing there are parts at all, and so that the answer does not change with the
+     * compass. Bearing-mounted contraptions are still left out, for the reason {@link #assemblyBounds()}
+     * gives: a propeller's box is its whole sweep.
+     *
+     * <p>With no parts this is exactly the hull's plot box, block bounds made exclusive.
+     */
+    @Nullable
+    public BoundingBox3d vesselShipBounds() {
+        LevelPlot plot = subLevel.getPlot();
+        BoundingBox3ic own = plot == null ? null : plot.getBoundingBox();
+        if (own == null) {
+            return null;
+        }
+        // Block bounds are inclusive; a block at maxX occupies up to maxX + 1.
+        double[] box = {own.minX(), own.minY(), own.minZ(), own.maxX() + 1.0D, own.maxY() + 1.0D, own.maxZ() + 1.0D};
+        Pose3dc hull = subLevel.logicalPose();
+        for (ServerSubLevel part : parts()) {
+            BoundingBox3ic theirs = part.getPlot().getBoundingBox();
+            if (theirs == null) {
+                continue;
+            }
+            Pose3dc pose = part.logicalPose();
+            VesselBox.include(box, theirs.minX(), theirs.minY(), theirs.minZ(),
+                    theirs.maxX() + 1.0D, theirs.maxY() + 1.0D, theirs.maxZ() + 1.0D,
+                    corner -> hull.transformPositionInverse(pose.transformPosition(corner)));
+        }
+        return new BoundingBox3d(box[0], box[1], box[2], box[3], box[4], box[5]);
+    }
+
+    /**
+     * World-space bounds of the hull and every one of its {@link #parts()}, and nothing hung off them:
+     * {@link #assemblyBounds()} without the contraptions. With no parts, exactly {@link #worldBounds()}.
+     */
+    public BoundingBox3dc vesselWorldBounds() {
+        List<ServerSubLevel> parts = parts();
+        BoundingBox3dc hull = subLevel.boundingBox();
+        if (parts.isEmpty()) {
+            return hull;
+        }
+        double[] box = {hull.minX(), hull.minY(), hull.minZ(), hull.maxX(), hull.maxY(), hull.maxZ()};
+        for (ServerSubLevel part : parts) {
+            BoundingBox3dc b = part.boundingBox();
+            include(box, b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ());
+        }
+        return new BoundingBox3d(box[0], box[1], box[2], box[3], box[4], box[5]);
+    }
+
+    /**
+     * World-space centre of the whole vessel: the middle of {@link #vesselShipBounds()}, put into the world.
+     * With no parts, exactly {@link #centre}, so a ship of one sub-level flies as it always has.
+     */
+    public Vector3d vesselCentre(Vector3d dest) {
+        BoundingBox3d box = parts().isEmpty() ? null : vesselShipBounds();
+        if (box == null) {
+            return centre(dest);
+        }
+        return subLevel.logicalPose().transformPosition(box.center(dest));
+    }
+
+    /** Volume of {@link #vesselShipBounds()}: what a check over the whole vessel is budgeted from. */
+    public double vesselVolume() {
+        BoundingBox3d box = vesselShipBounds();
+        return box == null ? 0.0D : box.width() * box.height() * box.length();
     }
 
     /**
@@ -409,82 +597,245 @@ public final class Airship {
     }
 
     /**
+     * How far outside the hull's own blocks, in ship space, an unsupported entity still counts as
+     * aboard it for a relocation - see {@link #withinHull}. A player's feet overhang the last plank by a
+     * fraction of a block, and a margin of one takes in someone at the very rail.
+     */
+    private static final double HULL_MARGIN = 1.0D;
+
+    /**
+     * How far above the highest block an unsupported entity still counts as aboard. A jump from the
+     * deck peaks at about a block and a quarter; this leaves room for a jump from the top of a cabin.
+     */
+    private static final double HULL_HEADROOM = 3.0D;
+
+    /**
      * Moves the entire airship - structure, block entities, passengers and cargo - to a new place in
      * the same {@link ServerLevel}.
      *
      * <p>The move is performed by Sable's physics pipeline, the same call the {@code /sable sub_level
      * teleport} command uses, so the sub-level's plot, its block entities and everything attached to
-     * it come along untouched. Entities standing on or riding the airship are converted into
-     * ship-space before the move and back into world space afterwards, which reproduces their
-     * position and facing relative to the deck exactly.
+     * it come along untouched. Everything carried by the hull (see {@link #carried}) is read in ship
+     * space before the move and put back in the new frame afterwards, which reproduces its position
+     * relative to the deck exactly.
+     *
+     * <p>Then every client holding a copy of the hull is told exactly where it went, and a client whose
+     * own player went with it is told that too - see {@link ClientboundFoldCrossedPacket} and
+     * {@code FoldCrossings}. That notice is not a courtesy. A client left to read the jump out of
+     * Sable's pose stream interpolates it as movement: it draws the hull part of the way across, in
+     * chunks it does not have, and throws whoever is standing on it the same distance. Those were the
+     * two things players reported - the ship vanishing at a warp, and being launched off a deck they
+     * were standing on - and they were one bug.
+     *
+     * <p>Every one of the hull's {@link #parts()} goes with it, by the same rigid jump, with its own
+     * passengers and its own notice to the clients that have it. This used to move the hull alone, and a
+     * ship docked alongside, or a turret on a Swivel Bearing, was left behind still joined to it: the
+     * joint, stretched across the whole warp, then dragged the two back together. Moving every part by one
+     * transform keeps every joint anchored in a plot exactly where it was, because each end moves with
+     * the plot it is anchored in. A rope is the one joint that is not anchored like that: its middle is in
+     * world space, so every rope with both ends aboard is lifted out of the physics world first and put
+     * back through the same jump - see {@link CarriedRopes}.
      *
      * @param destination  world position for the airship's origin
      * @param orientation  world orientation for the airship
      * @param retainedVelocity fraction of the pre-warp velocity to restore, {@code 0} to arrive at rest
      * @return {@code true} when the pipeline accepted the move
      */
-    /**
-     * Tells a player's own client where the hull just put them.
-     *
-     * <p>{@code popEntityLocal} writes the new position straight onto the entity - {@code
-     * sable$setPosSuperRaw}, no packet. For anything the server owns outright that is the whole job.
-     * A player's client owns its own position: told nothing, it carries on at the old coordinates and
-     * the raw write is undone by the very next movement packet it sends. Across a warp that means the
-     * ship arrives and the player does not.
-     *
-     * <p>This was survivable for a long time by accident. {@code WarpPassengers.hold} runs on every
-     * later tick of the flight, notices the player is nowhere near their seat and issues a real
-     * correction - so on a hull small enough for the warp to finish cleanly, the player looked like
-     * they had been carried across. On a large one the flight was being dropped at the crossing
-     * before any of those ticks ran, and there was nothing else in the system that ever told the
-     * client. Doing it here makes the teleport work on its own, rather than on the recovery.
-     */
-    private static void tell(Entity entity) {
-        if (entity instanceof ServerPlayer player) {
-            // The one call that also resets what the client thinks it is doing. teleportTo would be
-            // another raw write with the same problem.
-            player.connection.teleport(player.getX(), player.getY(), player.getZ(),
-                    player.getYRot(), player.getXRot());
-        }
-    }
-
     public boolean relocate(Vector3dc destination, Quaterniondc orientation, double retainedVelocity) {
         PhysicsPipeline pipeline = pipeline();
         if (pipeline == null || subLevel.isRemoved()) {
             return false;
         }
 
-        Vector3d linear = new Vector3d();
-        Vector3d angular = new Vector3d();
-        pipeline.getLinearVelocity(subLevel, linear);
-        pipeline.getAngularVelocity(subLevel, angular);
-
-        List<Entity> aboard = passengers();
-        for (Entity entity : aboard) {
-            SubLevelHelper.pushEntityLocal(subLevel, entity);
+        // All read before anything moves: who is aboard and where on each part, and which clients have a
+        // copy of it. Afterwards the vessel is somewhere else and so, as far as a search is concerned, is
+        // everyone on it. Somebody standing where two parts meet is counted once, on the hull if either.
+        Set<Entity> counted = Collections.newSetFromMap(new IdentityHashMap<>());
+        Moving hull = Moving.read(this, pipeline, counted);
+        List<Moving> parts = new ArrayList<>();
+        Set<UUID> vessel = new HashSet<>();
+        vessel.add(uuid());
+        for (ServerSubLevel part : parts()) {
+            parts.add(Moving.read(of(part), pipeline, counted));
+            vessel.add(part.getUniqueId());
         }
+        // Out of the physics world before anything moves, or each rope is dragged by its ends across the jump.
+        CarriedRopes ropes = CarriedRopes.lift(level(), vessel);
 
         pipeline.resetVelocity(subLevel);
         pipeline.teleport(subLevel, destination, orientation);
 
-        // teleport() writes straight into logicalPose, so the pop below already uses the new frame.
-        for (Entity entity : aboard) {
-            SubLevelHelper.popEntityLocal(subLevel, entity);
-            tell(entity);
+        // teleport() writes straight into logicalPose, so this is already the new frame.
+        HullJump jump = HullJump.between(hull.before(), subLevel.logicalPose());
+        hull.arrive(pipeline, retainedVelocity);
+        for (Moving part : parts) {
+            Pose3d there = jump.moved(part.before());
+            ServerSubLevel moving = part.airship().subLevel();
+            pipeline.resetVelocity(moving);
+            pipeline.teleport(moving, there.position(), there.orientation());
+            part.arrive(pipeline, retainedVelocity);
         }
+        ropes.land(jump);
 
-        if (retainedVelocity > 0.0D) {
-            pipeline.addLinearAndAngularVelocity(subLevel,
-                    linear.mul(retainedVelocity, new Vector3d()),
-                    angular.mul(retainedVelocity, new Vector3d()));
+        announce(jump, hull.carried(), hull.watching());
+        for (Moving part : parts) {
+            part.airship().announce(jump, part.carried(), part.watching());
         }
-        pipeline.wakeUp(subLevel);
-
-        // Collapse the pose delta so nothing on board reads the jump as a one-tick velocity spike.
-        subLevel.updateLastPose();
-        subLevel.updateBoundingBox();
-        subLevel.forceUpdateGlobalBounds();
         return true;
+    }
+
+    /**
+     * One sub-level of the vessel on its way across: where it was, how it was moving, and what it had
+     * aboard, read before anything moved.
+     */
+    private record Moving(Airship airship, Pose3d before, Vector3d linear, Vector3d angular,
+                          List<Carried> carried, List<UUID> watching) {
+
+        static Moving read(Airship airship, PhysicsPipeline pipeline, Set<Entity> counted) {
+            ServerSubLevel sub = airship.subLevel();
+            Vector3d linear = new Vector3d();
+            Vector3d angular = new Vector3d();
+            pipeline.getLinearVelocity(sub, linear);
+            pipeline.getAngularVelocity(sub, angular);
+            Pose3d before = new Pose3d(sub.logicalPose());
+            List<Carried> carried = new ArrayList<>();
+            for (Carried passenger : airship.carried(before)) {
+                if (counted.add(passenger.entity())) {
+                    carried.add(passenger);
+                }
+            }
+            return new Moving(airship, before, linear, angular, carried, new ArrayList<>(sub.getTrackingPlayers()));
+        }
+
+        /** Puts its passengers back and its motion back, once it has been teleported. */
+        void arrive(PhysicsPipeline pipeline, double retainedVelocity) {
+            ServerSubLevel sub = airship.subLevel();
+            Pose3dc after = sub.logicalPose();
+            for (Carried passenger : carried) {
+                passenger.land(after);
+            }
+            if (retainedVelocity > 0.0D) {
+                pipeline.addLinearAndAngularVelocity(sub,
+                        linear.mul(retainedVelocity, new Vector3d()),
+                        angular.mul(retainedVelocity, new Vector3d()));
+            }
+            pipeline.wakeUp(sub);
+
+            // Collapse the pose delta so nothing on board reads the jump as a one-tick velocity spike.
+            sub.updateLastPose();
+            sub.updateBoundingBox();
+            sub.forceUpdateGlobalBounds();
+        }
+    }
+
+    /**
+     * Something the hull takes with it when it is relocated, and where on the hull it was.
+     *
+     * @param stowaway whether it was taken although Sable did not have it aboard - see {@link #carried}
+     */
+    private record Carried(Entity entity, Vec3 local, Vec3 localMotion, boolean stowaway) {
+
+        /**
+         * Puts it back on the hull in the hull's new frame.
+         *
+         * <p>Through the entity's own setter, not the raw write Sable's push and pop use. The raw write
+         * moves the coordinates and nothing else, so the level went on filing the entity under the
+         * section it had left - at the far end of a warp - and every search of the arrival missed it
+         * until it next moved of its own accord. For a player that was until their client caught up;
+         * in the meantime the drive's own crew count, a search by area, found nobody aboard and
+         * "recovered" them with a second teleport.
+         *
+         * <p>Facing is left alone, as Sable's own pop leaves it; motion is turned with the hull.
+         */
+        void land(Pose3dc pose) {
+            entity.setPos(pose.transformPosition(local));
+            entity.setDeltaMovement(pose.transformNormal(localMotion));
+        }
+    }
+
+    /**
+     * Everything the hull should take with it: whatever Sable has standing on or riding it, and anything
+     * else unsupported inside it.
+     *
+     * <p>Sable's answer alone is what {@link #passengers()} gives, and it misses the moment that
+     * matters: a player whose feet left the deck - a jump, a step off a ledge inside the hold - is not
+     * on the hull as far as Sable is concerned until they land. At a crossing that is a player left
+     * four thousand blocks behind their ship, which leaves the range their client tracks it at, so
+     * their client deletes it: the ship vanishes for them, and they fall until the manifest fetches
+     * them. So anything in the air inside the hull's own footprint goes too. Standing on real ground is
+     * what rules a bystander out - someone beside a car at a gate is not in it - and a spectator
+     * passing through a hull is not aboard it either.
+     */
+    private List<Carried> carried(Pose3dc pose) {
+        LevelPlot plot = subLevel.getPlot();
+        BoundingBox3ic hull = plot == null ? null : plot.getBoundingBox();
+        AABB bounds = worldBounds().toMojang().inflate(2.0D + HULL_HEADROOM);
+        List<Carried> found = new ArrayList<>();
+        for (Entity entity : level().getEntities((Entity) null, bounds, e -> !e.isRemoved())) {
+            if (entity.isPassenger()) {
+                continue; // moved along with its vehicle
+            }
+            SubLevel tracking = Sable.HELPER.getTrackingOrVehicleSubLevel(entity);
+            Vec3 local = pose.transformPositionInverse(entity.position());
+            boolean aboard = tracking == subLevel;
+            boolean stowaway = !aboard && tracking == null && !entity.onGround() && !entity.isSpectator() && hull != null
+                    && withinHull(hull.minX(), hull.minY(), hull.minZ(), hull.maxX(), hull.maxY(), hull.maxZ(),
+                    local.x, local.y, local.z);
+            if (aboard || stowaway) {
+                found.add(new Carried(entity, local, pose.transformNormalInverse(entity.getDeltaMovement()), stowaway));
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Whether a point in ship space lies within a hull's block bounds, give or take the rail and a
+     * jump's height above it. Pure, so the rule can be tested without a hull.
+     */
+    public static boolean withinHull(int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
+                                     double x, double y, double z) {
+        return x >= minX - HULL_MARGIN && x <= maxX + 1 + HULL_MARGIN
+                && z >= minZ - HULL_MARGIN && z <= maxZ + 1 + HULL_MARGIN
+                && y >= minY && y <= maxY + 1 + HULL_HEADROOM;
+    }
+
+    /**
+     * Tells every client that has this hull where it went.
+     *
+     * <p>A player who went with it is told they were carried, and their client moves them by the same
+     * jump as its copy of the hull, so they keep their plank of the deck in their own view of it. That
+     * replaces the world-space teleport this used to send, which put them where the deck is on the
+     * server - a tick and a half ahead of where their client draws it, which on a moving hull is off the
+     * edge - and, worse, a tick before their client had the hull there at all.
+     *
+     * <p>A stowaway is sent the teleport as well, after the notice. The server had them off the hull, so
+     * whatever their client sends before the notice reaches it is a position at the near end; a real
+     * teleport is what makes the server wait for the client to catch up rather than believe it.
+     *
+     * <p>Everyone else holding a copy only has it moved. That is exactly Sable's own list of who is
+     * tracking the hull, read before the move: a client that only starts tracking it afterwards is sent
+     * it where it already is.
+     */
+    private void announce(HullJump jump, List<Carried> carried, List<UUID> watching) {
+        Set<UUID> told = new HashSet<>();
+        for (Carried passenger : carried) {
+            if (passenger.entity() instanceof ServerPlayer player && told.add(player.getUUID())) {
+                AWNetwork.sendTo(player, ClientboundFoldCrossedPacket.of(uuid(), jump, true));
+                if (passenger.stowaway()) {
+                    player.connection.teleport(player.getX(), player.getY(), player.getZ(),
+                            player.getYRot(), player.getXRot());
+                }
+            }
+        }
+        ClientboundFoldCrossedPacket notice = ClientboundFoldCrossedPacket.of(uuid(), jump, false);
+        for (UUID id : watching) {
+            if (told.add(id)) {
+                ServerPlayer watcher = level().getServer().getPlayerList().getPlayer(id);
+                if (watcher != null) {
+                    AWNetwork.sendTo(watcher, notice);
+                }
+            }
+        }
     }
 
     /**
@@ -505,6 +856,40 @@ public final class Airship {
     }
 
     /**
+     * How fast the airship is turning, in radians per tick - per tick for the same reason
+     * {@link #velocity()} is, so the two can be compared and cushioned in the same units.
+     */
+    public Vector3d angularVelocity() {
+        PhysicsPipeline pipeline = pipeline();
+        Vector3d angular = new Vector3d();
+        if (pipeline != null && !subLevel.isRemoved()) {
+            pipeline.getAngularVelocity(subLevel, angular);
+            angular.mul(1.0D / PHYSICS_TICKS_PER_SECOND);
+        }
+        return angular;
+    }
+
+    /**
+     * Adds to the airship's velocity without replacing it.
+     *
+     * <p>The opposite of {@link #driveVelocity}, which resets the hull and commands a speed outright.
+     * A Spatial Stabiliser has to leave everything the ship's own machinery is doing in place and only
+     * take the edge off it, so it hands over a correction and nothing else. Both halves are converted
+     * to per-second here, where every other velocity crosses into the pipeline.
+     *
+     * <p>Not clamped: a correction is always a fraction of a change the hull has already made, so it
+     * is never larger than something the physics produced by itself.
+     */
+    public void nudgeVelocity(Vector3dc linearBlocksPerTick, Vector3dc angularRadiansPerTick) {
+        PhysicsPipeline pipeline = pipeline();
+        if (pipeline == null || subLevel.isRemoved()) {
+            return;
+        }
+        pipeline.addLinearAndAngularVelocity(subLevel, toPhysicsVelocity(linearBlocksPerTick),
+                new Vector3d(angularRadiansPerTick).mul(PHYSICS_TICKS_PER_SECOND));
+    }
+
+    /**
      * Commands the airship's velocity outright for this tick.
      *
      * <p>Used while the server is flying the ship through a warp. Setting velocity rather than
@@ -512,6 +897,10 @@ public final class Airship {
      * everything standing on the deck is carried along by the same code that carries it in normal
      * flight - and because the velocity is re-commanded every tick, gravity, lift and thrust from the
      * ship's own machinery are all overridden for the duration.
+     *
+     * <p>Every one of the hull's {@link #parts()} is commanded the same, so the vessel flies as one body. A
+     * docked ship left to the joint would be dead weight dragged at warp speed, pulling the hull off its
+     * line and loading the joint with the whole of its mass every tick.
      */
     public void driveVelocity(Vector3dc blocksPerTick) {
         PhysicsPipeline pipeline = pipeline();
@@ -522,10 +911,88 @@ public final class Airship {
         // stacked would otherwise be handed to the pipeline verbatim and integrated into a hull
         // launched across the world - the "yeet". The ceiling sits far above any legitimate passage
         // speed, so a real warp never touches it; anything that does was never going to be flight.
-        Vector3dc commanded = clampSpeed(blocksPerTick, maxCommandedSpeed());
+        Vector3d commanded = toPhysicsVelocity(clampSpeed(blocksPerTick, maxCommandedSpeed()));
         pipeline.resetVelocity(subLevel);
-        pipeline.addLinearAndAngularVelocity(subLevel, toPhysicsVelocity(commanded), ZERO);
+        pipeline.addLinearAndAngularVelocity(subLevel, commanded, ZERO);
         pipeline.wakeUp(subLevel);
+        for (ServerSubLevel part : parts()) {
+            pipeline.resetVelocity(part);
+            pipeline.addLinearAndAngularVelocity(part, commanded, ZERO);
+            pipeline.wakeUp(part);
+        }
+    }
+
+    /**
+     * Commands the airship's velocity <em>and</em> its turn outright for this tick.
+     *
+     * <p>{@link #driveVelocity}, with a turn: what a Rift Plotter's dock helper steers a caught hull with, gliding it onto
+     * the rift's axis and turning it end-on, a little each tick. Its {@link #parts()} are given the same turn and the
+     * speed a rigid body turning about the hull's middle would give them there, so a docked ship or a turret on a bearing
+     * swings round with the hull rather than being dragged across it by the joint.
+     *
+     * @param linearBlocksPerTick   the hull's velocity
+     * @param angularRadiansPerTick its turn, about a world axis
+     */
+    public void steerVelocity(Vector3dc linearBlocksPerTick, Vector3dc angularRadiansPerTick) {
+        PhysicsPipeline pipeline = pipeline();
+        if (pipeline == null || subLevel.isRemoved()) {
+            return;
+        }
+        Vector3d linear = clampSpeed(linearBlocksPerTick, maxCommandedSpeed());
+        Vector3d angular = new Vector3d(angularRadiansPerTick);
+        pipeline.resetVelocity(subLevel);
+        pipeline.addLinearAndAngularVelocity(subLevel, toPhysicsVelocity(linear),
+                new Vector3d(angular).mul(PHYSICS_TICKS_PER_SECOND));
+        pipeline.wakeUp(subLevel);
+        Vector3d middle = centre(new Vector3d());
+        for (ServerSubLevel part : parts()) {
+            Vector3d arm = of(part).centre(new Vector3d()).sub(middle);
+            Vector3d swing = new Vector3d(angular).cross(arm).add(linear);
+            pipeline.resetVelocity(part);
+            pipeline.addLinearAndAngularVelocity(part, toPhysicsVelocity(swing),
+                    new Vector3d(angular).mul(PHYSICS_TICKS_PER_SECOND));
+            pipeline.wakeUp(part);
+        }
+    }
+
+    /**
+     * Commands the airship's horizontal velocity for this tick, and leaves the rest of its motion alone.
+     *
+     * <p>What a free cruise flies with, and the whole reason a cruise can be steered. {@link #driveVelocity}
+     * resets the hull outright - rotation and vertical speed included - because a warp is the server
+     * flying the ship. A cruise is the server supplying thrust while the pilot flies it: whatever turn the
+     * ship's own propellers put on it, and whatever its balloons and gravity are doing to its height, are
+     * read back and handed straight back to the pipeline, and only the horizontal is replaced.
+     *
+     * <p>The hull's {@link #parts()} are given the same horizontal speed and keep the rest of their own
+     * motion, for the reason {@link #driveVelocity} gives them its speed.
+     *
+     * @param horizontalBlocksPerTick the velocity wanted across the ground; its Y is ignored
+     */
+    public void cruiseVelocity(Vector3dc horizontalBlocksPerTick) {
+        PhysicsPipeline pipeline = pipeline();
+        if (pipeline == null || subLevel.isRemoved()) {
+            return;
+        }
+        Vector3d across = toPhysicsVelocity(clampSpeed(
+                new Vector3d(horizontalBlocksPerTick.x(), 0.0D, horizontalBlocksPerTick.z()), maxCommandedSpeed()));
+        cruise(pipeline, subLevel, across);
+        for (ServerSubLevel part : parts()) {
+            cruise(pipeline, part, across);
+        }
+    }
+
+    /** Replaces one sub-level's horizontal velocity, in the pipeline's units, and hands back the rest. */
+    private static void cruise(PhysicsPipeline pipeline, ServerSubLevel sub, Vector3dc across) {
+        Vector3d linear = new Vector3d();
+        Vector3d angular = new Vector3d();
+        pipeline.getLinearVelocity(sub, linear);
+        pipeline.getAngularVelocity(sub, angular);
+        // Already in the pipeline's units: read back from it, handed back to it unchanged.
+        Vector3d wanted = new Vector3d(across.x(), linear.y, across.z());
+        pipeline.resetVelocity(sub);
+        pipeline.addLinearAndAngularVelocity(sub, wanted, angular);
+        pipeline.wakeUp(sub);
     }
 
     /**

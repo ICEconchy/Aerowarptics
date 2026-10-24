@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "formed=false": {
+      "model": "aerowarptics:block/drive_extender"
+    },
+    "formed=true": {
+      "model": "aerowarptics:block/drive_extender"
+    }
+  }
+}

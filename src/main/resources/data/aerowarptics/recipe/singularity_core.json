@@ -1,27 +1,47 @@
 {
-  "type": "create:mechanical_crafting",
-  "key": {
-    "P": {
+  "type": "aerowarptics:collapse",
+  "ingredients": [
+    {
+      "item": "aerowarptics:rift_core"
+    },
+    {
+      "item": "aerowarptics:scar_heart"
+    },
+    {
       "item": "aerowarptics:pearlescent_warp_crystal"
     },
-    "R": {
+    {
+      "item": "aerowarptics:pearlescent_warp_crystal"
+    },
+    {
+      "item": "aerowarptics:pearlescent_warp_crystal"
+    },
+    {
+      "item": "aerowarptics:pearlescent_warp_crystal"
+    },
+    {
       "item": "minecraft:end_crystal"
     },
-    "H": {
+    {
+      "item": "minecraft:end_crystal"
+    },
+    {
       "item": "minecraft:echo_shard"
     },
-    "C": {
-      "item": "aerowarptics:rift_core"
+    {
+      "item": "minecraft:echo_shard"
+    },
+    {
+      "type": "neoforge:single",
+      "amount": 4000,
+      "fluid": "aerowarptics:rift_essence"
     }
-  },
-  "pattern": [
-    "PRP",
-    "HCH",
-    "PRP"
   ],
-  "result": {
-    "count": 1,
-    "id": "aerowarptics:singularity_core"
-  },
-  "accept_mirrored": false
+  "results": [
+    {
+      "id": "aerowarptics:singularity_core"
+    }
+  ],
+  "processing_time": 1200,
+  "drive_tier": "singularity"
 }

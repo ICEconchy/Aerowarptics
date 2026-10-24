@@ -53,6 +53,69 @@ class ArrivalHeightTest {
         assertEquals(12, ArrivalHeight.resolve(12));
     }
 
+    /**
+     * Holding altitude is the height that puts the underside back where it is now.
+     *
+     * <p>Checked through {@link ArrivalHeight#lowestUnderside}, the function the arrival search itself
+     * places the hull with, so a held altitude that was off by the block's own thickness would show up
+     * here as a ship arriving one block lower than it left.
+     */
+    @Test
+    void holdingAltitudeArrivesAtTheUndersideItLeftWith() {
+        assertEquals(135, ArrivalHeight.lowestUnderside(64, ArrivalHeight.holding(135.0D, 64)));
+        assertEquals(135, ArrivalHeight.lowestUnderside(64, ArrivalHeight.holding(134.6D, 64)),
+                "a hull a fraction of a block off the grid is rounded, not dropped a block");
+        assertEquals(-20, ArrivalHeight.lowestUnderside(-40, ArrivalHeight.holding(-20.0D, -40)),
+                "below sea level is an altitude like any other");
+    }
+
+    /**
+     * A ship lower than its destination comes in on top of it, never inside the ground under it.
+     *
+     * <p>The search only ever climbs from where it starts, so a start below the target would begin
+     * inside the hill the anchor stands on - and on a tall enough hill, climb out of its vertical radius
+     * before it cleared the top.
+     */
+    @Test
+    void holdingAltitudeBelowTheTargetRestsOnIt() {
+        assertEquals(0, ArrivalHeight.holding(70.0D, 150));
+        assertEquals(0, ArrivalHeight.holding(65.0D, 64), "exactly on top of the block is a height of zero");
+    }
+
+    /**
+     * Holding altitude is not held to the slider's ceiling.
+     *
+     * <p>The ceiling is on what a player dials in. A ship already cruising well above it has dialled
+     * nothing, and lowering it to the ceiling would make the toggle silently do nothing up there.
+     */
+    @Test
+    void holdingAltitudeIsNotCappedByTheSliderCeiling() {
+        int far = ArrivalHeight.maximum() + 300;
+        assertEquals(far, ArrivalHeight.holding(64 + 1 + far, 64));
+    }
+
+    @Test
+    void aHullWithNoMeasurableUndersideFallsBackToTheDefault() {
+        assertEquals(ArrivalHeight.serverDefault(), ArrivalHeight.holding(Double.NaN, 64));
+    }
+
+    /**
+     * The toggle decides between the two, and only within one dimension.
+     *
+     * <p>Across dimensions a Y level means nothing comparable - a ship cruising at two hundred in the
+     * Overworld would hold that height straight onto the Nether's roof - so the destination's own
+     * height is used whatever the course asked for.
+     */
+    @Test
+    void holdingAltitudeAppliesOnlyWithinOneLevel() {
+        assertEquals(70, ArrivalHeight.planned(12, true, true, 135.0D, 64), "held");
+        assertEquals(12, ArrivalHeight.planned(12, false, true, 135.0D, 64), "not asked to hold");
+        assertEquals(12, ArrivalHeight.planned(12, true, false, 135.0D, 64), "another dimension");
+        assertEquals(ArrivalHeight.serverDefault(),
+                ArrivalHeight.planned(ArrivalHeight.UNSET, true, false, 135.0D, 64),
+                "falling back still resolves an unset height");
+    }
+
     /** The sentinel can never be mistaken for a height anybody could set. */
     @Test
     void theUnsetSentinelIsNotAHeight() {

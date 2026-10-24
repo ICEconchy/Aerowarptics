@@ -1,0 +1,20 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "glass": "false"
+      },
+      "apply": {
+        "model": "aerowarptics:block/rift_wellhead_part"
+      }
+    },
+    {
+      "when": {
+        "glass": "true"
+      },
+      "apply": {
+        "model": "aerowarptics:block/warp_glass"
+      }
+    }
+  ]
+}

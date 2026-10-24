@@ -7,7 +7,7 @@ import software.bernie.geckolib.model.GeoModel;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity;
 
-/** GeckoLib model binding for the Rift Modulator. All three files come out of tools/rift_modulator_model.py. */
+/** GeckoLib model binding for the Rift Modulator. All three files are the artist's. */
 @OnlyIn(Dist.CLIENT)
 public class RiftModulatorModel extends GeoModel<RiftModulatorBlockEntity> {
 

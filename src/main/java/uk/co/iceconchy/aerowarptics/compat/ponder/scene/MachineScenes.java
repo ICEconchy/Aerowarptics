@@ -47,7 +47,7 @@ public final class MachineScenes {
         scene.idle(80);
 
         scene.overlay().showText(90)
-                .text("Passing a hull through folded space sheds something. Every siphon aboard catches a draught of it")
+                .text("Passing a hull through folded space sheds some Rift Essence. The siphons aboard catch it")
                 .pointAt(util.vector().centerOf(siphon))
                 .colored(PonderPalette.OUTPUT)
                 .placeNearTarget()
@@ -56,7 +56,7 @@ public final class MachineScenes {
         scene.idle(100);
 
         scene.overlay().showText(80)
-                .text("Each one rolls separately, so a ship carrying several fills faster. Longer jumps are worth more")
+                .text("One catch per jump, shared between every siphon aboard. More siphons hold more, but do not catch more. Longer jumps give more")
                 .pointAt(util.vector().centerOf(siphon))
                 .placeNearTarget();
         scene.idle(90);
@@ -110,7 +110,7 @@ public final class MachineScenes {
         scene.idle(90);
 
         scene.overlay().showText(90)
-                .text("The world keeps the record, not the block. An anchor stays a valid destination while its chunks sleep")
+                .text("The world keeps the record, not the block. An anchor stays a valid destination even while its chunks are unloaded")
                 .pointAt(util.vector().centerOf(anchor))
                 .colored(PonderPalette.GREEN)
                 .placeNearTarget()
@@ -118,7 +118,7 @@ public final class MachineScenes {
         scene.idle(100);
 
         scene.overlay().showText(80)
-                .text("Leave room around it. An arriving hull has to fit, and the drive will refuse a berth that is blocked")
+                .text("Leave room around it. An arriving hull has to fit, and the drive will refuse an anchor whose space is blocked")
                 .pointAt(util.vector().topOf(anchor))
                 .colored(PonderPalette.RED)
                 .placeNearTarget();
@@ -140,7 +140,7 @@ public final class MachineScenes {
         scene.idle(15);
 
         scene.overlay().showText(90)
-                .text("Every other destination is somewhere a player carried an anchor to. A Rift Probe is how you reach ground nobody has stood on")
+                .text("Every other destination is somewhere a player has placed an anchor. A Rift Probe is how you reach ground nobody has visited")
                 .pointAt(util.vector().topOf(probe))
                 .placeNearTarget()
                 .attachKeyFrame();
@@ -157,7 +157,7 @@ public final class MachineScenes {
         scene.idle(15);
 
         scene.overlay().showText(80)
-                .text("Rift Essence pays for each scan, and reaching further costs more. This is what a Spatial Siphon has been collecting for")
+                .text("Rift Essence pays for each scan, and scanning further costs more. A Spatial Siphon is how you collect it")
                 .pointAt(util.vector().centerOf(util.grid().at(3, 1, 2)))
                 .colored(PonderPalette.BLUE)
                 .placeNearTarget()
@@ -166,7 +166,7 @@ public final class MachineScenes {
 
         scene.effects().indicateSuccess(probe);
         scene.overlay().showText(90)
-                .text("The wait is the world being made. A scan aimed at unexplored ground has to bring that ground into being before it can map it")
+                .text("The wait is the world being generated. A scan aimed at unexplored ground has to generate that ground before it can map it")
                 .pointAt(util.vector().centerOf(probe))
                 .colored(PonderPalette.MEDIUM)
                 .placeNearTarget()
@@ -174,7 +174,7 @@ public final class MachineScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("What comes back is the same chart the Astrolabe draws of an anchor - so a blind jump is judged on the same evidence as any other")
+                .text("What comes back is the same chart the Astrolabe draws for an anchor, so a blind jump is judged on the same evidence as any other")
                 .pointAt(util.vector().topOf(probe))
                 .colored(PonderPalette.GREEN)
                 .placeNearTarget()
@@ -182,7 +182,7 @@ public final class MachineScenes {
         scene.idle(100);
 
         scene.overlay().showText(80)
-                .text("Send the ship there and the Rift Drive flies it. Bring an anchor: nothing marks the far end yet")
+                .text("Send the ship there and the Rift Drive flies it. There is no anchor at the far end yet, so bring one if you want to return")
                 .pointAt(util.vector().centerOf(probe))
                 .placeNearTarget()
                 .attachKeyFrame();
@@ -278,7 +278,7 @@ public final class MachineScenes {
         scene.idle(15);
 
         scene.overlay().showText(80)
-                .text("Fit a funnel to any face and feed it from a belt. A chute is an inventory - it does not sit on the belt itself")
+                .text("Fit a funnel to any face and feed it from a belt. A chute is an inventory, so it does not sit directly on the belt")
                 .pointAt(util.vector().topOf(util.grid().at(2, 1, 2)))
                 .placeNearTarget()
                 .attachKeyFrame();
@@ -295,7 +295,7 @@ public final class MachineScenes {
         scene.idle(15);
 
         scene.overlay().showText(90)
-                .text("Whichever end sends pays the Rift Essence, per item and only when one crosses. A drop-off needs no supply of its own")
+                .text("Whichever end sends pays the Rift Essence, per item and only when one crosses. A receiving chute needs no essence of its own")
                 .pointAt(util.vector().topOf(util.grid().at(3, 1, 1)))
                 .placeNearTarget()
                 .attachKeyFrame();

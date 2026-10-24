@@ -117,6 +117,35 @@ public record DestinationSurvey(int radius, int step, BlockPos centre, int groun
     // ----------------------------------------------------------------- survey
 
     /**
+     * Whether enough of the ground a survey of {@code centre} reads has loaded to be worth reading.
+     *
+     * <p>The centre must be there - without it there is no ground height to aim at - and at least
+     * {@code minCoverage} of the chunks under the survey. Reads, never loads. Shared by the Rift Probe,
+     * which waits for thinly surveyed ground it has just asked to be generated, and the Astrolabe, which
+     * waits for the whole of an anchor's surroundings to come off disk ({@code PreviewHolds}).
+     */
+    public static boolean ready(ServerLevel level, BlockPos centre, double minCoverage) {
+        if (!level.hasChunk(centre.getX() >> 4, centre.getZ() >> 4)) {
+            return false;
+        }
+        int minX = (centre.getX() - RADIUS) >> 4;
+        int minZ = (centre.getZ() - RADIUS) >> 4;
+        int maxX = (centre.getX() + RADIUS) >> 4;
+        int maxZ = (centre.getZ() + RADIUS) >> 4;
+        int total = 0;
+        int loaded = 0;
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                total++;
+                if (level.hasChunk(x, z)) {
+                    loaded++;
+                }
+            }
+        }
+        return loaded >= total * minCoverage;
+    }
+
+    /**
      * Samples the ground around an anchor.
      *
      * <p>Two passes, because slope shading needs a cell's northern neighbour and that neighbour may

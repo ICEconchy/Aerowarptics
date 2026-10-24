@@ -59,12 +59,39 @@ public final class AWPonderTags {
                 .add(AWItems.ASTROLABE.get())
                 .add(AWItems.SPATIAL_SIPHON.get())
                 .add(AWItems.RIFT_PROBE.get())
+                .add(AWItems.RIFT_CHUTE.get())
                 .add(AWItems.RIFT_MODULATOR.get())
+                .add(AWItems.RIFT_COUPLER.get())
+                .add(AWItems.SPATIAL_STABILISER.get())
+                .add(AWItems.COOLING_VENT.get())
+                .add(AWItems.SPATIAL_WAVE_DETECTOR.get())
+                .add(AWItems.DRIVE_EXTENDER.get())
                 .add(AWItems.RIFT_ESSENCE_BUCKET.get())
                 .add(AWItems.RIFT_CORE.get())
                 .add(AWItems.RIFT_LENS.get())
                 .add(AWItems.STABILISER_RING.get())
-                .add(AWItems.SINGULARITY_CORE.get());
+                .add(AWItems.SINGULARITY_CORE.get())
+                // The crystal line, in the order it is refined, so the chapter reads as the route it is.
+                .add(AWItems.WARP_DUST.get())
+                .add(AWItems.WARP_SHARD.get())
+                .add(AWItems.WARP_CRYSTAL.get())
+                .add(AWItems.FOLDED_WARP_CRYSTAL.get())
+                .add(AWItems.PEARLESCENT_WARP_CRYSTAL.get())
+                // The crafting layer, in the order a player meets it: the casing and the pearl, rifting, the
+                // scar, folding, the collapse, and the storm.
+                .add(AWItems.RIFT_CASING.get())
+                .add(AWItems.RIFT_PEARL.get())
+                .add(AWItems.RIFT_BRAZIER.get())
+                .add(AWItems.OPENED_RIFT_LENS.get())
+                .add(AWItems.WARP_GLASS.get())
+                .add(AWItems.SCAR_CHART.get())
+                .add(AWItems.SCAR_HEART.get())
+                .add(AWItems.RIFT_COLLAR.get())
+                .add(AWItems.RIFT_SUNDERER.get())
+                .add(AWItems.SHIP_COMPASS.get())
+                .add(AWItems.COLLAPSE_CRADLE.get())
+                .add(AWItems.UNSET_STORMGLASS.get())
+                .add(AWItems.STORMGLASS.get());
         for (RiftDriveTier tier : RiftDriveTier.values()) {
             // The creative drive is left out: nothing makes one, so listing it in an index of things
             // to build would only be a dead end.

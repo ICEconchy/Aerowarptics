@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "BIB",
+    "BCB",
+    "BPB"
+  ],
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "I": {
+      "item": "minecraft:iron_bars"
+    },
+    "C": {
+      "item": "aerowarptics:rift_casing"
+    },
+    "P": {
+      "item": "create:propeller"
+    }
+  },
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:cooling_vent"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "variants": {
+    "facing=north,state=empty": {
+      "model": "aerowarptics:block/berth"
+    },
+    "facing=north,state=reserved": {
+      "model": "aerowarptics:block/berth_reserved"
+    },
+    "facing=north,state=drawing": {
+      "model": "aerowarptics:block/berth_drawing"
+    },
+    "facing=north,state=moored": {
+      "model": "aerowarptics:block/berth_moored"
+    },
+    "facing=east,state=empty": {
+      "model": "aerowarptics:block/berth",
+      "y": 90
+    },
+    "facing=east,state=reserved": {
+      "model": "aerowarptics:block/berth_reserved",
+      "y": 90
+    },
+    "facing=east,state=drawing": {
+      "model": "aerowarptics:block/berth_drawing",
+      "y": 90
+    },
+    "facing=east,state=moored": {
+      "model": "aerowarptics:block/berth_moored",
+      "y": 90
+    },
+    "facing=south,state=empty": {
+      "model": "aerowarptics:block/berth",
+      "y": 180
+    },
+    "facing=south,state=reserved": {
+      "model": "aerowarptics:block/berth_reserved",
+      "y": 180
+    },
+    "facing=south,state=drawing": {
+      "model": "aerowarptics:block/berth_drawing",
+      "y": 180
+    },
+    "facing=south,state=moored": {
+      "model": "aerowarptics:block/berth_moored",
+      "y": 180
+    },
+    "facing=west,state=empty": {
+      "model": "aerowarptics:block/berth",
+      "y": 270
+    },
+    "facing=west,state=reserved": {
+      "model": "aerowarptics:block/berth_reserved",
+      "y": 270
+    },
+    "facing=west,state=drawing": {
+      "model": "aerowarptics:block/berth_drawing",
+      "y": 270
+    },
+    "facing=west,state=moored": {
+      "model": "aerowarptics:block/berth_moored",
+      "y": 270
+    }
+  }
+}

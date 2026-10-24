@@ -47,7 +47,12 @@ public final class ChuteTransfer {
         /** Not enough Rift Essence to hold the rift open for even one item. */
         NO_ESSENCE,
         /** The ship this chute is bolted to is in the middle of a warp. */
-        WARPING
+        WARPING,
+        /**
+         * The partner was not loaded, and is being loaded because items are waiting to go to it. Appended:
+         * these travel by name, but keep the old ones where they were anyway.
+         */
+        PARTNER_LOADING
     }
 
     /**

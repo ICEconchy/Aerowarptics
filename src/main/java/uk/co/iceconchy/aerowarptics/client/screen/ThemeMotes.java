@@ -50,7 +50,16 @@ public final class ThemeMotes {
         GYRO,
         /** A police box, blinking out and back as it tries to land. */
         BOX,
-        /** Whichever of the others it felt like being, decided when it was thrown. */
+        /** Two flat violet bars side by side, blinking - an enderman looking back. */
+        EYES,
+        /** A little zig-zag of pencil, the way a doodle starts. */
+        SCRIBBLE,
+        /** A dark puff with a bolt of violet or blue through it - a capital ship's cloud, crackling. */
+        THUNDERHEAD,
+        /**
+         * Whichever of the others it felt like being, decided when it was thrown. Must stay last: the
+         * roll that picks a shape counts every motif before this one.
+         */
         ODDMENT,
     }
 
@@ -76,6 +85,9 @@ public final class ThemeMotes {
             case EVENTFUL_HORIZON -> Motif.GYRO;
             case VWORP -> Motif.BOX;
             case IMPROBABILITY -> Motif.ODDMENT;
+            case ENDER -> Motif.EYES;
+            case SKETCH -> Motif.SCRIBBLE;
+            case MOSTLY_DANGEROUS -> Motif.THUNDERHEAD;
         };
     }
 
@@ -288,6 +300,46 @@ public final class ThemeMotes {
                 // Police-box blue, lifted so it reads on the panel.
                 mote.colour = pick(0xFF_4F7FE0, 0xFF_8FB2FF);
             }
+            case EYES -> {
+                // Slow, and barely rising: something watching does not rush.
+                float speed = rand(0.4F, 1.1F);
+                mote.vx = (float) Math.cos(angle) * speed;
+                mote.vy = (float) Math.sin(angle) * speed;
+                mote.gravity = -0.01F;
+                mote.drag = 0.93F;
+                mote.life = randInt(30, 50);
+                mote.size = randInt(2, 4);
+                mote.twinkle = true;
+                // An enderman's eyes, and the paler violet round them.
+                mote.colour = pick(0xFF_E079FA, 0xFF_CC00FA);
+            }
+            case SCRIBBLE -> {
+                float speed = rand(0.8F, 1.9F);
+                mote.vx = (float) Math.cos(angle) * speed;
+                mote.vy = (float) Math.sin(angle) * speed;
+                mote.gravity = 0.05F;
+                mote.drag = 0.92F;
+                mote.life = randInt(24, 42);
+                mote.size = randInt(3, 6);
+                mote.spin = rand(-0.03F, 0.03F);
+                // Paper, and pencil lifted enough to read on a dark panel.
+                mote.colour = pick(0xFF_F2EADA, 0xFF_B8B6C2);
+                mote.glyph = randInt(0, 3);
+            }
+            case THUNDERHEAD -> {
+                // Heavy, and spreading more than rising: a cloud, not a spark.
+                float speed = rand(0.5F, 1.3F);
+                mote.vx = (float) Math.cos(angle) * speed;
+                mote.vy = (float) Math.sin(angle) * speed * 0.6F;
+                mote.gravity = -0.005F;
+                mote.drag = 0.93F;
+                mote.life = randInt(30, 50);
+                mote.size = randInt(4, 7);
+                // The colour is the bolt's; the puff round it is always the cloud's own dark.
+                mote.colour = pick(0xFF_B27DFF, 0xFF_55AEFF);
+                mote.glyph = randInt(0, 3);
+                mote.twinkle = true;
+            }
             case ODDMENT -> {
                 // Every knob rolled, including which shape it will draw as. Two of these agreeing on
                 // anything is a coincidence, which is the point.
@@ -396,6 +448,9 @@ public final class ThemeMotes {
                 case CHECK -> check(draw, cx, cy, size, argb, glyph);
                 case GYRO -> gyro(draw, cx, cy, size, turn, argb);
                 case BOX -> box(draw, cx, cy, size, argb);
+                case EYES -> eyes(draw, cx, cy, size, argb);
+                case SCRIBBLE -> scribble(draw, cx, cy, size, turn, argb, glyph);
+                case THUNDERHEAD -> thunderhead(draw, cx, cy, size, argb, glyph);
                 // Unreachable: resolved to a real shape above.
                 case ODDMENT -> spark(draw, cx, cy, size, argb);
             }
@@ -554,6 +609,58 @@ public final class ThemeMotes {
         draw.outline(cx - wide, cy - tall, wide * 2 + 1, tall * 2 + 1, argb);
         // The lamp on top, which is what makes a rectangle a shape rather than a rectangle.
         draw.fill(cx, cy - tall - 1, cx + 1, cy - tall, whiten(argb));
+    }
+
+    /** Two flat bars a gap apart, each with a pale heart - an enderman's eyes, at eight pixels. */
+    private static void eyes(AWDraw draw, int cx, int cy, int size, int argb) {
+        int half = Math.max(1, size);
+        int gap = Math.max(1, size / 2);
+        draw.fill(cx - gap - half * 2, cy, cx - gap, cy + 1, argb);
+        draw.fill(cx + gap + 1, cy, cx + gap + 1 + half * 2, cy + 1, argb);
+        draw.fill(cx - gap - half, cy, cx - gap - half + 1, cy + 1, whiten(argb));
+        draw.fill(cx + gap + half, cy, cx + gap + half + 1, cy + 1, whiten(argb));
+    }
+
+    /** A short zig-zag, turned as a whole: a doodle's first strokes. */
+    private static void scribble(AWDraw draw, int cx, int cy, int size, float turn, int argb, int glyph) {
+        double cos = Math.cos(turn * TWO_PI);
+        double sin = Math.sin(turn * TWO_PI);
+        // Three to six kinks, rolled when the mote was thrown, so a scatter of them is not a pattern.
+        int kinks = 3 + Math.floorMod(glyph, 4);
+        float previousX = -1.0F;
+        float previousY = 0.0F;
+        for (int kink = 1; kink <= kinks; kink++) {
+            float x = -1.0F + 2.0F * kink / kinks;
+            float y = (kink % 2 == 0 ? -0.5F : 0.5F);
+            draw.line(cx + rot(previousX, previousY, cos, sin, size, true),
+                    cy + rot(previousX, previousY, cos, sin, size, false),
+                    cx + rot(x, y, cos, sin, size, true),
+                    cy + rot(x, y, cos, sin, size, false), argb);
+            previousX = x;
+            previousY = y;
+        }
+    }
+
+    /**
+     * A dark puff with a bolt jagging across it. The puff is a dusky violet rather than the cloud's black,
+     * which would vanish on a dark panel; the bolt is the mote's own colour, and twinkles, so the thing
+     * reads as a cloud with lightning in it rather than as a bruise.
+     */
+    private static void thunderhead(AWDraw draw, int cx, int cy, int size, int argb, int glyph) {
+        int puff = AWAnim.fade(0xFF_3A2F52, alphaOf(argb));
+        draw.disc(cx - size / 3, cy, Math.max(1, size * 2 / 3), puff);
+        draw.disc(cx + size / 3, cy - 1, Math.max(1, size * 2 / 3), puff);
+        draw.disc(cx, cy - size / 3, Math.max(1, size / 2), puff);
+        // A different jag for each mote, so a burst of them is a storm rather than one bolt copied out.
+        int kink = glyph % 2 == 0 ? 1 : -1;
+        int x0 = cx - size;
+        int x1 = cx - size / 3;
+        int x2 = cx + size / 3;
+        int x3 = cx + size;
+        draw.line(x0, cy + kink, x1, cy - kink * 2, argb);
+        draw.line(x1, cy - kink * 2, x2, cy + kink * 2, argb);
+        draw.line(x2, cy + kink * 2, x3, cy - kink, argb);
+        draw.fill(x1, cy - kink * 2, x1 + 1, cy - kink * 2 + 1, whiten(argb));
     }
 
     /** The alpha channel of a packed colour, so a themed palette can borrow a mote's own fade. */

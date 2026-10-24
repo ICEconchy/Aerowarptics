@@ -1,0 +1,15 @@
+{
+  "type": "aerowarptics:agitating",
+  "ingredients": [
+    {
+      "item": "minecraft:deepslate"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:rift_essence",
+      "amount": 6
+    }
+  ],
+  "strain": 1.0
+}

@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " E ",
+    "BLB",
+    " R "
+  ],
+  "key": {
+    "B": {
+      "item": "aerowarptics:rift_casing"
+    },
+    "E": {
+      "item": "create:electron_tube"
+    },
+    "L": {
+      "item": "aerowarptics:opened_rift_lens"
+    },
+    "R": {
+      "item": "aerowarptics:stabiliser_ring"
+    }
+  },
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_coupler"
+  }
+}

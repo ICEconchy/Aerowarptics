@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/orientable_with_bottom",
+  "textures": {
+    "top": "aerowarptics:block/berth_top",
+    "bottom": "aerowarptics:block/berth_bottom",
+    "side": "aerowarptics:block/berth_side",
+    "front": "aerowarptics:block/berth_front_drawing"
+  }
+}

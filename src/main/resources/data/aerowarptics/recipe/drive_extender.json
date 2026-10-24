@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "BDB",
+    "DCD",
+    "BDB"
+  ],
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "D": {
+      "item": "aerowarptics:warp_dust"
+    },
+    "C": {
+      "item": "aerowarptics:rift_casing"
+    }
+  },
+  "result": {
+    "count": 16,
+    "id": "aerowarptics:drive_extender"
+  }
+}

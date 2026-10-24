@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " L ",
+    "PCP",
+    " S "
+  ],
+  "key": {
+    "L": {
+      "item": "aerowarptics:opened_rift_lens"
+    },
+    "P": {
+      "item": "aerowarptics:rift_pearl"
+    },
+    "C": {
+      "item": "create:brass_casing"
+    },
+    "S": {
+      "item": "create:shaft"
+    }
+  },
+  "result": {
+    "id": "aerowarptics:rift_sunderer",
+    "count": 1
+  }
+}

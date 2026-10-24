@@ -13,18 +13,20 @@ import org.jetbrains.annotations.Nullable;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 
+import java.util.Collection;
+
 /**
  * Networking, built on NeoForge's payload registrar - the platform's own system, not a second
  * framework.
  *
  * <p>The trust boundary is strict. Serverbound payloads carry only a block position and, at most, an
- * anchor UUID; the server re-derives the airship, the anchor record, the distance, the cost and the
+ * anchor UUID or a player's choice of setting; the server re-derives the airship, the anchor record, the distance, the cost and the
  * player's authority before acting. Clientbound payloads carry only what is needed to render.
  */
 public final class AWNetwork {
 
     /** Bumped when a payload's shape changes. */
-    private static final String VERSION = "12";
+    private static final String VERSION = "43";
 
     private AWNetwork() {
     }
@@ -50,13 +52,58 @@ public final class AWNetwork {
         registrar.playToServer(ServerboundChutePacket.TYPE,
                 ServerboundChutePacket.STREAM_CODEC,
                 ServerboundChutePacket::handle);
+        registrar.playToServer(ServerboundCouplerPacket.TYPE,
+                ServerboundCouplerPacket.STREAM_CODEC,
+                ServerboundCouplerPacket::handle);
         registrar.playToServer(ServerboundModulatorPacket.TYPE,
                 ServerboundModulatorPacket.STREAM_CODEC,
                 ServerboundModulatorPacket::handle);
+        registrar.playToServer(ServerboundCradleStartPacket.TYPE,
+                ServerboundCradleStartPacket.STREAM_CODEC,
+                ServerboundCradleStartPacket::handle);
+        registrar.playToClient(ClientboundCradlePanelPacket.TYPE,
+                ClientboundCradlePanelPacket.STREAM_CODEC,
+                ClientboundCradlePanelPacket::handle);
+        registrar.playToServer(ServerboundPlotterPacket.TYPE,
+                ServerboundPlotterPacket.STREAM_CODEC,
+                ServerboundPlotterPacket::handle);
+        registrar.playToClient(ClientboundPlotterPanelPacket.TYPE,
+                ClientboundPlotterPanelPacket.STREAM_CODEC,
+                ClientboundPlotterPanelPacket::handle);
+        registrar.playToClient(ClientboundPlotterSurveyPacket.TYPE,
+                ClientboundPlotterSurveyPacket.STREAM_CODEC,
+                ClientboundPlotterSurveyPacket::handle);
 
+        registrar.playToServer(ServerboundConfigureWardPacket.TYPE,
+                ServerboundConfigureWardPacket.STREAM_CODEC,
+                ServerboundConfigureWardPacket::handle);
+        registrar.playToServer(ServerboundBerthPacket.TYPE,
+                ServerboundBerthPacket.STREAM_CODEC,
+                ServerboundBerthPacket::handle);
+        registrar.playToClient(ClientboundMeltdownCuePacket.TYPE,
+                ClientboundMeltdownCuePacket.STREAM_CODEC,
+                ClientboundMeltdownCuePacket::handle);
+        registrar.playToClient(ClientboundSundererCuePacket.TYPE,
+                ClientboundSundererCuePacket.STREAM_CODEC,
+                ClientboundSundererCuePacket::handle);
+        registrar.playToClient(ClientboundScarZonePacket.TYPE,
+                ClientboundScarZonePacket.STREAM_CODEC,
+                ClientboundScarZonePacket::handle);
+        registrar.playToClient(ClientboundWellheadPanelPacket.TYPE,
+                ClientboundWellheadPanelPacket.STREAM_CODEC,
+                ClientboundWellheadPanelPacket::handle);
+        registrar.playToServer(ServerboundWellheadOrderPacket.TYPE,
+                ServerboundWellheadOrderPacket.STREAM_CODEC,
+                ServerboundWellheadOrderPacket::handle);
+        registrar.playToClient(ClientboundWardCuePacket.TYPE,
+                ClientboundWardCuePacket.STREAM_CODEC,
+                ClientboundWardCuePacket::handle);
         registrar.playToServer(ServerboundConfigureAnchorPacket.TYPE,
                 ServerboundConfigureAnchorPacket.STREAM_CODEC,
                 ServerboundConfigureAnchorPacket::handle);
+        registrar.playToServer(ServerboundNetworkPacket.TYPE,
+                ServerboundNetworkPacket.STREAM_CODEC,
+                ServerboundNetworkPacket::handle);
 
         registrar.playToClient(ClientboundDriveConsolePacket.TYPE,
                 ClientboundDriveConsolePacket.STREAM_CODEC,
@@ -76,6 +123,15 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundChutePanelPacket.TYPE,
                 ClientboundChutePanelPacket.STREAM_CODEC,
                 ClientboundChutePanelPacket::handle);
+        registrar.playToClient(ClientboundCouplerPanelPacket.TYPE,
+                ClientboundCouplerPanelPacket.STREAM_CODEC,
+                ClientboundCouplerPanelPacket::handle);
+        registrar.playToClient(ClientboundMusterPacket.TYPE,
+                ClientboundMusterPacket.STREAM_CODEC,
+                ClientboundMusterPacket::handle);
+        registrar.playToClient(ClientboundFlotillaCuePacket.TYPE,
+                ClientboundFlotillaCuePacket.STREAM_CODEC,
+                ClientboundFlotillaCuePacket::handle);
         registrar.playToClient(ClientboundModulatorPanelPacket.TYPE,
                 ClientboundModulatorPanelPacket.STREAM_CODEC,
                 ClientboundModulatorPanelPacket::handle);
@@ -83,15 +139,27 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundGateDialPacket.TYPE,
                 ClientboundGateDialPacket.STREAM_CODEC,
                 ClientboundGateDialPacket::handle);
+        registrar.playToClient(ClientboundGatePassagePacket.TYPE,
+                ClientboundGatePassagePacket.STREAM_CODEC,
+                ClientboundGatePassagePacket::handle);
+        registrar.playToClient(ClientboundNetworkPanelPacket.TYPE,
+                ClientboundNetworkPanelPacket.STREAM_CODEC,
+                ClientboundNetworkPanelPacket::handle);
         registrar.playToClient(ClientboundWarpEffectPacket.TYPE,
                 ClientboundWarpEffectPacket.STREAM_CODEC,
                 ClientboundWarpEffectPacket::handle);
         registrar.playToClient(ClientboundFoldCrossedPacket.TYPE,
                 ClientboundFoldCrossedPacket.STREAM_CODEC,
                 ClientboundFoldCrossedPacket::handle);
+        registrar.playToClient(ClientboundSettlePacket.TYPE,
+                ClientboundSettlePacket.STREAM_CODEC,
+                ClientboundSettlePacket::handle);
         registrar.playToClient(ClientboundCorridorPacket.TYPE,
                 ClientboundCorridorPacket.STREAM_CODEC,
                 ClientboundCorridorPacket::handle);
+        registrar.playToClient(ClientboundSupercruisePacket.TYPE,
+                ClientboundSupercruisePacket.STREAM_CODEC,
+                ClientboundSupercruisePacket::handle);
         registrar.playToClient(ClientboundClearancePacket.TYPE,
                 ClientboundClearancePacket.STREAM_CODEC,
                 ClientboundClearancePacket::handle);
@@ -105,11 +173,35 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundWarpFeedbackPacket.TYPE,
                 ClientboundWarpFeedbackPacket.STREAM_CODEC,
                 ClientboundWarpFeedbackPacket::handle);
+        registrar.playToClient(ClientboundTracePacket.TYPE,
+                ClientboundTracePacket.STREAM_CODEC,
+                ClientboundTracePacket::handle);
     }
+
+    /** How far from an effect {@link #sendToTracking} reaches, in blocks. */
+    private static final double TRACKING_RANGE = 256.0D;
 
     /** Sends an effect payload to everyone who could plausibly see it. */
     public static void sendToTracking(ServerLevel level, Vec3 origin, CustomPacketPayload payload) {
-        PacketDistributor.sendToPlayersNear(level, null, origin.x, origin.y, origin.z, 256.0D, payload);
+        PacketDistributor.sendToPlayersNear(level, null, origin.x, origin.y, origin.z, TRACKING_RANGE, payload);
+    }
+
+    /**
+     * {@link #sendToTracking}, and also to each of {@code also} in that level who is out of its reach.
+     *
+     * <p>For an effect some players have to see wherever they are standing: the crew of a long hull, whose
+     * stern can sit deeper in an aperture's throat than the range reaches from its mouth. Each player
+     * gets it once, whichever way they qualified.
+     */
+    public static void sendToTracking(ServerLevel level, Vec3 origin, Collection<ServerPlayer> also,
+                                      CustomPacketPayload payload) {
+        sendToTracking(level, origin, payload);
+        for (ServerPlayer player : also) {
+            if (player.serverLevel() == level
+                    && player.distanceToSqr(origin) >= TRACKING_RANGE * TRACKING_RANGE) {
+                sendTo(player, payload);
+            }
+        }
     }
 
     public static void sendTo(ServerPlayer player, CustomPacketPayload payload) {

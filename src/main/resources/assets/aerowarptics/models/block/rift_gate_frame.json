@@ -1,6 +1,9 @@
 {
-  "parent": "minecraft:block/cube_all",
+  "parent": "minecraft:block/block",
+  "loader": "aerowarptics:connected",
+  "method": "full",
+  "tiles": "aerowarptics:block/ctm/rift_gate_frame",
   "textures": {
-    "all": "aerowarptics:block/rift_gate_frame"
+    "particle": "aerowarptics:block/rift_gate_frame"
   }
 }

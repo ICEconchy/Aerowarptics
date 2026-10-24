@@ -1,8 +1,10 @@
 package uk.co.iceconchy.aerowarptics.astrolabe;
 
 import com.mojang.serialization.MapCodec;
+import com.simibubi.create.api.contraption.BlockMovementChecks;
 import com.simibubi.create.foundation.block.IBE;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
@@ -17,6 +19,7 @@ import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
@@ -29,9 +32,12 @@ import uk.co.iceconchy.aerowarptics.util.AWLang;
  * that does nothing, which is deliberate: a multiblock that half-works while half-built is a
  * multiblock players cannot reason about.
  *
- * <p>Forming and unforming are driven entirely by placement and breaking rather than by a tick. The
- * last block placed is always the one that completes the square, and the first broken is always the
- * one that ruins it, so there is nothing for a poll to notice that these two moments do not.
+ * <p>Forming and unforming are driven by placement and breaking rather than by a poll. The last block
+ * placed is always the one that completes the square, and the first broken is always the one that
+ * ruins it. The one gap is a block that arrives without being placed - carried aboard by Sable's
+ * assembler or set down by a Create contraption - which is why a cell also checks its table once when
+ * it loads ({@link #checkTable}), and why the cells of a table are attached to one another for anything
+ * that moves blocks ({@link #onCommonSetup}).
  */
 public class AstrolabeBlock extends Block implements IBE<AstrolabeBlockEntity> {
 
@@ -168,6 +174,88 @@ public class AstrolabeBlock extends Block implements IBE<AstrolabeBlockEntity> {
                 level.setBlock(cell, state.setValue(FORMED, false), Block.UPDATE_ALL);
             }
         }
+    }
+
+    /**
+     * Puts right a cell whose table did not come with it.
+     *
+     * <p>A table that is all there is left alone. One with a hole in it is taken apart - every cell
+     * that still points at it, wherever the rest went - and what is left is formed into whatever tables
+     * it still makes, exactly as if the missing cells had just been broken. A cell that is formed but
+     * points at nothing is simply made loose again and given the same chance.
+     *
+     * @return whether the check could be made; {@code false} while part of the table is unloaded
+     */
+    static boolean checkTable(Level level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (!(state.getBlock() instanceof AstrolabeBlock) || !(level.getBlockEntity(pos) instanceof AstrolabeBlockEntity cell)) {
+            return true;
+        }
+        AstrolabeStructure.Table table = cell.table();
+        if (table == null) {
+            if (state.getValue(FORMED)) {
+                level.setBlock(pos, state.setValue(FORMED, false), Block.UPDATE_ALL);
+                tryForm(level, pos);
+            }
+            return true;
+        }
+        switch (AstrolabeStructure.integrity(table, member -> survey(level, member, table))) {
+            case UNKNOWN -> {
+                return false;
+            }
+            case BROKEN -> {
+                unform(level, table);
+                // Only what that left loose: a cell of some other table sitting in the gap is that
+                // table's business, and re-forming it would only replay its sound.
+                for (BlockPos remnant : table.cells()) {
+                    BlockState remaining = level.getBlockState(remnant);
+                    if (remaining.getBlock() instanceof AstrolabeBlock && !remaining.getValue(FORMED)) {
+                        tryForm(level, remnant);
+                    }
+                }
+            }
+            case INTACT -> {
+            }
+        }
+        return true;
+    }
+
+    private static AstrolabeStructure.Cell survey(Level level, BlockPos pos, AstrolabeStructure.Table table) {
+        if (!level.isLoaded(pos)) {
+            return AstrolabeStructure.Cell.UNLOADED;
+        }
+        BlockState state = level.getBlockState(pos);
+        boolean member = state.getBlock() instanceof AstrolabeBlock && state.getValue(FORMED)
+                && level.getBlockEntity(pos) instanceof AstrolabeBlockEntity cell
+                && table.equals(cell.table());
+        return member ? AstrolabeStructure.Cell.MEMBER : AstrolabeStructure.Cell.STRANGER;
+    }
+
+    // -------------------------------------------------------------- movement
+
+    /**
+     * Tells Create - and Simulated, which asks Create - that a table's cells hold on to each other.
+     *
+     * <p>Create moves a door or a bed as one thing for the same reason. A Physics Assembler only takes
+     * blocks that are glued in or attached to something it has already taken, and a table's thirteen-
+     * pixel sides attach to nothing, so a table half inside the glue went aboard in pieces.
+     */
+    public static void onCommonSetup(FMLCommonSetupEvent event) {
+        event.enqueueWork(() -> BlockMovementChecks.registerAttachedCheck(AstrolabeBlock::attachedTowards));
+    }
+
+    private static BlockMovementChecks.CheckResult attachedTowards(BlockState state, Level level, BlockPos pos,
+                                                                 Direction direction) {
+        if (!(state.getBlock() instanceof AstrolabeBlock) || !state.getValue(FORMED)
+                || !(level.getBlockEntity(pos) instanceof AstrolabeBlockEntity cell)) {
+            return BlockMovementChecks.CheckResult.PASS;
+        }
+        AstrolabeStructure.Table neighbour = level.getBlockEntity(pos.relative(direction)) instanceof AstrolabeBlockEntity other
+                ? other.table()
+                : null;
+        return AstrolabeStructure.holdsTogether(cell.table(), pos, direction, neighbour)
+                ? BlockMovementChecks.CheckResult.SUCCESS
+                : BlockMovementChecks.CheckResult.PASS;
     }
 
     /** Whether a cell may be built into the table being considered. */

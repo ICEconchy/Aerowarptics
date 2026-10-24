@@ -20,7 +20,7 @@ import java.util.UUID;
  * @param name        display name at the time of the quote
  * @param dimension   dimension the anchor lives in
  * @param pos         anchor block position
- * @param network     optional grouping label
+ * @param network     name of the network the anchor is on, blank for none
  * @param distance    blocks between the airship and the anchor, or {@code -1} across dimensions
  * @param cost        fraction of a full drive charge this jump consumes
  * @param failure     why this destination is unusable, or {@link WarpFailure#NONE}
@@ -41,8 +41,8 @@ public record WarpQuote(UUID anchorId,
      * Which destinations are worth keeping when a chart has more than one packet can carry.
      *
      * <p>Reachable ones first, because a destination the drive cannot reach is not a destination; then
-     * same-dimension, because cross-dimension quotes have no distance to rank by and warping across
-     * dimensions is refused anyway; then nearest first. Name only breaks ties, so the ordering is
+     * same-dimension, because cross-dimension quotes have no distance to rank by and most servers leave
+     * warping across dimensions switched off; then nearest first. Name only breaks ties, so the ordering is
      * total and two identical charts truncate identically.
      */
     public static final Comparator<WarpQuote> NEAREST_USABLE_FIRST =

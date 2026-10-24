@@ -12,14 +12,21 @@ import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorAccess;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorBlockEntity;
+import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorRegistry;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkOrders;
+import uk.co.iceconchy.aerowarptics.warpnet.WarpNetworkRegistry;
+import uk.co.iceconchy.aerowarptics.warpnet.WarpNetworks;
 
 /**
- * A player's edit to a Warp Anchor: name, visibility, network label, on/off and arrival height.
+ * A player's edit to a Warp Anchor: name, visibility, network, on/off and arrival height.
  *
  * <p>The server re-checks ownership and the name-collision rule, and clamps the height to its own
  * ceiling; the client's copy of the anchor is never authoritative.
+ *
+ * @param network the network's name as typed, blank for none. A name and not an id, because a name that
+ *                no network has yet is how one is founded
  */
 public record ServerboundConfigureAnchorPacket(BlockPos anchorPos,
                                                String name,
@@ -73,7 +80,24 @@ public record ServerboundConfigureAnchorPacket(BlockPos anchorPos,
                 return;
             }
 
-            boolean applied = anchor.applyEdit(level, packet.name(), packet.access(), packet.network(),
+            // The name is asked about before the network is, though the edit asks again: a network typed
+            // for the first time is founded by resolving it, and an edit then refused over the anchor's
+            // name would leave a network behind that nothing is on.
+            String name = packet.name() == null ? "" : packet.name().trim();
+            if (!name.isBlank() && WarpAnchorRegistry.get(level).isNameTaken(name, anchor.anchorId())) {
+                AWLang.translate("message.anchor_name_taken").sendStatus(player);
+                return;
+            }
+            NetworkOrders.Resolved network = NetworkOrders.resolve(WarpNetworkRegistry.get(level), packet.network(),
+                    anchor.owner(), player.getUUID(), player.getGameProfile().getName(), player.hasPermissions(2),
+                    WarpNetworks.caps());
+            if (network.refused()) {
+                // Nothing is saved. Said in the action bar, which is in view again: Save closes the panel.
+                AWLang.translate(network.notice().key(), network.notice().arg()).sendStatus(player);
+                return;
+            }
+
+            boolean applied = anchor.applyEdit(level, packet.name(), packet.access(), network.network(),
                     packet.enabled(), packet.arrivalHeight());
             if (!applied) {
                 AWLang.translate("message.anchor_name_taken").sendStatus(player);

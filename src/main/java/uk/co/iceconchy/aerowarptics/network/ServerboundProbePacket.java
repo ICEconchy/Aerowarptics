@@ -1,9 +1,12 @@
 package uk.co.iceconchy.aerowarptics.network;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -22,12 +25,24 @@ import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
  * checked twice - a cheap reach bound here, and the probe's own checks on essence, state and distance
  * afterwards - and it costs essence whether or not the reading turns out to be worth having.
  *
- * @param probePos the probe, in its own level's coordinates - inside an airship's plot, not the world
- * @param action   what the player is doing
- * @param value    the bearing index, the range or the arrival height in blocks, depending on the action
+ * <p>{@link Action#SET_DIMENSION} names its dimension by id rather than by its place in the panel's list.
+ * The list a panel holds is as old as the panel, and a row number sent against a list the server has
+ * since changed would aim the probe at whatever now sits in that row.
+ *
+ * @param probePos  the probe, in its own level's coordinates - inside an airship's plot, not the world
+ * @param action    what the player is doing
+ * @param value     the bearing index, the range or the arrival height in blocks, depending on the action
+ * @param dimension the id of the dimension to aim at, for {@link Action#SET_DIMENSION}; empty otherwise
  */
-public record ServerboundProbePacket(BlockPos probePos, Action action, int value)
+public record ServerboundProbePacket(BlockPos probePos, Action action, int value, String dimension)
         implements CustomPacketPayload {
+
+    /** Longest dimension id the server will read. A resource location's own limit is far past this. */
+    private static final int DIMENSION_LENGTH = 256;
+
+    private ServerboundProbePacket(BlockPos probePos, Action action, int value) {
+        this(probePos, action, value, "");
+    }
 
     public enum Action {
         /** Open the panel: send this probe's state back. */
@@ -43,7 +58,9 @@ public record ServerboundProbePacket(BlockPos probePos, Action action, int value
         /** Ask for the survey itself, which is far too large to ride on every state update. */
         FETCH_READING,
         /** Set how far above the ground a ship sent from here arrives. */
-        SET_ARRIVAL_HEIGHT
+        SET_ARRIVAL_HEIGHT,
+        /** Aim at a dimension, from the ones the panel was offered. */
+        SET_DIMENSION
     }
 
     public static final Type<ServerboundProbePacket> TYPE = new Type<>(AeroWarptics.id("probe"));
@@ -67,6 +84,10 @@ public record ServerboundProbePacket(BlockPos probePos, Action action, int value
         return new ServerboundProbePacket(probePos, Action.SET_ARRIVAL_HEIGHT, blocks);
     }
 
+    public static ServerboundProbePacket dimension(BlockPos probePos, ResourceLocation dimension) {
+        return new ServerboundProbePacket(probePos, Action.SET_DIMENSION, 0, dimension.toString());
+    }
+
     public static ServerboundProbePacket sound(BlockPos probePos) {
         return new ServerboundProbePacket(probePos, Action.SOUND, 0);
     }
@@ -88,10 +109,12 @@ public record ServerboundProbePacket(BlockPos probePos, Action action, int value
         buf.writeBlockPos(packet.probePos);
         buf.writeEnum(packet.action);
         buf.writeVarInt(packet.value);
+        buf.writeUtf(packet.dimension, DIMENSION_LENGTH);
     }
 
     private static ServerboundProbePacket decode(RegistryFriendlyByteBuf buf) {
-        return new ServerboundProbePacket(buf.readBlockPos(), buf.readEnum(Action.class), buf.readVarInt());
+        return new ServerboundProbePacket(buf.readBlockPos(), buf.readEnum(Action.class), buf.readVarInt(),
+                buf.readUtf(DIMENSION_LENGTH));
     }
 
     public static void handle(ServerboundProbePacket packet, IPayloadContext context) {
@@ -111,6 +134,14 @@ public record ServerboundProbePacket(BlockPos probePos, Action action, int value
                 case SET_BEARING -> probe.setBearing(ProbeBearing.byIndex(packet.value));
                 case SET_RANGE -> probe.setRange(packet.value);
                 case SET_ARRIVAL_HEIGHT -> probe.setArrivalHeight(packet.value);
+                case SET_DIMENSION -> {
+                    // Anything that is not an id is dropped here; whether the id is a dimension this
+                    // probe may look at is the probe's to say.
+                    ResourceLocation id = ResourceLocation.tryParse(packet.dimension);
+                    if (id != null) {
+                        probe.setDimension(ResourceKey.create(Registries.DIMENSION, id));
+                    }
+                }
                 case SOUND -> report(player, probe.sound(player));
                 case SET_COURSE -> {
                     WarpFailure result = probe.setCourse(player);
@@ -119,7 +150,7 @@ public record ServerboundProbePacket(BlockPos probePos, Action action, int value
                         // Said out loud, because setting a course moves nothing and looks like
                         // nothing. The only evidence used to be a field on another machine's screen.
                         uk.co.iceconchy.aerowarptics.util.AWLang
-                                .translate("message.probe_course_set", probe.sounding().label())
+                                .translate("message.probe_course_set", probe.courseLabel())
                                 .style(net.minecraft.ChatFormatting.AQUA)
                                 .sendStatus(player);
                     }

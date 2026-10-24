@@ -85,6 +85,10 @@ public final class RiftShimmer {
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
+        // Under a shader pack this is drawn once the pack has finished the frame - see AfterShaders.
+        if (AfterShaders.defer(event)) {
+            return;
+        }
         if (ACTIVE.isEmpty() || event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES) {
             return;
         }
@@ -97,7 +101,7 @@ public final class RiftShimmer {
         poseStack.translate(-eye.x, -eye.y, -eye.z);
         Matrix4f matrix = poseStack.last().pose();
 
-        MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
+        MultiBufferSource.BufferSource buffers = AfterShaders.buffers();
         VertexConsumer buffer = buffers.getBuffer(AWRenderTypes.RIFT_FIRE);
         for (Struck struck : ACTIVE) {
             draw(buffer, matrix, struck, partialTick);

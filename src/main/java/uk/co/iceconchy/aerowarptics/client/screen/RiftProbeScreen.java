@@ -1,34 +1,43 @@
 package uk.co.iceconchy.aerowarptics.client.screen;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.util.FormattedCharSequence;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
+import org.lwjgl.glfw.GLFW;
 import uk.co.iceconchy.aerowarptics.astrolabe.DestinationSurvey;
 import uk.co.iceconchy.aerowarptics.client.screen.AWLayout.Rect;
 import uk.co.iceconchy.aerowarptics.network.ClientboundProbePacket;
 import uk.co.iceconchy.aerowarptics.network.ServerboundProbePacket;
 import uk.co.iceconchy.aerowarptics.probe.ProbeBearing;
+import uk.co.iceconchy.aerowarptics.probe.ProbeDimensions;
 import uk.co.iceconchy.aerowarptics.probe.ProbeSounding;
 import uk.co.iceconchy.aerowarptics.probe.ProbeState;
 import uk.co.iceconchy.aerowarptics.probe.ProbeVerdict;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 import uk.co.iceconchy.aerowarptics.warp.ArrivalHeight;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * The Rift Probe's panel: aim a sounding, throw it, and look at what comes back.
  *
- * <p>Three controls and one picture. The dial says which way, the first slider says how far, and the
- * map is the answer - which is the same map the Astrolabe draws of an anchor, on purpose. A pilot
- * deciding whether to commit a hull to somewhere nobody has been should be reading the same kind of
- * evidence they read everywhere else, not a score out of ten. The second slider is not about the
- * reading at all: it is how far above the ground that reading found the ship should come in, and so
- * it is the one control that can still be moved while a sounding is out.
+ * <p>Four controls and one picture. The box in the corner says which dimension, the dial says which
+ * way, the first slider says how far, and the map is the answer - which is the same map the Astrolabe
+ * draws of an anchor, on purpose. A pilot deciding whether to commit a hull to somewhere nobody has
+ * been should be reading the same kind of evidence they read everywhere else, not a score out of ten.
+ * The second slider is not about the reading at all: it is how far above the ground that reading found
+ * the ship should come in, and so it is the one control that can still be moved while a sounding is
+ * out.
  *
  * <p>Nothing here decides anything. The bearing, the range and the sounding are all the server's; the
  * screen sends the request and draws the reply, because a sounding is a request to generate terrain
@@ -64,6 +73,10 @@ public class RiftProbeScreen extends AWWindowScreen {
     private boolean draggingRange;
     private boolean draggingHeight;
 
+    /** Whether the dimension box's list is hanging open, and how far down it has been scrolled. */
+    private boolean dimensionOpen;
+    private int dimensionScroll;
+
     public RiftProbeScreen(ClientboundProbePacket data) {
         super(AWLang.translate("gui.rift_probe.title").component());
         this.data = data;
@@ -90,6 +103,11 @@ public class RiftProbeScreen extends AWWindowScreen {
         }
         if (packet.arrivalHeight() == sentHeight) {
             sentHeight = ArrivalHeight.UNSET;
+        }
+        // A list left hanging open over a probe that can no longer be re-aimed would be offering rows
+        // the server will ignore.
+        if (!dimensionUsable()) {
+            dimensionOpen = false;
         }
         aimNeedle(packet.bearing());
         fill.set(supplyFraction(packet));
@@ -202,6 +220,28 @@ public class RiftProbeScreen extends AWWindowScreen {
         // is scaled down to fit. An identity when it fits, which is the common case.
         mouseX = unscaleX(mouseX);
         mouseY = unscaleY(mouseY);
+        if (dimensionOpen) {
+            // An open list takes the click whatever is under it: on a row it picks that dimension, and
+            // anywhere else it only closes. Otherwise a click meant to dismiss the list would also
+            // turn the dial or press the button it happened to be hanging over.
+            int picked = AWDropdown.optionAt(dimensionList(), mouseX - guiLeft, mouseY - guiTop,
+                    dimensionScroll, data.dimensions().size());
+            dimensionOpen = false;
+            if (picked >= 0 && picked != data.dimensionIndex()) {
+                PacketDistributor.sendToServer(
+                        ServerboundProbePacket.dimension(data.probePos(), data.dimensions().get(picked)));
+                playClick(1.1F);
+            }
+            return true;
+        }
+        if (LAYOUT.dimension().contains(mouseX - guiLeft, mouseY - guiTop)) {
+            if (dimensionUsable()) {
+                dimensionOpen = true;
+                dimensionScroll = AWDropdown.scrollToShow(data.dimensionIndex(), data.dimensions().size());
+                playClick(1.0F);
+            }
+            return true;
+        }
         Rect compass = LAYOUT.compass();
         if (!data.state().busy() && compass.contains(mouseX - guiLeft, mouseY - guiTop)) {
             ProbeBearing picked = bearingAt(mouseX, mouseY);
@@ -273,6 +313,13 @@ public class RiftProbeScreen extends AWWindowScreen {
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         double x = unscaleX(mouseX);
         double y = unscaleY(mouseY);
+        if (dimensionOpen) {
+            // The wheel belongs to the list while it is open - over the height slider included, which
+            // it may well be hanging across on a server with enough dimensions.
+            dimensionScroll = AWDropdown.clampScroll(dimensionScroll - (int) Math.signum(scrollY),
+                    data.dimensions().size());
+            return true;
+        }
         if (scrollY != 0.0D && !draggingHeight && LAYOUT.height().contains(x - guiLeft, y - guiTop)) {
             int next = Math.max(0, Math.min(data.maximumArrivalHeight(),
                     shownHeight() + (int) Math.signum(scrollY)));
@@ -283,6 +330,34 @@ public class RiftProbeScreen extends AWWindowScreen {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    /** Escape closes the list before it closes the panel, as it would any other open menu. */
+    @Override
+    public boolean keyPressed(int key, int scanCode, int modifiers) {
+        if (dimensionOpen && key == GLFW.GLFW_KEY_ESCAPE) {
+            dimensionOpen = false;
+            return true;
+        }
+        return super.keyPressed(key, scanCode, modifiers);
+    }
+
+    /**
+     * Whether the dimension box opens.
+     *
+     * <p>Not while a sounding is out, like the dial and the range - and not at all on a server that
+     * offers a probe nowhere but where it stands, where the box is only a label.
+     */
+    private boolean dimensionUsable() {
+        return data.canChangeDimension() && !data.state().busy();
+    }
+
+    private Rect dimensionList() {
+        return AWDropdown.list(LAYOUT.dimension(), data.dimensions().size());
+    }
+
+    private String dimensionName(@Nullable ResourceLocation dimension) {
+        return dimension == null ? "-" : ProbeDimensions.name(dimension).getString();
     }
 
     /** What the slider is showing while it is being dragged, before the server has agreed. */
@@ -395,12 +470,94 @@ public class RiftProbeScreen extends AWWindowScreen {
                 statusColour,
                 data.aboard() ? AWScreenStyle.LABEL : AWScreenStyle.WARN);
 
+        renderDimension(graphics, mouseX, mouseY);
         renderCompass(graphics, partialTicks);
         renderRange(graphics);
         renderHeight(graphics);
         renderSupply(graphics, partialTicks);
         renderReading(graphics, partialTicks);
         renderVerdict(graphics);
+    }
+
+    /**
+     * The dimension box, closed: the dimension being scanned, and the mark that says there are others.
+     *
+     * <p>Lit like a control only when it is one. On a server that keeps probes to their own dimension it
+     * still says which that is, in the colour of a label, with no mark - a box that looked as though it
+     * opened and did not would be a bug report.
+     */
+    private void renderDimension(GuiGraphics graphics, int mouseX, int mouseY) {
+        Rect box = LAYOUT.dimension();
+        int left = guiLeft + box.x();
+        int top = guiTop + box.y();
+        boolean usable = dimensionUsable();
+        boolean lit = usable && (dimensionOpen || box.contains(mouseX - guiLeft, mouseY - guiTop));
+
+        graphics.fill(left, top, left + box.width(), top + box.height(), AWScreenStyle.TRACK);
+        AWScreenStyle.frame(graphics, left, top, box.width(), box.height(),
+                lit ? AWScreenStyle.ACCENT : usable ? AWScreenStyle.ACCENT_DIM : AWScreenStyle.RULE);
+
+        int room = box.width() - 6 - (data.canChangeDimension() ? 9 : 0);
+        graphics.drawString(font, AWScreenStyle.trim(font, dimensionName(data.dimension()), room),
+                left + 3, top + 2, usable ? AWScreenStyle.VALUE : AWScreenStyle.LABEL, false);
+        if (data.canChangeDimension()) {
+            AWScreenStyle.chevron(graphics, left + box.width() - 9, top + 5, dimensionOpen,
+                    usable ? AWScreenStyle.ACCENT : AWScreenStyle.LABEL);
+        }
+    }
+
+    /**
+     * The open list, and the box's tooltip while it is closed.
+     *
+     * <p>Drawn after everything else and lifted towards the viewer, because it hangs across the status
+     * line and the top of the map - and, on a server with a long list, the dial. Its background is solid
+     * where every other panel's is glass: a map showing through a list of names is neither.
+     */
+    @Override
+    protected void renderWindowForeground(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
+        super.renderWindowForeground(graphics, mouseX, mouseY, partialTicks);
+        if (!dimensionOpen) {
+            if (LAYOUT.dimension().contains(mouseX - guiLeft, mouseY - guiTop)) {
+                List<FormattedCharSequence> lines = new ArrayList<>(font.split(
+                        AWLang.translate("gui.rift_probe.dimension").component(), 170));
+                if (!data.canChangeDimension()) {
+                    lines.addAll(font.split(AWLang.translate("gui.rift_probe.dimension_locked").component()
+                            .copy().withStyle(ChatFormatting.GRAY), 170));
+                }
+                graphics.renderTooltip(font, lines, mouseX, mouseY);
+            }
+            return;
+        }
+
+        List<ResourceLocation> options = data.dimensions();
+        Rect list = dimensionList();
+        int left = guiLeft + list.x();
+        int top = guiTop + list.y();
+        int scroll = AWDropdown.clampScroll(dimensionScroll, options.size());
+        int rows = AWDropdown.visibleRows(options.size());
+        int hovered = AWDropdown.optionAt(list, mouseX - guiLeft, mouseY - guiTop, scroll, options.size());
+
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, 0.0F, 200.0F);
+        graphics.fill(left, top, left + list.width(), top + list.height(), 0xFF_16_12_1B);
+        AWScreenStyle.frame(graphics, left, top, list.width(), list.height(), AWScreenStyle.ACCENT_DIM);
+        for (int row = 0; row < rows; row++) {
+            int option = row + scroll;
+            int y = top + AWLayout.INSET + row * AWDropdown.ROW;
+            boolean chosen = option == data.dimensionIndex();
+            if (option == hovered) {
+                graphics.fill(left + 1, y, left + list.width() - 1, y + AWDropdown.ROW,
+                        AWAnim.fade(AWScreenStyle.ACCENT, 0.18F));
+            }
+            if (chosen) {
+                AWScreenStyle.selectionBar(graphics, left + 1, y + 1, AWDropdown.ROW - 2, AWScreenStyle.ACCENT);
+            }
+            graphics.drawString(font, AWScreenStyle.trim(font, dimensionName(options.get(option)), list.width() - 12),
+                    left + 5, y + 2, chosen ? AWScreenStyle.ACCENT : AWScreenStyle.VALUE, false);
+        }
+        AWScreenStyle.scrollbar(graphics, left + list.width() - 1, top + AWLayout.INSET, rows * AWDropdown.ROW,
+                options.size(), rows, scroll);
+        graphics.pose().popPose();
     }
 
     /**
@@ -503,7 +660,7 @@ public class RiftProbeScreen extends AWWindowScreen {
         AWScreenStyle.bar(graphics, left, top + AWLayout.LINE + 3, panel.width() - 4, 5,
                 fill.get(partialTicks), enough ? AWScreenStyle.OK : AWScreenStyle.WARN);
 
-        String held = AWLang.essence(data.essence(), data.capacity());
+        String held = AWLang.essence(data.essence());
         graphics.drawString(font, held, left, top + AWLayout.LINE + 11, AWScreenStyle.LABEL, false);
     }
 

@@ -1,0 +1,30 @@
+{
+  "type": "create:mechanical_crafting",
+  "key": {
+    "O": {
+      "item": "aerowarptics:opened_rift_lens"
+    },
+    "E": {
+      "item": "aerowarptics:rift_pearl"
+    },
+    "M": {
+      "item": "create:precision_mechanism"
+    },
+    "C": {
+      "item": "aerowarptics:rift_casing"
+    },
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    }
+  },
+  "pattern": [
+    " S ",
+    "MOM",
+    "CEC"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_collar"
+  },
+  "accept_mirrored": false
+}

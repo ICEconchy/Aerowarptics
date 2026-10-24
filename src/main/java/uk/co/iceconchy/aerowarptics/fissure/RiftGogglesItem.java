@@ -5,9 +5,11 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import uk.co.iceconchy.aerowarptics.compat.curios.CuriosBridge;
 import uk.co.iceconchy.aerowarptics.registry.AWItems;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 
@@ -38,10 +40,17 @@ public class RiftGogglesItem extends GogglesItem {
      * machine", which an ordinary engineer's pair also can. This answers "can they see torn space",
      * which only these can - so the two questions stay separate and a plain pair of goggles never
      * quietly starts revealing fissures.
+     *
+     * <p>Worn means the helmet slot, or a Curios slot when Curios is installed (see
+     * {@link CuriosBridge}). The helmet slot is asked first: it is the common case, and this is
+     * called for every shape query near a fissure.
      */
     public static boolean isWorn(Player player) {
-        return player != null
-                && player.getItemBySlot(EquipmentSlot.HEAD).is(AWItems.RIFT_GOGGLES.get());
+        if (player == null) {
+            return false;
+        }
+        Item goggles = AWItems.RIFT_GOGGLES.get();
+        return player.getItemBySlot(EquipmentSlot.HEAD).is(goggles) || CuriosBridge.wears(player, goggles);
     }
 
     /**

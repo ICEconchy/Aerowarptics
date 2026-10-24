@@ -1,0 +1,27 @@
+{
+  "type": "create:mechanical_crafting",
+  "key": {
+    "P": {
+      "item": "aerowarptics:pearlescent_warp_crystal"
+    },
+    "R": {
+      "item": "minecraft:end_crystal"
+    },
+    "H": {
+      "item": "minecraft:echo_shard"
+    },
+    "C": {
+      "item": "aerowarptics:rift_core"
+    }
+  },
+  "pattern": [
+    "PRP",
+    "HCH",
+    "PRP"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:singularity_core"
+  },
+  "accept_mirrored": false
+}

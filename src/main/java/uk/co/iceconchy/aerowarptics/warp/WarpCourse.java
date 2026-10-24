@@ -1,9 +1,13 @@
 package uk.co.iceconchy.aerowarptics.warp;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
@@ -26,13 +30,29 @@ import java.util.UUID;
  * change its height after a course is set, so the anchor's own figure is read when the rift opens -
  * the same way its position is.
  *
+ * <p>A fix also says which dimension it is in, since a Rift Probe can sound one the ship is not in. An
+ * anchor course never does: the registry knows where an anchor is, and an anchor can be carried somewhere
+ * else after a course is set. A fix that names no dimension is in whichever one the drive is in when it
+ * fires - every fix saved before a probe could look elsewhere, and a Rift Beacon's, which summons a ship
+ * to where the player is standing.
+ *
+ * <p>Either kind can instead be told to hold the ship's altitude, from the Astrolabe. That is part of
+ * the course rather than a setting on the drive, because a redstone edge replays the decision made at
+ * the chart - and "go there, and keep this height" is one decision, not a destination plus a switch
+ * somebody else might have flipped since.
+ *
  * @param anchorId      the anchor to fly to, or {@code null} for a fix
  * @param fix           the position to fly to, or {@code null} for an anchor
  * @param arrivalHeight blocks above the fix to arrive at, or {@link ArrivalHeight#UNSET} for the
  *                      server default; always {@code UNSET} on an anchor course
  * @param label         what to call this course on a console; anchors refresh theirs from the registry
+ * @param holdAltitude  arrive at the altitude the hull is flying at when the rift opens, in place of
+ *                      the destination's own height - see {@link ArrivalHeight#planned}
+ * @param dimension     the dimension a fix is in, or {@code null} for the drive's own; always
+ *                      {@code null} on an anchor course
  */
-public record WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int arrivalHeight, String label) {
+public record WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int arrivalHeight, String label,
+                         boolean holdAltitude, @Nullable ResourceKey<Level> dimension) {
 
     public WarpCourse {
         if ((anchorId == null) == (fix == null)) {
@@ -48,6 +68,20 @@ public record WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int ar
         if (anchorId != null || arrivalHeight < 0) {
             arrivalHeight = ArrivalHeight.UNSET;
         }
+        if (anchorId != null) {
+            dimension = null;
+        }
+    }
+
+    /** A course in the drive's own dimension, which is every course but a probe's into another. */
+    public WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int arrivalHeight, String label,
+                      boolean holdAltitude) {
+        this(anchorId, fix, arrivalHeight, label, holdAltitude, null);
+    }
+
+    /** A course that comes in at the destination's own height, which is every course but the chart's. */
+    public WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int arrivalHeight, String label) {
+        this(anchorId, fix, arrivalHeight, label, false);
     }
 
     public static final StreamCodec<RegistryFriendlyByteBuf, WarpCourse> STREAM_CODEC =
@@ -61,6 +95,12 @@ public record WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int ar
         return new WarpCourse(null, fix, arrivalHeight, label);
     }
 
+    /** A fix in a named dimension, which need not be the one the drive is in. */
+    public static WarpCourse toFix(@Nullable ResourceKey<Level> dimension, BlockPos fix, int arrivalHeight,
+                                   String label) {
+        return new WarpCourse(null, fix, arrivalHeight, label, false, dimension);
+    }
+
     public boolean isAnchor() {
         return anchorId != null;
     }
@@ -70,13 +110,28 @@ public record WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int ar
     }
 
     /**
+     * Whether a fix is in the dimension {@code here}, which is the one the drive asking is in.
+     *
+     * <p>Only a fix can answer. An anchor's dimension is the registry's to say, and asking the course
+     * would be asking where the anchor was when the course was set.
+     */
+    public boolean fixIsIn(ResourceKey<Level> here) {
+        return dimension == null || dimension.equals(here);
+    }
+
+    /**
      * A course to the same place, renamed.
      *
      * <p>An anchor can be renamed after a course is set, and a console showing the old name would be
      * quietly wrong about where the ship is going.
      */
     public WarpCourse withLabel(String updated) {
-        return new WarpCourse(anchorId, fix, arrivalHeight, updated);
+        return new WarpCourse(anchorId, fix, arrivalHeight, updated, holdAltitude, dimension);
+    }
+
+    /** The same course, holding altitude or not. A fix keeps its own height for when it is let go. */
+    public WarpCourse withHoldAltitude(boolean hold) {
+        return new WarpCourse(anchorId, fix, arrivalHeight, label, hold, dimension);
     }
 
     // -------------------------------------------------------------------- nbt
@@ -91,8 +146,14 @@ public record WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int ar
             tag.putInt("FixY", fix.getY());
             tag.putInt("FixZ", fix.getZ());
             tag.putInt("ArrivalHeight", arrivalHeight);
+            if (dimension != null) {
+                tag.putString("Dimension", dimension.location().toString());
+            }
         }
         tag.putString("Label", label);
+        if (holdAltitude) {
+            tag.putBoolean("HoldAltitude", true);
+        }
         return tag;
     }
 
@@ -103,16 +164,24 @@ public record WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int ar
             return null;
         }
         String label = tag.getString("Label");
+        // Absent on everything saved before the chart could hold altitude, which reads as false - the
+        // destination's own height, exactly as those courses flew when they were set.
+        boolean hold = tag.getBoolean("HoldAltitude");
         if (tag.hasUUID("Anchor")) {
-            return new WarpCourse(tag.getUUID("Anchor"), null, ArrivalHeight.UNSET, label);
+            return new WarpCourse(tag.getUUID("Anchor"), null, ArrivalHeight.UNSET, label, hold);
         }
         if (tag.contains("FixX")) {
             // A fix saved before heights were adjustable has none, and follows the server default
             // exactly as it did when it was set.
+            // And one saved before a probe could sound another dimension names none, which is the
+            // drive's own - as is one whose dimension no longer reads as an id at all.
+            ResourceLocation dimension = tag.contains("Dimension")
+                    ? ResourceLocation.tryParse(tag.getString("Dimension")) : null;
             return new WarpCourse(null,
                     new BlockPos(tag.getInt("FixX"), tag.getInt("FixY"), tag.getInt("FixZ")),
                     tag.contains("ArrivalHeight") ? tag.getInt("ArrivalHeight") : ArrivalHeight.UNSET,
-                    label);
+                    label, hold,
+                    dimension == null ? null : ResourceKey.create(Registries.DIMENSION, dimension));
         }
         return null;
     }
@@ -127,14 +196,23 @@ public record WarpCourse(@Nullable UUID anchorId, @Nullable BlockPos fix, int ar
             buf.writeBlockPos(course.fix);
             // Shifted by one so UNSET travels as zero rather than as a five-byte negative varint.
             buf.writeVarInt(course.arrivalHeight + 1);
+            buf.writeBoolean(course.dimension != null);
+            if (course.dimension != null) {
+                buf.writeResourceKey(course.dimension);
+            }
         }
         buf.writeUtf(course.label, 64);
+        buf.writeBoolean(course.holdAltitude);
     }
 
     private static WarpCourse decode(RegistryFriendlyByteBuf buf) {
         boolean anchor = buf.readBoolean();
-        return anchor
-                ? new WarpCourse(buf.readUUID(), null, ArrivalHeight.UNSET, buf.readUtf(64))
-                : new WarpCourse(null, buf.readBlockPos(), buf.readVarInt() - 1, buf.readUtf(64));
+        UUID anchorId = anchor ? buf.readUUID() : null;
+        BlockPos fix = anchor ? null : buf.readBlockPos();
+        int height = anchor ? ArrivalHeight.UNSET : buf.readVarInt() - 1;
+        ResourceKey<Level> dimension = !anchor && buf.readBoolean()
+                ? buf.readResourceKey(Registries.DIMENSION) : null;
+        String label = buf.readUtf(64);
+        return new WarpCourse(anchorId, fix, height, label, buf.readBoolean(), dimension);
     }
 }

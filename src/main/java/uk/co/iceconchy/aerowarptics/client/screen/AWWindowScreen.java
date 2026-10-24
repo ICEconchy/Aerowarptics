@@ -15,7 +15,9 @@ import net.neoforged.api.distmarker.OnlyIn;
  * <p>Most of this mod's screens are shorter than the 240 virtual pixels "Auto" GUI scale guarantees,
  * so they sit inside {@link AbstractSimiScreen} untouched. Two are not: the Astrolabe's chart and the
  * Rift Probe both have to show a 129px survey, which pushes them past 270 - taller than an ordinary
- * 1080p desktop's virtual screen. {@link AWLayout#anchor} pins those to the top-left corner, which
+ * 1080p desktop's virtual screen. The Rift Drive's console fits Auto's floor, but at 232 tall only just,
+ * so a GUI scale set one step larger than Auto would pick is enough to put its buttons off the bottom;
+ * it sits on this base for that. {@link AWLayout#anchor} pins those to the top-left corner, which
  * keeps the header reachable but leaves the buttons along the bottom off the screen entirely.
  *
  * <p>This base scales the whole window down by {@link AWLayout#fitScale} when it would not otherwise

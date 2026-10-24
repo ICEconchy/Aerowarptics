@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "BSB",
+    "TCT",
+    "BBB"
+  ],
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    },
+    "T": {
+      "item": "create:electron_tube"
+    },
+    "C": {
+      "item": "create:brass_casing"
+    }
+  },
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:spatial_stabiliser"
+  }
+}

@@ -70,6 +70,10 @@ public final class ClearanceOverlay {
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
+        // Under a shader pack this is drawn once the pack has finished the frame - see AfterShaders.
+        if (AfterShaders.defer(event)) {
+            return;
+        }
         if (padded.isEmpty() || event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
             return;
         }
@@ -86,7 +90,7 @@ public final class ClearanceOverlay {
         pose.pushPose();
         pose.translate(-eye.x, -eye.y, -eye.z);
 
-        MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
+        MultiBufferSource.BufferSource buffers = AfterShaders.buffers();
         VertexConsumer lines = buffers.getBuffer(RenderType.lines());
 
         // The aperture's reach (teal), then the tested hull sweep inside it (amber). One box per

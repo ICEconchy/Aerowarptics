@@ -37,6 +37,11 @@ OUT = os.path.join("src", "main", "resources", "data", "aerowarptics", "structur
 FISSURE = "aerowarptics:rift_fissure"
 FRAME = "aerowarptics:rift_gate_frame"
 
+# One barrel in every ruin, rolled the first time anybody opens it: scrap, a few crystals, their notes - and,
+# in some of them, the Relic Armillary a Collapse Cradle cannot be built without. The loot table decides how
+# often; RiftScarCacheTest holds every ruin to having one.
+CACHE_LOOT = "aerowarptics:chests/rift_scar_cache"
+
 AIR = "minecraft:air"
 BRICK = "minecraft:stone_bricks"
 CRACKED = "minecraft:cracked_stone_bricks"
@@ -123,6 +128,12 @@ class Ruin(Scene):
                 if self.rng.random() < chance:
                     self.put(x, y, z, self.rng.choice(palette))
 
+    def cache(self, x, y, z, facing="up"):
+        """Whatever they left behind, in a barrel: see CACHE_LOOT. Put down after the rubble, which would
+        otherwise bury it."""
+        self.put(x, y, z, "minecraft:barrel", facing=facing, open="false")
+        self.data(x, y, z, LootTable=CACHE_LOOT)
+
 
 # ------------------------------------------------------------------------- the ruins
 
@@ -152,6 +163,8 @@ def ring_site():
     ruin.put(2, 4, 6, BRASS)
 
     ruin.rubble(2, 2, 10, 10, 2, [SLAB, CRACKED, MOSSY], chance=0.18)
+    # Their stores, left by the gantry.
+    ruin.cache(9, 2, 3)
 
     # The tear, hanging in the middle of the ring where the aperture should have been.
     ruin.put(6, 5, 6, FISSURE)
@@ -184,6 +197,8 @@ def vault_site():
     ruin.put(6, 2, 9, IRON)
 
     ruin.rubble(3, 3, 9, 9, 3, [SLAB, MOSSY], chance=0.12)
+    # Beside the plinth: whoever worked the machine that stood on it kept their spares here.
+    ruin.cache(8, 2, 6, facing="west")
 
     # Two of them here, one over the plinth and one against the wall it tore through.
     ruin.put(6, 5, 6, FISSURE)
@@ -212,6 +227,8 @@ def mast_site():
     ruin.put(8, 2, 8, CRACKED)
 
     ruin.rubble(3, 3, 7, 7, 2, [SLAB, MOSSY, CRACKED], chance=0.2)
+    # At the foot of the mast, where the surveyors left their kit.
+    ruin.cache(4, 2, 6)
 
     # High up, level with the head of the mast: the thing it was built to look at.
     ruin.put(5, 9, 5, FISSURE)

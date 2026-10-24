@@ -18,6 +18,11 @@ import uk.co.iceconchy.aerowarptics.airship.Airship;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.network.AWNetwork;
 import uk.co.iceconchy.aerowarptics.network.ClientboundClearancePacket;
+import uk.co.iceconchy.aerowarptics.hold.HoldCommands;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
+import uk.co.iceconchy.aerowarptics.trace.TraceReport;
+import uk.co.iceconchy.aerowarptics.trace.TraceSession;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkCommands;
 
 import java.util.Iterator;
 import java.util.List;
@@ -36,6 +41,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * of that drive's departure corridor, refreshed as the ship moves; run again anywhere it turns off.
  * The amber hull sweep is what the check tests; the teal around it is where the aperture reaches, and
  * was the tested volume until this overlay showed that padding to be the source of false refusals.
+ *
+ * <p>{@code /aerowarptics trace [on|off|report]} is the diagnostic trace's switch - see
+ * {@link Trace} - without anybody having to find the per-world config file it lives in.
+ *
+ * <p>{@code /aerowarptics holds [list|release|reach]} says what the mod is keeping loaded and lets an
+ * operator let go of it - see {@link HoldCommands}.
+ *
+ * <p>{@code /aerowarptics network ...} is the one set here that is not for debugging: it manages the
+ * networks players share destinations through - see {@link NetworkCommands}.
  */
 @EventBusSubscriber(modid = AeroWarptics.MODID)
 public final class AWCommands {
@@ -56,12 +70,85 @@ public final class AWCommands {
     public static void onRegisterCommands(RegisterCommandsEvent event) {
         event.getDispatcher().register(
                 Commands.literal("aerowarptics")
-                        .requires(source -> source.hasPermission(2))
+                        .requires(source -> source.hasPermission(2) || ownsThisWorld(source))
                         .then(Commands.literal("warp")
+                                .requires(source -> source.hasPermission(2))
                                 .then(Commands.literal("dryrun")
                                         .executes(AWCommands::warpDryRun))
                                 .then(Commands.literal("clearance")
-                                        .executes(AWCommands::warpClearance))));
+                                        .executes(AWCommands::warpClearance)))
+                        .then(Commands.literal("trace")
+                                .executes(AWCommands::traceStatus)
+                                .then(Commands.literal("on")
+                                        .executes(context -> traceSet(context, true)))
+                                .then(Commands.literal("off")
+                                        .executes(context -> traceSet(context, false)))
+                                .then(Commands.literal("report")
+                                        .executes(AWCommands::traceReport)))
+                        .then(HoldCommands.node())
+                        .then(NetworkCommands.node())
+                        .then(uk.co.iceconchy.aerowarptics.ward.WardCommands.node())
+                        .then(uk.co.iceconchy.aerowarptics.wellhead.WellheadCommands.node())
+                        .then(uk.co.iceconchy.aerowarptics.sunderer.SundererCommands.node()));
+    }
+
+    /**
+     * The player whose single-player world this is, whether or not they allowed cheats.
+     *
+     * <p>Let at the trace, which only writes to the log, and not at the warp commands, which read and move
+     * things. A single-player report is the common case, and "turn cheats on first" is one more step for a
+     * player to get wrong before a single line has been traced.
+     */
+    private static boolean ownsThisWorld(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        return player != null && source.getServer().isSingleplayerOwner(player.getGameProfile());
+    }
+
+    /** Whether the server is tracing, and which file the switch lives in. */
+    private static int traceStatus(CommandContext<CommandSourceStack> context) {
+        boolean on = Trace.enabled();
+        context.getSource().sendSuccess(() -> Component.literal("AeroWarptics trace is " + (on ? "ON" : "off")
+                + " (debug.trace in this world's aerowarptics-server.toml). "
+                + (on ? "It is being written to latest.log." : "/aerowarptics trace on starts it.")), false);
+        return on ? 1 : 0;
+    }
+
+    /**
+     * Switches tracing on or off and saves it into the world's config file.
+     *
+     * <p>The command exists because the switch is per world - in single player the file is under
+     * {@code saves/<world>/serverconfig/}, not {@code config/} - and a report that begins "I turned tracing
+     * on" and arrives with no trace in it was, more than once, somebody who edited the other file.
+     */
+    private static int traceSet(CommandContext<CommandSourceStack> context, boolean on) {
+        CommandSourceStack source = context.getSource();
+        TraceSession.set(source.getServer(), on, source.getTextName());
+        source.sendSuccess(() -> Component.literal(on
+                ? "AeroWarptics trace ON and saved. Reproduce the problem, then send latest.log - every connected"
+                        + " player's own latest.log now carries their side too."
+                : "AeroWarptics trace off."), true);
+        return 1;
+    }
+
+    /**
+     * Writes the header into the log now, tracing or not, and the whole situation of the drive aboard the
+     * ship the player is standing on, if there is one.
+     */
+    private static int traceReport(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        TraceReport.write(source.getServer(), "report asked for by " + source.getTextName());
+        String drive = "";
+        if (source.getEntity() instanceof ServerPlayer player) {
+            Airship airship = Airship.aboard(player);
+            RiftDriveBlockEntity found = airship == null ? null : airship.machine(RiftDriveBlockEntity.class);
+            if (found != null) {
+                Trace.always(Trace.DRIVE, "{} as reported: {}", Trace.pos(found.getBlockPos()), found.traceState());
+                drive = " and the drive aboard this ship";
+            }
+        }
+        String written = drive;
+        source.sendSuccess(() -> Component.literal("AeroWarptics header" + written + " written to latest.log."), false);
+        return 1;
     }
 
     private static int warpDryRun(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {

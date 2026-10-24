@@ -1,0 +1,18 @@
+{
+    "vertex": "aerowarptics:passage",
+    "fragment": "aerowarptics:passage_timey_wimey",
+    "samplers": [],
+    "uniforms": [
+        { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
+        { "name": "ProjMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
+        { "name": "Depth", "type": "float", "count": 1, "values": [ 0.0 ] },
+        { "name": "Roll", "type": "float", "count": 1, "values": [ 0.0 ] },
+        { "name": "Sway", "type": "float", "count": 2, "values": [ 0.0, 0.0 ] },
+        { "name": "Flare", "type": "float", "count": 1, "values": [ 0.0 ] },
+        { "name": "Splash", "type": "float", "count": 1, "values": [ 0.0 ] },
+        { "name": "Veil", "type": "float", "count": 1, "values": [ 1.0 ] },
+        { "name": "Clock", "type": "float", "count": 1, "values": [ 0.0 ] },
+        { "name": "Seed", "type": "float", "count": 1, "values": [ 0.0 ] },
+        { "name": "Aspect", "type": "float", "count": 1, "values": [ 1.0 ] }
+    ]
+}

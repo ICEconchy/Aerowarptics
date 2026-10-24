@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top": "aerowarptics:block/rift_collar_top",
+    "side": "aerowarptics:block/rift_collar_side",
+    "front": "aerowarptics:block/rift_collar_front"
+  }
+}

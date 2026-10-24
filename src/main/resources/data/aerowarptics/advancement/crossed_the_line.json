@@ -1,0 +1,31 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:folded_warp_crystal"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.crossed_the_line.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.crossed_the_line.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "folded": {
+      "trigger": "aerowarptics:fold_completed",
+      "conditions": {}
+    }
+  },
+  "requirements": [
+    [
+      "folded"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:first_warp"
+}

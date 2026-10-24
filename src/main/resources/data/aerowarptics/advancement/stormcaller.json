@@ -1,0 +1,31 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:stormglass"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.stormcaller.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.stormcaller.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "called": {
+      "trigger": "aerowarptics:storm_called",
+      "conditions": {}
+    }
+  },
+  "requirements": [
+    [
+      "called"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:root"
+}

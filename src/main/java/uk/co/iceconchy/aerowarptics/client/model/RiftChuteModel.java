@@ -7,7 +7,7 @@ import software.bernie.geckolib.model.GeoModel;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.chute.RiftChuteBlockEntity;
 
-/** GeckoLib model binding for the Rift Chute. All three files come out of tools/chute_model.py. */
+/** GeckoLib model binding for the Rift Chute. The geometry and the sheet are the artist's; the chute does not move. */
 @OnlyIn(Dist.CLIENT)
 public class RiftChuteModel extends GeoModel<RiftChuteBlockEntity> {
 

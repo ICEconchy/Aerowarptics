@@ -11,6 +11,17 @@ group = mod_group_id
 repositories {
     mavenLocal()
     mavenCentral()
+    // Curios is the one dependency on a Maven repository, and only its API is compiled against.
+    // Scoped to its own group so nothing else is ever looked up there.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Curios'
+                url = 'https://maven.theillusivec4.top/'
+            }
+        }
+        filter { includeGroup 'top.theillusivec4.curios' }
+    }
 }
 
 base {
@@ -123,6 +134,11 @@ dependencies {
     // Tests exercise classes that reference Sable and Create types in their signatures.
     testCompileOnly modJars
     testRuntimeOnly modJars
+
+    // Optional: lets Rift Goggles be worn in a Curios head slot. Compile-only, against the API jar, so
+    // nothing of Curios ships in ours; everything that touches it is in compat/curios and loads only
+    // when Curios is installed.
+    compileOnly "top.theillusivec4.curios:curios-neoforge:${curios_version}:api"
 
     // Unit tests exercise the mod's own logic classes; they need Minecraft on the classpath
     // because several of them extend or reference vanilla types (StringRepresentable, NBT, BlockPos).

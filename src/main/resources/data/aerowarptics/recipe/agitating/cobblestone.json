@@ -1,0 +1,15 @@
+{
+  "type": "aerowarptics:agitating",
+  "ingredients": [
+    {
+      "item": "minecraft:cobblestone"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:rift_essence",
+      "amount": 4
+    }
+  ],
+  "strain": 1.0
+}

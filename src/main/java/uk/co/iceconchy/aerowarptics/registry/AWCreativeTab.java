@@ -24,6 +24,7 @@ public final class AWCreativeTab {
                         for (RiftDriveTier tier : RiftDriveTier.values()) {
                             output.accept(AWItems.RIFT_DRIVES.get(tier).get());
                         }
+                        output.accept(AWItems.DRIVE_EXTENDER.get());
                         output.accept(AWItems.WARP_ANCHOR.get());
                         output.accept(AWItems.ASTROLABE.get());
                         output.accept(AWItems.RIFT_PROBE.get());
@@ -33,17 +34,41 @@ public final class AWCreativeTab {
                         output.accept(AWItems.RIFT_GATE_FRAME.get());
                         output.accept(AWItems.RIFT_CHUTE.get());
                         output.accept(AWItems.RIFT_MODULATOR.get());
+                        output.accept(AWItems.RIFT_COUPLER.get());
+                        output.accept(AWItems.SPATIAL_STABILISER.get());
+                        output.accept(AWItems.COOLING_VENT.get());
+                        output.accept(AWItems.RIFT_BOND.get());
+                        output.accept(AWItems.BERTH.get());
+                        output.accept(AWItems.RIFT_COLLAR.get());
+                        output.accept(AWItems.RIFT_SUNDERER.get());
+                        output.accept(AWItems.RIFT_FISSURE.get());
+                        output.accept(AWItems.SCARRED_STONE.get());
+                        output.accept(AWItems.SPATIAL_WAVE_DETECTOR.get());
                         output.accept(AWItems.SPATIAL_SIPHON.get());
+                        output.accept(AWItems.RIFT_BRAZIER.get());
+                        output.accept(AWItems.COLLAPSE_CRADLE.get());
+                        output.accept(AWItems.RIFT_PLOTTER.get());
+                        output.accept(AWItems.RIFT_WARD.get());
                         output.accept(AWItems.RIFT_ESSENCE_BUCKET.get());
+                        output.accept(AWItems.RIFT_PEARL.get());
+                        output.accept(AWItems.RIFT_CASING.get());
                         output.accept(AWItems.RIFT_CORE.get());
+                        output.accept(AWItems.INCOMPLETE_RIFT_CORE.get());
                         output.accept(AWItems.RIFT_LENS.get());
+                        output.accept(AWItems.OPENED_RIFT_LENS.get());
                         output.accept(AWItems.STABILISER_RING.get());
                         output.accept(AWItems.SINGULARITY_CORE.get());
-                        output.accept(AWItems.WARP_CRYSTAL_ORE.get());
-                        output.accept(AWItems.RAW_WARP_CRYSTAL.get());
+                        output.accept(AWItems.SCAR_HEART.get());
+                        output.accept(AWItems.RELIC_ARMILLARY.get());
+                        output.accept(AWItems.SCAR_CHART.get());
+                        output.accept(AWItems.SHIP_COMPASS.get());
+                        output.accept(AWItems.UNSET_STORMGLASS.get());
+                        output.accept(AWItems.STORMGLASS.get());
+                        output.accept(AWItems.WARP_GLASS.get());
                         output.accept(AWItems.WARP_DUST.get());
                         output.accept(AWItems.WARP_SHARD.get());
                         output.accept(AWItems.WARP_CRYSTAL.get());
+                        output.accept(AWItems.FOLDED_WARP_CRYSTAL.get());
                         output.accept(AWItems.PEARLESCENT_WARP_CRYSTAL.get());
                     })
                     .build());

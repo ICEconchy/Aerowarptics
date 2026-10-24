@@ -44,7 +44,7 @@ public final class BeaconScenes {
         scene.idle(20);
 
         scene.overlay().showText(80)
-                .text("A Rift Beacon calls a ship you are not standing on, which is the one thing a course cannot do")
+                .text("A Rift Beacon calls a ship you are not standing on, which a normal course cannot do")
                 .pointAt(face)
                 .placeNearTarget()
                 .attachKeyFrame();
@@ -64,7 +64,7 @@ public final class BeaconScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("This is where you are checked. A beacon cannot be bound to a ship you could not have commanded by hand")
+                .text("Permission is checked here. A beacon cannot be bound to a ship you could not have commanded by hand")
                 .pointAt(util.vector().topOf(drive))
                 .colored(PonderPalette.MEDIUM)
                 .placeNearTarget()
@@ -76,7 +76,7 @@ public final class BeaconScenes {
                 .withItem(beacon);
         scene.idle(15);
         scene.overlay().showText(90)
-                .text("Then aim anywhere in reach of the eye and right-click. The ship is called to whatever the crosshair is on")
+                .text("Then aim at anywhere within sight and right-click. The ship is called to whatever the crosshair is on")
                 .pointAt(landing)
                 .colored(PonderPalette.OUTPUT)
                 .placeNearTarget()
@@ -85,7 +85,7 @@ public final class BeaconScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("The drive still has to agree: turning fast enough, charged, in range, and with room for the hull to arrive")
+                .text("The drive still has to be ready: turning fast enough, charged, in range, and with room for the hull to arrive")
                 .pointAt(util.vector().blockSurface(util.grid().at(1, 1, 3), Direction.EAST))
                 .colored(PonderPalette.FAST)
                 .placeNearTarget()
@@ -93,14 +93,14 @@ public final class BeaconScenes {
         scene.idle(100);
 
         scene.overlay().showText(80)
-                .text("Refused, it says which of those failed, in the same words the drive's own console uses")
+                .text("If the warp is refused, the beacon says which of these failed, in the same words the drive's own console uses")
                 .pointAt(face)
                 .colored(PonderPalette.RED)
                 .placeNearTarget();
         scene.idle(90);
 
         scene.overlay().showText(80)
-                .text("Take the drive apart and the beacon is pointing at nothing. Bind it again to whatever you build next")
+                .text("If the drive is taken apart, the beacon points at nothing. Bind it again to whatever you build next")
                 .pointAt(util.vector().topOf(drive))
                 .placeNearTarget()
                 .attachKeyFrame();

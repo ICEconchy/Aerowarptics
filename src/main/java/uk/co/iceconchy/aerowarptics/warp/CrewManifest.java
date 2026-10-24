@@ -3,7 +3,6 @@ package uk.co.iceconchy.aerowarptics.warp;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
-import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -17,6 +16,7 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -90,7 +90,9 @@ public final class CrewManifest {
     private static final double ADRIFT = 6.0D;
 
     private static final class Booking {
-        private final ResourceKey<Level> dimension;
+        private ResourceKey<Level> dimension;
+        /** Set once the ship has crossed into another dimension, so its crew are fetched from the old one. */
+        private boolean crossed;
         private final Map<UUID, Vec3> seats = new HashMap<>();
         private int ticksLeft = graceTicks();
 
@@ -111,6 +113,13 @@ public final class CrewManifest {
                 id -> new Booking(airship.level().dimension()));
         booking.ticksLeft = graceTicks();
         record(airship, booking);
+        if (Trace.enabled()) {
+            List<String> names = new ArrayList<>();
+            for (ServerPlayer player : airship.crew()) {
+                names.add(player.getGameProfile().getName());
+            }
+            Trace.log(Trace.CREW, "ship {} boarded with {} aboard: {}", airship.uuid(), names.size(), names);
+        }
     }
 
     /**
@@ -138,6 +147,26 @@ public final class CrewManifest {
         for (ServerPlayer player : airship.crew()) {
             booking.seats.put(player.getUUID(), airship.toShip(player.position()));
         }
+    }
+
+    /**
+     * The ship has been rebuilt in another dimension, as {@code to}.
+     *
+     * <p>A rebuilt ship is a new sub-level with a new UUID, so the booking moves to it. Its seats are in
+     * ship space, which is plot space, and the rebuild put the plot somewhere else: every seat moves by the
+     * same {@code shift}, or the whole crew would be put back thousands of blocks from the deck. And from
+     * now on a crew member found in a different level from the ship is exactly the one who was left
+     * behind, not somebody who took a portal of their own.
+     */
+    public static void crossed(UUID from, UUID to, ResourceKey<Level> dimension, Vec3 shift) {
+        Booking booking = BOOKINGS.remove(from);
+        if (booking == null) {
+            return;
+        }
+        booking.dimension = dimension;
+        booking.crossed = true;
+        booking.seats.replaceAll((player, seat) -> seat.add(shift));
+        BOOKINGS.put(to, booking);
     }
 
     /** The warp is over and accounted for; stop watching. */
@@ -195,32 +224,47 @@ public final class CrewManifest {
         }
 
         List<UUID> gone = new ArrayList<>();
+        org.joml.Vector3d hull = airship.velocity();
         for (Map.Entry<UUID, Vec3> seat : booking.seats.entrySet()) {
             ServerPlayer player = server.getPlayerList().getPlayer(seat.getKey());
             if (player == null || player.isRemoved()) {
                 gone.add(seat.getKey());
                 continue;
             }
+            Vec3 belongs = airship.toWorld(seat.getValue());
             if (player.level() != level) {
+                if (booking.crossed) {
+                    // Left in the dimension the ship crossed out of. Nothing else is ever going to fetch
+                    // them: this is the one call that changes a player's dimension and tells their client.
+                    Trace.log(Trace.CREW, "{} was left in {} when ship {} crossed into {}: fetched to their seat {}",
+                            Trace.who(player), player.level().dimension().location(), shipId,
+                            level.dimension().location(), Trace.vec(belongs));
+                    player.teleportTo(level, belongs.x, belongs.y, belongs.z, player.getYRot(), player.getXRot());
+                    WarpPassengers.calm(player, hull);
+                    continue;
+                }
                 // The player is in another dimension - perhaps through a portal or a dimension
                 // change during the warp. Do not remove them from the booking: if they return
                 // to this dimension before the grace period expires, the manifest will catch
                 // them. Removing them was the silent loss that left crew stranded.
                 continue;
             }
-            Vec3 belongs = airship.toWorld(seat.getValue());
             if (!adrift(player.position().distanceTo(belongs))) {
                 continue;
             }
+            // Every one of these is a player the hull failed to carry - the symptom the manifest exists to
+            // paper over - so each is worth a line: how far adrift, and at what point of the warp.
+            Trace.log(Trace.CREW, "{} came adrift of ship {} by {} blocks at {}: put back on their seat {}",
+                    Trace.who(player), shipId, Trace.num(player.position().distanceTo(belongs)),
+                    Trace.vec(player.position()), Trace.vec(belongs));
             // The one call that also resets what the client believes it is doing. A raw position
             // write is undone by the next movement packet the client sends, which is the whole
             // reason a player could be left behind by a hull that had plainly moved.
             player.connection.teleport(belongs.x, belongs.y, belongs.z,
                     player.getYRot(), player.getXRot());
-            player.setDeltaMovement(Vec3.ZERO);
-            player.fallDistance = 0.0F;
-            player.hurtMarked = true;
-            player.connection.send(new ClientboundSetEntityMotionPacket(player));
+            // Including the motion Sable lent them, which the game's own motion packet cannot reach -
+            // left alone, it carries them straight back off the deck they have just been put on.
+            WarpPassengers.calm(player, hull);
         }
         gone.forEach(booking.seats::remove);
     }

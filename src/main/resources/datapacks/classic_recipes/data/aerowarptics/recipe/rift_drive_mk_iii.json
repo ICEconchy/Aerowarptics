@@ -1,0 +1,35 @@
+{
+  "type": "create:mechanical_crafting",
+  "key": {
+    "D": {
+      "item": "aerowarptics:rift_drive_mk_ii"
+    },
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    },
+    "L": {
+      "item": "aerowarptics:rift_lens"
+    },
+    "V": {
+      "item": "aerowarptics:warp_crystal"
+    },
+    "B": {
+      "item": "create:brass_casing"
+    },
+    "R": {
+      "item": "minecraft:end_crystal"
+    }
+  },
+  "pattern": [
+    " VSV ",
+    "SBRBS",
+    "VLDLV",
+    "SBRBS",
+    " VSV "
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_drive_mk_iii"
+  },
+  "accept_mirrored": false
+}

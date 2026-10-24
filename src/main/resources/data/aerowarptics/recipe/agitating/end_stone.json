@@ -1,0 +1,15 @@
+{
+  "type": "aerowarptics:agitating",
+  "ingredients": [
+    {
+      "item": "minecraft:end_stone"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:rift_essence",
+      "amount": 12
+    }
+  ],
+  "strain": 0.7
+}

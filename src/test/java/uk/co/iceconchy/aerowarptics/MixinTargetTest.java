@@ -51,6 +51,9 @@ class MixinTargetTest {
     private static final String MODIFY_RETURN_VALUE = "Lcom/llamalad7/mixinextras/injector/ModifyReturnValue;";
     private static final String MODIFY_EXPRESSION_VALUE = "Lcom/llamalad7/mixinextras/injector/ModifyExpressionValue;";
     private static final String LOCAL = "Lcom/llamalad7/mixinextras/sugar/Local;";
+    private static final String MODIFY_ARG = "Lorg/spongepowered/asm/mixin/injection/ModifyArg;";
+    private static final String WRAP_OPERATION = "Lcom/llamalad7/mixinextras/injector/wrapoperation/WrapOperation;";
+    private static final String OPERATION = "Lcom/llamalad7/mixinextras/injector/wrapoperation/Operation;";
 
     private static JsonObject config() {
         try {
@@ -155,14 +158,18 @@ class MixinTargetTest {
             for (MethodNode handler : mixin.methods) {
                 for (AnnotationNode injector : annotations(handler.visibleAnnotations, handler.invisibleAnnotations)) {
                     boolean returns = injector.desc.equals(MODIFY_RETURN_VALUE);
-                    if (!returns && !injector.desc.equals(MODIFY_EXPRESSION_VALUE)) {
+                    boolean argument = injector.desc.equals(MODIFY_ARG);
+                    boolean wraps = injector.desc.equals(WRAP_OPERATION);
+                    if (!returns && !argument && !wraps && !injector.desc.equals(MODIFY_EXPRESSION_VALUE)) {
                         continue;
                     }
                     List<String> methodNames = value(injector, "method");
-                    List<AnnotationNode> ats = value(injector, "at");
-                    AnnotationNode at = ats.get(0);
+                    // At[] on most injectors, a lone At on @ModifyArg.
+                    Object atValue = value(injector, "at");
+                    AnnotationNode at = atValue instanceof List<?> ats ? (AnnotationNode) ats.get(0) : (AnnotationNode) atValue;
                     String kind = value(at, "value");
                     String invoke = value(at, "target");
+                    Integer ordinal = value(at, "ordinal");
 
                     for (Type target : targets) {
                         ClassNode game = read(target.getInternalName());
@@ -186,17 +193,26 @@ class MixinTargetTest {
                                 }
                             } else if ("INVOKE".equals(kind)) {
                                 int calls = countCalls(method, invoke);
-                                if (calls != 1) {
-                                    problems.add(where + ": " + calls + " calls to " + invoke + ", expected exactly one");
+                                // An ordinal names one call of several; without one there must be exactly one.
+                                if (ordinal == null ? calls != 1 : calls <= ordinal) {
+                                    problems.add(where + ": " + calls + " calls to " + invoke + ", expected "
+                                            + (ordinal == null ? "exactly one" : "more than " + ordinal));
                                 }
-                                if (!Type.getReturnType(invoke.substring(invoke.indexOf('('))).equals(handlerArgs[0])) {
+                                String callDesc = invoke.substring(invoke.indexOf('('));
+                                if (argument) {
+                                    problems.addAll(checkArgument(where, injector, handler, callDesc));
+                                } else if (wraps) {
+                                    problems.addAll(checkWrap(where, handler, invoke));
+                                } else if (!Type.getReturnType(callDesc).equals(handlerArgs[0])) {
                                     problems.add(where + ": the call returns a different type from the one the handler takes");
                                 }
                             } else {
                                 problems.add(where + ": unchecked injection point " + kind + " - teach this test about it");
                             }
 
-                            problems.addAll(checkCapturedArguments(where, handler, method));
+                            if (!argument && !wraps) {
+                                problems.addAll(checkCapturedArguments(where, handler, method));
+                            }
                         }
                     }
                 }
@@ -212,6 +228,48 @@ class MixinTargetTest {
      * A {@code @Local(argsOnly = true)} parameter is matched by type among the target's arguments, so
      * that type has to appear there exactly once or the capture is ambiguous.
      */
+    /** A @ModifyArg takes and returns exactly the type of the argument it names. */
+    private static List<String> checkArgument(String where, AnnotationNode injector, MethodNode handler, String callDesc) {
+        List<String> problems = new ArrayList<>();
+        Integer index = value(injector, "index");
+        Type[] callArgs = Type.getArgumentTypes(callDesc);
+        if (index == null || index < 0 || index >= callArgs.length) {
+            problems.add(where + ": names argument " + index + " of a call that takes " + callArgs.length);
+            return problems;
+        }
+        Type[] handlerArgs = Type.getArgumentTypes(handler.desc);
+        if (handlerArgs.length < 1 || !handlerArgs[0].equals(callArgs[index])
+                || !Type.getReturnType(handler.desc).equals(callArgs[index])) {
+            problems.add(where + ": argument " + index + " is a " + callArgs[index] + " but the handler is "
+                    + handler.desc);
+        }
+        return problems;
+    }
+
+    /** A @WrapOperation of an instance call takes the receiver, the call's arguments, then the Operation. */
+    private static List<String> checkWrap(String where, MethodNode handler, String invoke) {
+        List<String> problems = new ArrayList<>();
+        Type owner = Type.getType(invoke.substring(0, invoke.indexOf(';') + 1));
+        String callDesc = invoke.substring(invoke.indexOf('('));
+        Type[] callArgs = Type.getArgumentTypes(callDesc);
+        Type[] handlerArgs = Type.getArgumentTypes(handler.desc);
+        if (handlerArgs.length != callArgs.length + 2 || !handlerArgs[0].equals(owner)
+                || !handlerArgs[handlerArgs.length - 1].getDescriptor().equals(OPERATION)) {
+            problems.add(where + ": a wrap of " + invoke + " must take (" + owner + ", its arguments, Operation)");
+            return problems;
+        }
+        for (int i = 0; i < callArgs.length; i++) {
+            if (!handlerArgs[i + 1].equals(callArgs[i])) {
+                problems.add(where + ": argument " + i + " is a " + callArgs[i] + " but the handler takes " + handlerArgs[i + 1]);
+            }
+        }
+        if (!Type.getReturnType(handler.desc).equals(Type.getReturnType(callDesc))) {
+            problems.add(where + ": returns " + Type.getReturnType(handler.desc) + " in place of a call returning "
+                    + Type.getReturnType(callDesc));
+        }
+        return problems;
+    }
+
     private static List<String> checkCapturedArguments(String where, MethodNode handler, MethodNode target) {
         List<String> problems = new ArrayList<>();
         Type[] handlerArgs = Type.getArgumentTypes(handler.desc);

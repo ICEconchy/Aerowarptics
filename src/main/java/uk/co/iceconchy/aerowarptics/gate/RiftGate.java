@@ -12,6 +12,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorAccess;
+import uk.co.iceconchy.aerowarptics.warpnet.Membership;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkAccess;
 
 import java.util.UUID;
 
@@ -28,6 +30,9 @@ import java.util.UUID;
  *
  * @param controller where the gate's control block stands
  * @param shape      the opening, as it was when the gate last formed
+ * @param owner      whoever set the controller down, or {@code null} for a gate from before gates had
+ *                   owners, which is anybody's
+ * @param network    the network this gate is on, by id, or {@code null} for none
  */
 public record RiftGate(UUID id,
                        String name,
@@ -37,7 +42,7 @@ public record RiftGate(UUID id,
                        @Nullable UUID owner,
                        String ownerName,
                        WarpAnchorAccess access,
-                       String network,
+                       @Nullable UUID network,
                        boolean enabled) {
 
     public static final String UNNAMED = "";
@@ -48,16 +53,13 @@ public record RiftGate(UUID id,
     public RiftGate {
         name = name == null ? UNNAMED : name;
         ownerName = ownerName == null ? "" : ownerName;
-        network = network == null ? "" : network;
         access = access == null ? WarpAnchorAccess.PUBLIC : access;
     }
 
     public static RiftGate create(UUID id, ResourceKey<Level> dimension, BlockPos controller,
-                                  RiftGateShape shape, @Nullable Player builder) {
-        return new RiftGate(id, UNNAMED, dimension, controller.immutable(), shape,
-                builder == null ? null : builder.getUUID(),
-                builder == null ? "" : builder.getGameProfile().getName(),
-                WarpAnchorAccess.PUBLIC, "", true);
+                                  RiftGateShape shape, @Nullable UUID owner, String ownerName) {
+        return new RiftGate(id, UNNAMED, dimension, controller.immutable(), shape, owner, ownerName,
+                WarpAnchorAccess.PUBLIC, null, true);
     }
 
     public RiftGate withName(String newName) {
@@ -68,8 +70,21 @@ public record RiftGate(UUID id,
         return new RiftGate(id, name, dimension, controller, shape, owner, ownerName, newAccess, network, enabled);
     }
 
-    public RiftGate withNetwork(String newNetwork) {
+    public RiftGate withNetwork(@Nullable UUID newNetwork) {
         return new RiftGate(id, name, dimension, controller, shape, owner, ownerName, access, newNetwork, enabled);
+    }
+
+    /**
+     * This gate taken off whatever network it was on. One set to Network access becomes Private, for the
+     * reason an anchor does: leaving a network must never be what opens a gate to somebody new.
+     */
+    public RiftGate withoutNetwork() {
+        return new RiftGate(id, name, dimension, controller, shape, owner, ownerName,
+                access == WarpAnchorAccess.NETWORK ? WarpAnchorAccess.PRIVATE : access, null, enabled);
+    }
+
+    public RiftGate withOwner(@Nullable UUID newOwner, String newOwnerName) {
+        return new RiftGate(id, name, dimension, controller, shape, newOwner, newOwnerName, access, network, enabled);
     }
 
     public RiftGate withEnabled(boolean newEnabled) {
@@ -88,15 +103,24 @@ public record RiftGate(UUID id,
         return owner != null && owner.equals(player);
     }
 
-    /** Whether a player may dial this gate. Operators bypass the access mode. */
-    public boolean isVisibleTo(Player player) {
-        if (!access.permitted()) {
-            return isOwnedBy(player.getUUID());
-        }
-        return switch (access) {
-            case PUBLIC -> true;
-            case PRIVATE -> isOwnedBy(player.getUUID()) || player.hasPermissions(2);
-        };
+    /**
+     * Whether a player may dial this gate. Operators bypass the access mode.
+     *
+     * @param networks who is in which network, for a gate set to Network access
+     */
+    public boolean isVisibleTo(Player player, Membership networks) {
+        return NetworkAccess.permits(access, access.permitted(), isOwnedBy(player.getUUID()),
+                player.hasPermissions(2), networks.isMember(network, player.getUUID()));
+    }
+
+    /**
+     * Whether a player may rename this gate, change who it is open to, or move it between networks.
+     *
+     * <p>An unowned gate is anybody's - which is what makes a gate placed by a command block usable, and
+     * what every gate was before gates had owners.
+     */
+    public boolean mayEdit(Player player) {
+        return owner == null || isOwnedBy(player.getUUID()) || player.hasPermissions(2);
     }
 
     public boolean isInSameDimension(ServerLevel level) {
@@ -117,7 +141,9 @@ public record RiftGate(UUID id,
         }
         tag.putString("OwnerName", ownerName);
         tag.putString("Access", access.getSerializedName());
-        tag.putString("Network", network);
+        if (network != null) {
+            tag.putUUID("NetworkId", network);
+        }
         tag.putBoolean("Enabled", enabled);
         return tag;
     }
@@ -134,7 +160,7 @@ public record RiftGate(UUID id,
                 tag.hasUUID("Owner") ? tag.getUUID("Owner") : null,
                 tag.getString("OwnerName"),
                 WarpAnchorAccess.byName(tag.getString("Access")),
-                tag.getString("Network"),
+                tag.hasUUID("NetworkId") ? tag.getUUID("NetworkId") : null,
                 !tag.contains("Enabled") || tag.getBoolean("Enabled"));
     }
 
@@ -152,7 +178,10 @@ public record RiftGate(UUID id,
         }
         buf.writeUtf(gate.ownerName, 64);
         buf.writeEnum(gate.access);
-        buf.writeUtf(gate.network, 64);
+        buf.writeBoolean(gate.network != null);
+        if (gate.network != null) {
+            buf.writeUUID(gate.network);
+        }
         buf.writeBoolean(gate.enabled);
     }
 
@@ -166,7 +195,7 @@ public record RiftGate(UUID id,
                 buf.readBoolean() ? buf.readUUID() : null,
                 buf.readUtf(64),
                 buf.readEnum(WarpAnchorAccess.class),
-                buf.readUtf(64),
+                buf.readBoolean() ? buf.readUUID() : null,
                 buf.readBoolean());
     }
 }

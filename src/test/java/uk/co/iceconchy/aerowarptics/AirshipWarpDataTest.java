@@ -122,6 +122,24 @@ class AirshipWarpDataTest {
         assertTrue(data.wasCancelled());
     }
 
+    /**
+     * A free cruise can hold its claim far longer than any stale-claim grace period. A second drive on
+     * the same hull must not decide that a cruise still being flown is debris.
+     */
+    @Test
+    void aClaimStillBeatingIsNeverStaleHoweverOldItIs() {
+        AirshipWarpData data = AirshipWarpData.of(new CompoundTag());
+        data.claim(DRIVE_A, UUID.randomUUID(), TARGET, 200, 100L);
+
+        data.advance("warping", 60_000, 60_100L);
+        data.releaseIfStale(60_500L, 1000);
+        assertTrue(data.isWarping(), "an hour-old cruise that ticked a moment ago is alive");
+
+        // And once the drive stops beating, the same grace period applies from the last beat.
+        data.releaseIfStale(62_000L, 1000);
+        assertFalse(data.isWarping(), "a cruise whose drive went quiet is cleaned up like any other");
+    }
+
     @Test
     void aClaimFromTheFutureIsAlsoTreatedAsStale() {
         AirshipWarpData data = AirshipWarpData.of(new CompoundTag());
@@ -207,5 +225,41 @@ class AirshipWarpDataTest {
         assertEquals(anchor, restored.destinationAnchor());
         assertEquals(TARGET, restored.target());
         assertEquals(777L, restored.startedAt());
+    }
+
+    // ------------------------------------------------------------------ trace
+    //
+    // "Already warping" names no drive; the trace's description of the lock does, because a lock left by a
+    // broken drive looks exactly like a busy ship until somebody asks who holds it.
+
+    @Test
+    void aFreeLockSaysSoAndHowLongTheHullIsCooling() {
+        AirshipWarpData data = AirshipWarpData.of(new CompoundTag());
+        assertEquals("free", data.describe(0L));
+        data.claim(DRIVE_A, UUID.randomUUID(), TARGET, 200, 0L);
+        data.release(false, 500L);
+        assertEquals("free (hull cooling 400t)", data.describe(100L));
+    }
+
+    @Test
+    void aHeldLockNamesItsDriveAndHowLongSinceItWasHeardFrom() {
+        AirshipWarpData data = AirshipWarpData.of(new CompoundTag());
+        data.claim(DRIVE_B, UUID.randomUUID(), TARGET, 300, 1_000L);
+        data.advance("warping", 40, 1_050L);
+        String line = data.describe(1_100L);
+        assertTrue(line.startsWith("held by drive " + DRIVE_B.toShortString()), line);
+        assertTrue(line.contains("phase=warping progress=40/300t"), line);
+        assertTrue(line.contains("started 100t ago"), line);
+        assertTrue(line.contains("last heard 50t ago"), line);
+    }
+
+    @Test
+    void releasingAStaleLockSaysWhetherItDidAnything() {
+        AirshipWarpData data = AirshipWarpData.of(new CompoundTag());
+        assertFalse(data.releaseIfStale(0L, 1000), "nothing held, nothing released");
+        data.claim(DRIVE_A, UUID.randomUUID(), TARGET, 200, 0L);
+        assertFalse(data.releaseIfStale(500L, 1000), "heard from recently enough to keep");
+        assertTrue(data.releaseIfStale(5_000L, 1000));
+        assertFalse(data.isWarping());
     }
 }

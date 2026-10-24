@@ -7,13 +7,19 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
+import org.jetbrains.annotations.Nullable;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorAccess;
-import uk.co.iceconchy.aerowarptics.gate.GateFailure;
 import uk.co.iceconchy.aerowarptics.gate.RiftGate;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateBlockEntity;
 import uk.co.iceconchy.aerowarptics.gate.RiftGateRegistry;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkNotice;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkOrders;
+import uk.co.iceconchy.aerowarptics.warpnet.NetworkRules;
+import uk.co.iceconchy.aerowarptics.warpnet.WarpNetworkRegistry;
+import uk.co.iceconchy.aerowarptics.warpnet.WarpNetworks;
 
 import java.util.UUID;
 
@@ -27,9 +33,12 @@ import java.util.UUID;
  * @param gatePos  the controller the player clicked
  * @param action   what they are doing
  * @param target   destination for {@link Action#DIAL}, otherwise ignored
- * @param text     new name for {@link Action#RENAME}, otherwise ignored
+ * @param text     new name for {@link Action#RENAME}, the network's name for {@link Action#SET_NETWORK},
+ *                 otherwise ignored
+ * @param filter   the network the panel's list is filtered to, or nil for every gate. Sent with every
+ *                 action, because every one is answered with the panel again
  */
-public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target, String text)
+public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target, String text, UUID filter)
         implements CustomPacketPayload {
 
     public enum Action {
@@ -41,8 +50,12 @@ public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target
         HANG_UP,
         /** Rename this gate. */
         RENAME,
-        /** Flip this gate between public and private. */
-        CYCLE_ACCESS
+        /** Step this gate on to the next of public, network and private. */
+        CYCLE_ACCESS,
+        /** Put this gate on the network named, founding it if the name is new, or on none if blank. */
+        SET_NETWORK,
+        /** Route this gate's rail lanes to the named gate, without dialling it. Appended: actions go by ordinal. */
+        SET_ROUTE
     }
 
     private static final UUID NIL = new UUID(0L, 0L);
@@ -52,24 +65,36 @@ public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target
     public static final StreamCodec<RegistryFriendlyByteBuf, ServerboundGatePacket> STREAM_CODEC =
             StreamCodec.of(ServerboundGatePacket::encode, ServerboundGatePacket::decode);
 
-    public static ServerboundGatePacket open(BlockPos gatePos) {
-        return new ServerboundGatePacket(gatePos, Action.OPEN, NIL, "");
+    public static ServerboundGatePacket open(BlockPos gatePos, @Nullable UUID filter) {
+        return new ServerboundGatePacket(gatePos, Action.OPEN, NIL, "", orNil(filter));
     }
 
-    public static ServerboundGatePacket dial(BlockPos gatePos, UUID target) {
-        return new ServerboundGatePacket(gatePos, Action.DIAL, target, "");
+    public static ServerboundGatePacket dial(BlockPos gatePos, UUID target, @Nullable UUID filter) {
+        return new ServerboundGatePacket(gatePos, Action.DIAL, target, "", orNil(filter));
     }
 
-    public static ServerboundGatePacket hangUp(BlockPos gatePos) {
-        return new ServerboundGatePacket(gatePos, Action.HANG_UP, NIL, "");
+    public static ServerboundGatePacket setRoute(BlockPos gatePos, UUID target, @Nullable UUID filter) {
+        return new ServerboundGatePacket(gatePos, Action.SET_ROUTE, target, "", orNil(filter));
     }
 
-    public static ServerboundGatePacket rename(BlockPos gatePos, String name) {
-        return new ServerboundGatePacket(gatePos, Action.RENAME, NIL, name);
+    public static ServerboundGatePacket hangUp(BlockPos gatePos, @Nullable UUID filter) {
+        return new ServerboundGatePacket(gatePos, Action.HANG_UP, NIL, "", orNil(filter));
     }
 
-    public static ServerboundGatePacket cycleAccess(BlockPos gatePos) {
-        return new ServerboundGatePacket(gatePos, Action.CYCLE_ACCESS, NIL, "");
+    public static ServerboundGatePacket rename(BlockPos gatePos, String name, @Nullable UUID filter) {
+        return new ServerboundGatePacket(gatePos, Action.RENAME, NIL, name, orNil(filter));
+    }
+
+    public static ServerboundGatePacket cycleAccess(BlockPos gatePos, @Nullable UUID filter) {
+        return new ServerboundGatePacket(gatePos, Action.CYCLE_ACCESS, NIL, "", orNil(filter));
+    }
+
+    public static ServerboundGatePacket setNetwork(BlockPos gatePos, String network, @Nullable UUID filter) {
+        return new ServerboundGatePacket(gatePos, Action.SET_NETWORK, NIL, network, orNil(filter));
+    }
+
+    private static UUID orNil(@Nullable UUID id) {
+        return id == null ? NIL : id;
     }
 
     @Override
@@ -82,11 +107,12 @@ public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target
         buf.writeEnum(packet.action);
         buf.writeUUID(packet.target == null ? NIL : packet.target);
         buf.writeUtf(packet.text == null ? "" : packet.text, 64);
+        buf.writeUUID(orNil(packet.filter));
     }
 
     private static ServerboundGatePacket decode(RegistryFriendlyByteBuf buf) {
         return new ServerboundGatePacket(buf.readBlockPos(), buf.readEnum(Action.class),
-                buf.readUUID(), buf.readUtf(64));
+                buf.readUUID(), buf.readUtf(64), buf.readUUID());
     }
 
     public static void handle(ServerboundGatePacket packet, IPayloadContext context) {
@@ -100,15 +126,20 @@ public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target
                 return;
             }
 
+            NetworkNotice notice = NetworkNotice.NONE;
             switch (packet.action) {
                 case OPEN -> {
                 }
                 case DIAL -> gate.dial(player, packet.target);
-                case HANG_UP -> gate.hangUp(GateFailure.NONE);
+                // Refused while a train is part of the way through; see playerHangUp.
+                case HANG_UP -> gate.playerHangUp();
+                case SET_ROUTE -> gate.setRoute(player, NIL.equals(packet.target) ? null : packet.target);
                 case RENAME -> rename(level, gate, player, packet.text);
                 case CYCLE_ACCESS -> cycleAccess(level, gate, player);
+                case SET_NETWORK -> notice = setNetwork(level, gate, player, packet.text);
             }
-            ClientboundGateDialPacket.sendTo(player, level, gate);
+            ClientboundGateDialPacket.sendTo(player, level, gate,
+                    NIL.equals(packet.filter) ? null : packet.filter, notice);
         });
     }
 
@@ -140,7 +171,7 @@ public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target
     private static void rename(ServerLevel level, RiftGateBlockEntity gate, ServerPlayer player, String name) {
         RiftGateRegistry registry = RiftGateRegistry.get(level);
         RiftGate record = registry.byId(gate.gateId());
-        if (record == null || !mayEdit(record, player)) {
+        if (record == null || !record.mayEdit(player)) {
             return;
         }
         registry.rename(record.id(), name);
@@ -149,15 +180,37 @@ public record ServerboundGatePacket(BlockPos gatePos, Action action, UUID target
     private static void cycleAccess(ServerLevel level, RiftGateBlockEntity gate, ServerPlayer player) {
         RiftGateRegistry registry = RiftGateRegistry.get(level);
         RiftGate record = registry.byId(gate.gateId());
-        if (record == null || !mayEdit(record, player)) {
+        if (record == null || !record.mayEdit(player)) {
             return;
         }
-        WarpAnchorAccess next = record.access().next();
-        registry.register(record.withAccess(next.permitted() ? next : record.access()));
+        registry.register(record.withAccess(
+                record.access().next(record.network() != null, WarpAnchorAccess::permitted)));
     }
 
-    /** An unowned gate is anybody's - which is what makes a gate placed by a command block usable. */
-    private static boolean mayEdit(RiftGate gate, ServerPlayer player) {
-        return gate.owner() == null || gate.isOwnedBy(player.getUUID()) || player.hasPermissions(2);
+    /**
+     * Puts this gate on the network typed into its panel, or takes it off one.
+     *
+     * @return why not, to be said in the panel - which stays open, so the action bar behind it would not do
+     */
+    private static NetworkNotice setNetwork(ServerLevel level, RiftGateBlockEntity gate, ServerPlayer player,
+                                            String typed) {
+        RiftGateRegistry registry = RiftGateRegistry.get(level);
+        RiftGate record = registry.byId(gate.gateId());
+        if (record == null || !record.mayEdit(player)) {
+            return NetworkNotice.NONE;
+        }
+        NetworkOrders.Resolved resolved = NetworkOrders.resolve(WarpNetworkRegistry.get(level), typed,
+                record.owner(), player.getUUID(), player.getGameProfile().getName(), player.hasPermissions(2),
+                WarpNetworks.caps());
+        if (resolved.refused()) {
+            return resolved.notice();
+        }
+        if (!java.util.Objects.equals(resolved.network(), record.network())) {
+            registry.register(resolved.network() == null
+                    ? record.withoutNetwork() : record.withNetwork(resolved.network()));
+            Trace.log(Trace.GATE, "{} put on network {} by {}", Trace.pos(gate.getBlockPos()),
+                    resolved.network() == null ? "none" : "\"" + NetworkRules.clean(typed) + "\"", Trace.who(player));
+        }
+        return NetworkNotice.NONE;
     }
 }

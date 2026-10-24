@@ -1,0 +1,33 @@
+{
+  "type": "create:mechanical_crafting",
+  "key": {
+    "A": {
+      "item": "aerowarptics:relic_armillary"
+    },
+    "O": {
+      "item": "aerowarptics:opened_rift_lens"
+    },
+    "E": {
+      "item": "aerowarptics:rift_pearl"
+    },
+    "M": {
+      "item": "create:precision_mechanism"
+    },
+    "C": {
+      "item": "aerowarptics:rift_casing"
+    },
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    }
+  },
+  "pattern": [
+    " OAO ",
+    "EMCME",
+    "SCCCS"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:collapse_cradle"
+  },
+  "accept_mirrored": false
+}

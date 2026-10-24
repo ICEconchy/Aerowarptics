@@ -1,10 +1,12 @@
 package uk.co.iceconchy.aerowarptics.gate;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
+import uk.co.iceconchy.aerowarptics.hold.Holds;
 
 import java.util.Comparator;
 
@@ -42,8 +44,16 @@ public final class GateTicket {
      * @param opening how wide the gate is, so a large doorway claims enough for what fits through it
      */
     public static void hold(ServerLevel level, Vec3 centre, double opening) {
+        BlockPos at = BlockPos.containing(centre);
+        if (Holds.inPlot(level, at)) {
+            // A gate aboard a ship. A ticket at its plot coordinates is refused - and before Holds existed,
+            // Sable cancelled it silently, which is why a gate on a hull that had sailed off out of sight
+            // was a dead far end. The ship itself is what has to be held.
+            Holds.reachShipAt(level, at, "gate end at " + at.toShortString(), true);
+            return;
+        }
         ChunkPos chunk = new ChunkPos(Mth.floor(centre.x) >> 4, Mth.floor(centre.z) >> 4);
         int radius = Mth.clamp((int) Math.ceil(opening / 16.0D) + 1, 2, 6);
-        level.getChunkSource().addRegionTicket(GATE_OPEN, chunk, radius, chunk);
+        Holds.ground(level, GATE_OPEN, chunk, radius);
     }
 }

@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "side": "aerowarptics:block/spatial_wave_detector_side",
+    "top": "aerowarptics:block/spatial_wave_detector_top",
+    "bottom": "aerowarptics:block/spatial_wave_detector_bottom"
+  }
+}

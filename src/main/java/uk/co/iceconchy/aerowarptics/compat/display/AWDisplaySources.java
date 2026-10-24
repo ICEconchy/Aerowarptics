@@ -43,7 +43,18 @@ public final class AWDisplaySources {
             new RiftProbeDisplaySource(),
             new SpatialSiphonDisplaySource(),
             new RiftChuteDisplaySource(),
-            new RiftModulatorDisplaySource());
+            new RiftModulatorDisplaySource(),
+            new RiftCouplerDisplaySource(),
+            new RiftBrazierDisplaySource(),
+            new CollapseCradleDisplaySource(),
+            new RiftWardDisplaySource(),
+            new RiftWellheadDisplaySource());
+
+    /**
+     * The coupler's roster, the one source that is not an {@link AWDisplaySource} - it writes a line per
+     * ship rather than one value. Registered beside the rest, the same instance both times.
+     */
+    public static final RiftCouplerRosterDisplaySource ROSTER = new RiftCouplerRosterDisplaySource();
 
     private AWDisplaySources() {
     }
@@ -57,6 +68,7 @@ public final class AWDisplaySources {
             event.register(CreateRegistries.DISPLAY_SOURCE,
                     AeroWarptics.id(source.sourceId()), () -> source);
         }
+        event.register(CreateRegistries.DISPLAY_SOURCE, AeroWarptics.id(ROSTER.sourceId()), () -> ROSTER);
     }
 
     /** Links every source to the block entity it reads, which is what offers it in the dropdown. */
@@ -64,7 +76,9 @@ public final class AWDisplaySources {
         event.enqueueWork(() -> {
             for (AWDisplaySource<?> source : ALL) {
                 DisplaySource.BY_BLOCK_ENTITY.add(source.blockEntityType(), source);
+                source.registerExtras();
             }
+            DisplaySource.BY_BLOCK_ENTITY.add(ROSTER.blockEntityType(), ROSTER);
         });
     }
 }

@@ -2,6 +2,7 @@ package uk.co.iceconchy.aerowarptics.beacon;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import org.jetbrains.annotations.Nullable;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -22,12 +23,14 @@ import net.minecraft.world.phys.Vec3;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.advancement.AWCriteria;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.drive.DriveAssembly;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.network.AWNetwork;
 import uk.co.iceconchy.aerowarptics.network.ClientboundRiftBeaconPacket;
 import uk.co.iceconchy.aerowarptics.network.ClientboundWarpFeedbackPacket;
 import uk.co.iceconchy.aerowarptics.registry.AWDataComponents;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
 import uk.co.iceconchy.aerowarptics.util.AWLang;
 import uk.co.iceconchy.aerowarptics.warp.WarpFailure;
 import uk.co.iceconchy.aerowarptics.warp.WarpValidator;
@@ -88,9 +91,11 @@ public class RiftBeaconItem extends Item {
         }
 
         ItemStack held = context.getItemInHand();
-        if (player.isSecondaryUseActive()
-                && level.getBlockEntity(context.getClickedPos()) instanceof RiftDriveBlockEntity drive) {
-            return bind(commander, held, drive);
+        // A formed Drive Extender is its drive here too, so a beacon can be bound from any face of a frame.
+        RiftDriveBlockEntity clicked = player.isSecondaryUseActive()
+                ? DriveAssembly.driveAt(level, context.getClickedPos()) : null;
+        if (clicked != null) {
+            return bind(commander, held, clicked);
         }
         // A click onto a block is not gated on the item cooldown the way an air click is, so without
         // this a held button asks the drive again every tick.
@@ -139,7 +144,30 @@ public class RiftBeaconItem extends Item {
         }
         // The open block against the face that was hit: the ground under the crosshair rather than
         // the inside of it.
-        return summon(level, player, held, hit.getBlockPos().relative(hit.getDirection()));
+        return summon(level, player, held, onTheMap(level, hit.getBlockPos(),
+                hit.getBlockPos().relative(hit.getDirection())));
+    }
+
+    /**
+     * Where an aimed-at block is in the world, when the crosshair was on a ship.
+     *
+     * <p>Sable lets the ray hit a ship's blocks and answers in the ship's plot, so a beacon pointed at a
+     * deck - its own ship's, or one moored across the valley - came back twenty million blocks away and
+     * the drive refused it as too far, which is true of the number and meaningless to the player. The
+     * open block beside the face is taken through the pose of the ship that was hit, so what is summoned
+     * to is the spot beside the deck as it stands now.
+     *
+     * @param struck the block the ray stopped at, which says whether it was a ship's
+     * @param open   the open block against the face that was hit, in the same frame as {@code struck}
+     */
+    private static BlockPos onTheMap(ServerLevel level, BlockPos struck, BlockPos open) {
+        Airship ship = Airship.containing(level, struck);
+        if (ship == null) {
+            return open;
+        }
+        BlockPos world = BlockPos.containing(ship.toWorld(Vec3.atCenterOf(open)));
+        Trace.log(Trace.BEACON, "aimed at {}'s deck: plot {} is {} on the map", ship, Trace.pos(open), Trace.pos(world));
+        return world;
     }
 
     /**
@@ -151,6 +179,8 @@ public class RiftBeaconItem extends Item {
      */
     private InteractionResult bind(ServerPlayer player, ItemStack held, RiftDriveBlockEntity drive) {
         WarpFailure permission = WarpValidator.validatePlayer(player, drive);
+        Trace.log(Trace.BEACON, "{} binding a beacon to drive {} -> {}", Trace.who(player),
+                Trace.pos(drive.getBlockPos()), permission.isFailure() ? permission.getSerializedName() : "bound");
         if (permission.isFailure()) {
             AWNetwork.sendTo(player, new ClientboundWarpFeedbackPacket(permission));
             return InteractionResult.CONSUME;
@@ -166,44 +196,94 @@ public class RiftBeaconItem extends Item {
         return InteractionResult.CONSUME;
     }
 
-    /** Calls the bound ship to a position, or says exactly why it is not coming. */
+    /**
+     * Calls the bound ship to a position, or says exactly why it is not coming.
+     *
+     * <p>A ship that is not loaded is reached for first ({@link BeaconReach}): the ground it was last seen
+     * over is loaded, and the summon goes ahead once it is back. A ship that is loaded is summoned at once,
+     * exactly as before, with nothing extra held.
+     */
     private InteractionResult summon(ServerLevel level, ServerPlayer player, ItemStack held, BlockPos target) {
         RiftBeaconBinding binding = held.get(AWDataComponents.BEACON_BINDING.get());
+        boolean asked;
+        if (binding != null && binding.isIn(level) && driveAt(level, binding) == null
+                && BeaconReach.begin(level, player, binding, target)) {
+            asked = true;
+        } else {
+            asked = complete(level, player, binding, target);
+        }
+        if (asked) {
+            // Whether the drive answered, refused, or is still being reached for: a summon that has gone as
+            // far as asking cannot be hammered once a tick.
+            player.getCooldowns().addCooldown(this, AWConfig.BEACON_COOLDOWN_TICKS.get());
+        }
+        return InteractionResult.CONSUME;
+    }
 
+    /**
+     * The summon itself, once the ship is there to be asked.
+     *
+     * @return whether the drive was asked at all - {@code false} when the beacon's own rules refused first
+     */
+    static boolean complete(ServerLevel level, ServerPlayer player, @Nullable RiftBeaconBinding binding,
+                            BlockPos target) {
         // Resolved before the rules are asked, so the rules get facts rather than lookups. A drive
         // in an unloaded plot reads the same as one that has been broken, and it should: from here
         // there is no ship to call either way.
-        RiftDriveBlockEntity drive = binding == null || !binding.isIn(level) ? null
-                : level.getBlockEntity(binding.drivePos()) instanceof RiftDriveBlockEntity found ? found : null;
+        RiftDriveBlockEntity drive = binding == null || !binding.isIn(level) ? null : driveAt(level, binding);
         Airship airship = drive == null ? null : drive.airship();
 
         WarpFailure verdict = RiftBeaconRules.check(binding != null,
                 binding != null && binding.isIn(level), drive != null,
                 airship != null && airship.isActive());
         if (verdict.isFailure()) {
+            Trace.log(Trace.BEACON, "{} summon to {} refused: {} (bound to {} in {}, this level {})",
+                    Trace.who(player), Trace.pos(target), verdict.getSerializedName(),
+                    binding == null ? "nothing" : Trace.pos(binding.drivePos()),
+                    binding == null ? "-" : binding.dimension().location(), level.dimension().location());
             AWNetwork.sendTo(player, new ClientboundWarpFeedbackPacket(verdict));
-            return InteractionResult.CONSUME;
+            return false;
         }
 
         WarpFailure result = drive.summonTo(player, target,
                 AWLang.translate("beacon.course", target.getX(), target.getY(), target.getZ()).string());
+        Trace.log(Trace.BEACON, "{} summoned drive {} to {} -> {}", Trace.who(player), Trace.pos(drive.getBlockPos()),
+                Trace.pos(target), result.getSerializedName());
         if (result.isFailure()) {
-            // startWarp has already told the player through the drive's own channel; the cooldown is
-            // still applied so a refused summon cannot be hammered once a tick.
-            player.getCooldowns().addCooldown(this, AWConfig.BEACON_COOLDOWN_TICKS.get());
-            return InteractionResult.CONSUME;
+            // Said here, because nothing else says it. A drive's refusals are read off its console, which
+            // the summoner is by definition not looking at, and this once assumed startWarp told them -
+            // it does not, so a summon to somewhere too close, or with the drive out of charge, was
+            // simply silent and read as a broken item. The one exception is a tied-down ship, which the
+            // drive has already announced with what ties it and where; a bare "tied down" after it would
+            // only write over the half that says where. The Fleet Board's Fold answers the same way.
+            if (result != WarpFailure.SHIP_FASTENED) {
+                AWNetwork.sendTo(player, new ClientboundWarpFeedbackPacket(result));
+            }
+            return true;
         }
 
-        player.getCooldowns().addCooldown(this, AWConfig.BEACON_COOLDOWN_TICKS.get());
         ClientboundRiftBeaconPacket.broadcast(level, target, drive);
         // The drive has agreed to everything it agrees to for any warp, so the summon has happened
         // as far as the beacon is concerned. The flight itself is the crew's advancement, not the
         // summoner's - they are, by definition, not aboard.
         AWCriteria.shipSummoned(player);
-        return InteractionResult.CONSUME;
+        return true;
     }
 
-    private static String shipName(String ship) {
+    /** The drive a binding names, if its ship is loaded. */
+    @Nullable
+    static RiftDriveBlockEntity driveAt(ServerLevel level, RiftBeaconBinding binding) {
+        return level.getBlockEntity(binding.drivePos()) instanceof RiftDriveBlockEntity found ? found : null;
+    }
+
+    /** Whether a binding's drive is loaded and knows which ship it is on, so a summon would be heard. */
+    static boolean readyToSummon(ServerLevel level, RiftBeaconBinding binding) {
+        RiftDriveBlockEntity drive = driveAt(level, binding);
+        Airship airship = drive == null ? null : drive.airship();
+        return airship != null && airship.isActive();
+    }
+
+    static String shipName(String ship) {
         return ship.isEmpty() ? AWLang.translate("gui.rift_navigation.unnamed_ship").string() : ship;
     }
 

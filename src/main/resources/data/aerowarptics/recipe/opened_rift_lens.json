@@ -1,0 +1,13 @@
+{
+  "type": "aerowarptics:rifting",
+  "ingredients": [
+    {
+      "item": "aerowarptics:rift_lens"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:opened_rift_lens"
+    }
+  ]
+}

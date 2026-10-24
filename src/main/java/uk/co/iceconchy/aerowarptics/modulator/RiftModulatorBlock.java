@@ -19,6 +19,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
+import uk.co.iceconchy.aerowarptics.drive.DriveAssembly;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveBlockEntity;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 
@@ -73,15 +74,19 @@ public class RiftModulatorBlock extends DirectionalBlock implements IBE<RiftModu
         return defaultBlockState().setValue(FACING, facing);
     }
 
-    /** The facing of the first Rift Drive found among the six neighbours, or {@code null}. */
+    /**
+     * The facing of the first Rift Drive found among the six neighbours, or {@code null}. A formed
+     * Drive Extender stands in for its drive, so a module on any face of a frame lines up with the
+     * machine it belongs to rather than with the player.
+     */
     private static Direction adjacentDriveFacing(BlockGetter level, BlockPos pos) {
         for (Direction direction : Direction.values()) {
-            BlockPos neighbourPos = pos.relative(direction);
-            if (level.getBlockEntity(neighbourPos) instanceof RiftDriveBlockEntity) {
+            RiftDriveBlockEntity drive = DriveAssembly.driveAt(level, pos.relative(direction));
+            if (drive != null) {
                 // Create's DirectionalKineticBlock shares vanilla's own FACING property rather than
                 // declaring a second one, which is what lets this be read without importing the
                 // drive's block class at all.
-                return level.getBlockState(neighbourPos).getValue(BlockStateProperties.FACING);
+                return drive.getBlockState().getValue(BlockStateProperties.FACING);
             }
         }
         return null;

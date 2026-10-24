@@ -12,6 +12,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import org.jetbrains.annotations.Nullable;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
+import uk.co.iceconchy.aerowarptics.warpnet.Membership;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -129,11 +130,49 @@ public class RiftGateRegistry extends SavedData {
      * another dimension is somewhere a vehicle can never follow its driver - and a door that takes
      * half of what goes through it is worse than no door.
      */
-    public List<RiftGate> dialableFrom(Player player, ResourceKey<Level> dimension, @Nullable UUID excluding) {
+    public List<RiftGate> dialableFrom(Player player, Membership networks, ResourceKey<Level> dimension,
+                                       @Nullable UUID excluding) {
         return filtered(gate -> gate.enabled()
-                && gate.isVisibleTo(player)
+                && gate.isVisibleTo(player, networks)
                 && gate.dimension().equals(dimension)
                 && !gate.id().equals(excluding));
+    }
+
+    /**
+     * Gates a player may route this gate's rail lanes to: everything they may dial, and every gate they may see in
+     * another dimension as well - trains go where people and vehicles through a gate cannot. Same-dimension gates
+     * first, as a dial lists them.
+     */
+    public List<RiftGate> routableFrom(Player player, Membership networks, ResourceKey<Level> dimension,
+                                       @Nullable UUID excluding) {
+        List<RiftGate> gates = filtered(gate -> gate.enabled()
+                && gate.isVisibleTo(player, networks)
+                && !gate.id().equals(excluding));
+        List<RiftGate> ordered = new ArrayList<>(gates.size());
+        gates.stream().filter(gate -> gate.dimension().equals(dimension)).forEach(ordered::add);
+        gates.stream().filter(gate -> !gate.dimension().equals(dimension)).forEach(ordered::add);
+        return ordered;
+    }
+
+    /**
+     * Takes every gate the predicate picks off its network, and says which they were.
+     *
+     * <p>A gate's settings live only here, so unlike an anchor there is no block to tell.
+     */
+    public List<RiftGate> detach(Predicate<RiftGate> which) {
+        List<RiftGate> changed = new ArrayList<>();
+        for (Map.Entry<UUID, RiftGate> entry : byId.entrySet()) {
+            RiftGate gate = entry.getValue();
+            if (gate.network() != null && which.test(gate)) {
+                RiftGate off = gate.withoutNetwork();
+                entry.setValue(off);
+                changed.add(off);
+            }
+        }
+        if (!changed.isEmpty()) {
+            setDirty();
+        }
+        return changed;
     }
 
     public List<RiftGate> filtered(Predicate<RiftGate> predicate) {

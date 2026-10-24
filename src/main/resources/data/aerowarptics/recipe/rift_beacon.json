@@ -2,11 +2,14 @@
   "type": "minecraft:crafting_shaped",
   "category": "misc",
   "pattern": [
-    " G ",
+    " P ",
     "GLG",
     " C "
   ],
   "key": {
+    "P": {
+      "item": "aerowarptics:rift_pearl"
+    },
     "G": {
       "item": "create:brass_sheet"
     },

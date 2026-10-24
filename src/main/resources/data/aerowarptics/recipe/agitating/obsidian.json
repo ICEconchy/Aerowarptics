@@ -1,0 +1,15 @@
+{
+  "type": "aerowarptics:agitating",
+  "ingredients": [
+    {
+      "item": "minecraft:obsidian"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:rift_essence",
+      "amount": 30
+    }
+  ],
+  "strain": 0.6
+}

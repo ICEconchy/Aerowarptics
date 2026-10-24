@@ -1,9 +1,12 @@
 package uk.co.iceconchy.aerowarptics.astrolabe;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -152,6 +155,66 @@ public final class AstrolabeStructure {
     /** The origin a cell points at, rebuilt from the {@link #originStep} stored against it. */
     public static BlockPos originFromStep(BlockPos cell, BlockPos step) {
         return cell.offset(step.getX(), step.getY(), step.getZ());
+    }
+
+    /** What one cell of a table turned out to hold when the table was checked. */
+    public enum Cell {
+        /** A formed astrolabe that records this very table. */
+        MEMBER,
+        /** Anything else: air, another block, a loose panel, or a cell of some other table. */
+        STRANGER,
+        /** In a chunk that is not loaded, so there is no telling yet. */
+        UNLOADED
+    }
+
+    /** Whether a table a cell points at is really there. */
+    public enum Integrity {
+        INTACT,
+        BROKEN,
+        /** Nothing is known to be wrong, but part of the table could not be looked at. */
+        UNKNOWN
+    }
+
+    /**
+     * Whether every cell of a table is still one of its members.
+     *
+     * <p>A single stranger breaks the table even while other cells are unloaded: whatever those turn out
+     * to hold, a table with a hole in it is not that table. Only when nothing is known to be wrong does
+     * an unloaded cell leave the answer open, so a table straddling a chunk that has not loaded yet is
+     * not torn down for it.
+     *
+     * @param survey what a given cell holds
+     */
+    public static Integrity integrity(Table table, Function<BlockPos, Cell> survey) {
+        boolean unloaded = false;
+        for (BlockPos cell : table.cells()) {
+            switch (survey.apply(cell)) {
+                case STRANGER -> {
+                    return Integrity.BROKEN;
+                }
+                case UNLOADED -> unloaded = true;
+                case MEMBER -> {
+                }
+            }
+        }
+        return unloaded ? Integrity.UNKNOWN : Integrity.INTACT;
+    }
+
+    /**
+     * Whether a cell holds on to its neighbour in a direction, for anything that moves blocks together.
+     *
+     * <p>A table is one object, so a cell drags every other cell of its table along with it and nothing
+     * outside. This is what Create's contraptions and Simulated's assembler ask of a block they have
+     * reached; without it they took only the cells inside the glue, and the rest of the table was left
+     * on the ground.
+     *
+     * @param table     the table the cell records, or {@code null} for a loose panel
+     * @param neighbour what the cell's neighbour records, or {@code null} for anything else there
+     */
+    public static boolean holdsTogether(@Nullable Table table, BlockPos cell, Direction towards,
+                                        @Nullable Table neighbour) {
+        return table != null && table.equals(neighbour)
+                && table.covers(cell) && table.covers(cell.relative(towards));
     }
 
     /**

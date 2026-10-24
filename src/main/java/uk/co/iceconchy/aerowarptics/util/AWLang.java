@@ -4,6 +4,7 @@ import net.createmod.catnip.lang.Lang;
 import net.createmod.catnip.lang.LangBuilder;
 import net.minecraft.network.chat.Component;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
+import uk.co.iceconchy.aerowarptics.warp.WarpCost;
 
 /**
  * Namespaced entry point into Catnip's {@link LangBuilder}, matching how Create and its addons build
@@ -89,5 +90,38 @@ public final class AWLang {
     /** Formats a 0..1 fraction as a whole percentage. */
     public static String percent(double fraction) {
         return Math.round(Math.max(0.0D, Math.min(1.0D, fraction)) * 100.0D) + "%";
+    }
+
+    /**
+     * How far a drive reaches: a distance, or "Infinite" for one no world is wide enough to test - see
+     * {@link WarpCost#unlimited}. A creative drive's configured hundred thousand kilometres used to be printed
+     * as exactly that, which is a limit it does not have.
+     */
+    public static String reach(double blocks) {
+        return WarpCost.unlimited(blocks) ? infinite() : distance(blocks);
+    }
+
+    /** A drive's charge: a percentage, or "Infinite" for a creative drive, which never spends any. */
+    public static String charge(boolean creative, double fraction) {
+        return creative ? infinite() : percent(fraction);
+    }
+
+    /** How far a cruise has flown, and of how far it may - which a creative drive's cruise has no end to. */
+    public static LangBuilder cruised(double flown, double limit) {
+        return WarpCost.unlimited(limit)
+                ? AWLang.translate("gui.rift_drive.cruised_infinite", distance(flown))
+                : AWLang.translate("gui.rift_drive.cruised", distance(flown), distance(limit));
+    }
+
+    /** How far a cruise could fly on the charge in hand, before it sets off. */
+    public static LangBuilder cruiseReach(double limit) {
+        return WarpCost.unlimited(limit)
+                ? AWLang.translate("gui.rift_drive.cruise_reach_infinite")
+                : AWLang.translate("gui.rift_drive.cruise_reach", distance(limit));
+    }
+
+    // Written AWLang.translate, not translate, in here too: LangCoverageTest finds the keys in use by that text.
+    private static String infinite() {
+        return AWLang.translate("gui.infinite").string();
     }
 }

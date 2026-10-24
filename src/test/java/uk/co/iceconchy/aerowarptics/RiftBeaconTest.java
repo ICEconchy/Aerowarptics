@@ -69,6 +69,8 @@ class RiftBeaconTest {
         // burns charge and a cooldown on the way out.
         assertFalse(WarpFailure.BEACON_UNBOUND.penalised());
         assertFalse(WarpFailure.BEACON_DRIVE_MISSING.penalised());
+        assertFalse(WarpFailure.SHIP_OUT_OF_REACH.penalised(),
+                "a ship that could not be brought back to be asked has not flown anywhere to pay for");
     }
 
     /**
@@ -84,13 +86,31 @@ class RiftBeaconTest {
         WarpFailure[] all = WarpFailure.values();
         // Each wave of new reasons was appended at the very end - the only safe place to add a
         // wire-ordinal constant. Everything before them kept its ordinal; the older entries are
-        // simply no longer the last ones. LAUNCH_UNPROVEN is the most recent arrival, added when
-        // "could not prove the corridor clear" was split away from "the corridor is blocked".
-        assertEquals(WarpFailure.LAUNCH_UNPROVEN, all[all.length - 1]);
-        assertEquals(WarpFailure.ARRIVAL_NOT_LOADED, all[all.length - 2]);
-        assertEquals(WarpFailure.NO_CLEAR_LAUNCH, all[all.length - 3]);
-        assertEquals(WarpFailure.BEACON_DRIVE_MISSING, all[all.length - 4]);
-        assertEquals(WarpFailure.BEACON_UNBOUND, all[all.length - 5]);
+        // simply no longer the last ones. The most recent is a destination under a Rift Ward with no room at
+        // its rim. Before it a ship tied down by something the warp would leave behind, and before that the
+        // beacon's own again: a ship it reached for and could not bring back. Before that the two flotilla
+        // reasons, with the Rift Coupler; before them the two dimension reasons, with the crossing that
+        // rebuilds a hull.
+        // And the four a station refuses with came after all of those, with the Berth; then a rope that
+        // cannot cross into another dimension.
+        assertEquals(WarpFailure.DIMENSION_ROPED, all[all.length - 1]);
+        assertEquals(WarpFailure.BERTH_OBSTRUCTED, all[all.length - 2]);
+        assertEquals(WarpFailure.BERTH_FORBIDDEN, all[all.length - 3]);
+        assertEquals(WarpFailure.BERTH_TOO_SMALL, all[all.length - 4]);
+        assertEquals(WarpFailure.NO_FREE_BERTH, all[all.length - 5]);
+        assertEquals(WarpFailure.DESTINATION_WARDED, all[all.length - 6]);
+        assertEquals(WarpFailure.SHIP_FASTENED, all[all.length - 7]);
+        assertEquals(WarpFailure.SHIP_OUT_OF_REACH, all[all.length - 8]);
+        assertEquals(WarpFailure.FLOTILLA_NOT_READY, all[all.length - 9]);
+        assertEquals(WarpFailure.FOLD_CALLED_OFF, all[all.length - 10]);
+        assertEquals(WarpFailure.DIMENSION_TOO_TALL, all[all.length - 11]);
+        assertEquals(WarpFailure.DIMENSION_NO_ROOM, all[all.length - 12]);
+        assertEquals(WarpFailure.ARRIVAL_UNPROVEN, all[all.length - 13]);
+        assertEquals(WarpFailure.LAUNCH_UNPROVEN, all[all.length - 14]);
+        assertEquals(WarpFailure.ARRIVAL_NOT_LOADED, all[all.length - 15]);
+        assertEquals(WarpFailure.NO_CLEAR_LAUNCH, all[all.length - 16]);
+        assertEquals(WarpFailure.BEACON_DRIVE_MISSING, all[all.length - 17]);
+        assertEquals(WarpFailure.BEACON_UNBOUND, all[all.length - 18]);
         assertEquals(0, WarpFailure.NONE.ordinal(), "NONE must stay first");
     }
 
@@ -123,6 +143,51 @@ class RiftBeaconTest {
         String item = read(SOURCE.resolve("beacon").resolve("RiftBeaconItem.java"));
         assertTrue(item.contains("WarpValidator.validatePlayer("),
                 "binding no longer checks whether the player may command the drive");
+    }
+
+    /**
+     * That a summon the drive refuses is said to whoever summoned.
+     *
+     * <p>A drive's refusals are otherwise read off its console, which a summoner is never at. From 1.3.0
+     * the beacon assumed {@code startWarp} told them, and it never did: a summon to somewhere too close,
+     * or with the drive short of charge, did nothing at all, and read as a broken item. A tied-down ship
+     * is the one refusal the drive announces itself, with what ties it and where, so saying it again
+     * would only write over that.
+     */
+    @Test
+    void aRefusedSummonIsToldToTheSummoner() {
+        String item = read(SOURCE.resolve("beacon").resolve("RiftBeaconItem.java"));
+        int complete = item.indexOf("static boolean complete(");
+        assertTrue(complete > 0, "complete has been renamed or removed");
+        String body = item.substring(complete, item.indexOf("\n    }", complete));
+        int refused = body.indexOf("if (result.isFailure())");
+        assertTrue(refused > 0, "the summon no longer looks at the drive's answer");
+        String branch = body.substring(refused, body.indexOf("return true;", refused));
+        assertTrue(branch.contains("new ClientboundWarpFeedbackPacket(result)"),
+                "a summon the drive refuses is silent to the player who made it");
+        assertTrue(branch.contains("result != WarpFailure.SHIP_FASTENED"),
+                "a tied-down ship's notice, which says where it is tied, is written over by a bare one");
+    }
+
+    /**
+     * That a beacon aimed at a ship's deck summons to where the deck is, not to its plot.
+     *
+     * <p>Sable's ray hits a ship's blocks and answers in the ship's plot grid, so a beacon pointed at a deck
+     * asked for a spot twenty million blocks out and was refused as too far. Only the wiring can be checked
+     * here - the conversion itself is a Sable pose, which needs a running game.
+     */
+    @Test
+    void aShipsDeckIsAimedAtWhereItIsOnTheMap() {
+        String item = read(SOURCE.resolve("beacon").resolve("RiftBeaconItem.java"));
+        int aim = item.indexOf("private InteractionResult aim(");
+        assertTrue(aim > 0, "aim has been renamed or removed");
+        assertTrue(item.substring(aim, item.indexOf("\n    }", aim)).contains("onTheMap("),
+                "the aimed-at block goes to the drive without being taken out of a ship's plot");
+        int map = item.indexOf("private static BlockPos onTheMap(");
+        assertTrue(map > 0, "onTheMap has been renamed or removed");
+        String conversion = item.substring(map, item.indexOf("\n    }", map));
+        assertTrue(conversion.contains("Airship.containing(") && conversion.contains(".toWorld("),
+                "onTheMap no longer asks whether the block is a ship's and converts it through its pose");
     }
 
     /** No packet in this feature may bound a list on its own; see {@code PacketListCapTest}. */

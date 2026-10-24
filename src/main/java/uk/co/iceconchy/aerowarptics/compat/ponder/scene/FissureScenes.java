@@ -36,7 +36,7 @@ public final class FissureScenes {
     // --------------------------------------------------------------- finding
 
     public static void finding(SceneBuilder scene, SceneBuildingUtil util) {
-        scene.title("rift_fissure", "Tears Nobody Opened");
+        scene.title("rift_fissure", "Rifts Nobody Opened");
         scene.configureBasePlate(0, 0, 5);
         scene.showBasePlate();
         scene.idle(10);
@@ -49,14 +49,14 @@ public final class FissureScenes {
         scene.idle(20);
 
         scene.overlay().showText(90)
-                .text("Ruins generate where somebody's gate went wrong: a broken ring, a sunken vault, a survey mast")
+                .text("Ruins generate where someone's gate went wrong: a broken ring, a sunken vault, a survey mast")
                 .pointAt(util.vector().topOf(util.grid().at(1, 2, RING)))
                 .placeNearTarget()
                 .attachKeyFrame();
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("A Rift Fissure hangs in the middle of one. It is a tear that never closed, still leaking Rift Essence")
+                .text("A Rift Fissure hangs in the middle of one. It is a rift that never closed, still leaking Rift Essence")
                 .pointAt(middle)
                 .colored(PonderPalette.OUTPUT)
                 .placeNearTarget()
@@ -64,7 +64,7 @@ public final class FissureScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("It is invisible. No model, no outline, nothing to walk into - you can stand in the ruin and never know")
+                .text("It is invisible. It has no model and no outline, and you cannot bump into it - you could stand in the ruin and never know")
                 .pointAt(middle)
                 .colored(PonderPalette.RED)
                 .placeNearTarget()
@@ -75,7 +75,7 @@ public final class FissureScenes {
                 .withItem(new ItemStack(AWItems.RIFT_GOGGLES.get()));
         scene.idle(15);
         scene.overlay().showText(90)
-                .text("Wear Rift Infused Goggles. Only then is the tear drawn, and only then can you put a crosshair on it")
+                .text("Wear Rift Infused Goggles. Only then is the fissure drawn, and only then can you aim at it")
                 .pointAt(middle)
                 .colored(PonderPalette.GREEN)
                 .placeNearTarget()
@@ -83,14 +83,14 @@ public final class FissureScenes {
         scene.idle(100);
 
         scene.overlay().showText(80)
-                .text("They are Create's goggles with a rift-ground lens, so they read every machine the engineer's pair does")
+                .text("They are Create's goggles with a rift-ground lens, so they read every machine that the engineer's goggles do")
                 .pointAt(util.vector().centerOf(util.grid().at(3, 3, RING)))
                 .colored(PonderPalette.MEDIUM)
                 .placeNearTarget();
         scene.idle(90);
 
         scene.overlay().showText(80)
-                .text("Nothing breaks a fissure. The only way to be rid of one is to empty it")
+                .text("A fissure cannot be broken. The only way to get rid of one is to empty it")
                 .pointAt(middle)
                 .colored(PonderPalette.RED)
                 .placeNearTarget()
@@ -115,7 +115,7 @@ public final class FissureScenes {
         scene.idle(20);
 
         scene.overlay().showText(70)
-                .text("The tear stands here, seen only through the goggles")
+                .text("The fissure stands here, visible only through the goggles")
                 .pointAt(middle)
                 .colored(PonderPalette.WHITE)
                 .placeNearTarget()
@@ -126,7 +126,7 @@ public final class FissureScenes {
         scene.idle(20);
 
         scene.overlay().showText(90)
-                .text("Stand a Spatial Siphon within a few blocks of it. Nothing else is needed - no shaft, no redstone")
+                .text("Stand a Spatial Siphon within a few blocks of it. Nothing else is needed: no shaft, no redstone")
                 .pointAt(util.vector().topOf(siphon))
                 .colored(PonderPalette.GREEN)
                 .placeNearTarget()
@@ -135,7 +135,7 @@ public final class FissureScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("The fissure hands its essence over steadily, and the tear shrinks as it empties")
+                .text("The fissure hands over its essence steadily, and shrinks as it empties")
                 .pointAt(middle)
                 .colored(PonderPalette.OUTPUT)
                 .placeNearTarget()
@@ -143,7 +143,7 @@ public final class FissureScenes {
         scene.idle(100);
 
         scene.overlay().showText(90)
-                .text("One holds several times what a single vessel does, so pipe it away or stand more than one nearby")
+                .text("A fissure holds several times what a single siphon does, so pipe the essence away or stand more than one siphon nearby")
                 .pointAt(util.vector().blockSurface(siphon, Direction.SOUTH))
                 .colored(PonderPalette.BLUE)
                 .placeNearTarget()
@@ -151,14 +151,14 @@ public final class FissureScenes {
         scene.idle(100);
 
         scene.overlay().showText(80)
-                .text("A ring of siphons fills no faster. The tear is the limit, not the plumbing")
+                .text("More siphons do not fill any faster. The fissure's own rate is the limit, not the plumbing")
                 .pointAt(middle)
                 .colored(PonderPalette.MEDIUM)
                 .placeNearTarget();
         scene.idle(90);
 
         scene.overlay().showText(80)
-                .text("Spent, it seals over for good. Nothing brings that one back")
+                .text("Once empty, it seals for good. It cannot be brought back")
                 .pointAt(middle)
                 .colored(PonderPalette.RED)
                 .placeNearTarget()

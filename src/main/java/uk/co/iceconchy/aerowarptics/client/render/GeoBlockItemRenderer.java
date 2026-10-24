@@ -44,6 +44,11 @@ public class GeoBlockItemRenderer extends GeoItemRenderer<GeoBlockItem> {
      *
      * <p>The horizontal axes need no such thing - a block model is already centred on x and z, which
      * is what {@code ResourceIntegrityTest} pins so this correction cannot quietly become wrong.
+     *
+     * <p>A machine placed whole is built as large as it stands - the Collapse Cradle is three blocks each way -
+     * and is drawn shrunk to one about the floor of the slot, which leaves it standing where a one-block
+     * machine stands and centred as one is. A machine taller than its block, like the Warp Anchor, is shrunk
+     * the same way, by its own share.
      */
     @Override
     public void preRender(PoseStack poseStack, GeoBlockItem item, BakedGeoModel model,
@@ -59,6 +64,10 @@ public class GeoBlockItemRenderer extends GeoItemRenderer<GeoBlockItem> {
                 packedLight, packedOverlay, colour);
         if (!isReRender) {
             poseStack.translate(0.0F, -0.5F, 0.0F);
+            float shrink = item.itemScale();
+            if (shrink != 1.0F) {
+                poseStack.scale(shrink, shrink, shrink);
+            }
         }
     }
 

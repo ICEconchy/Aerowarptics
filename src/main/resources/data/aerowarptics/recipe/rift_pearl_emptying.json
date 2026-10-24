@@ -1,0 +1,17 @@
+{
+  "type": "create:emptying",
+  "ingredients": [
+    {
+      "item": "aerowarptics:rift_pearl"
+    }
+  ],
+  "results": [
+    {
+      "id": "minecraft:ender_pearl"
+    },
+    {
+      "amount": 200,
+      "id": "aerowarptics:rift_essence"
+    }
+  ]
+}

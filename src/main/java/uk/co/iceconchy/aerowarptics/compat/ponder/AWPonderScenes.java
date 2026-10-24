@@ -5,11 +5,16 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.ItemLike;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.BeaconScenes;
+import uk.co.iceconchy.aerowarptics.compat.ponder.scene.CraftScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.DriveScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.FissureScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.GateScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.MachineScenes;
+import uk.co.iceconchy.aerowarptics.compat.ponder.scene.CouplerScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.ModulatorScenes;
+import uk.co.iceconchy.aerowarptics.compat.ponder.scene.DetectorScenes;
+import uk.co.iceconchy.aerowarptics.compat.ponder.scene.CoolingScenes;
+import uk.co.iceconchy.aerowarptics.compat.ponder.scene.StabiliserScenes;
 import uk.co.iceconchy.aerowarptics.registry.AWItems;
 
 import java.util.ArrayList;
@@ -63,10 +68,49 @@ public final class AWPonderScenes {
         scenes.forComponents(AWItems.RIFT_MODULATOR.get())
                 .addStoryBoard("rift_modulator", ModulatorScenes::riftModulator);
 
+        scenes.forComponents(AWItems.RIFT_COUPLER.get())
+                .addStoryBoard("rift_coupler", CouplerScenes::riftCoupler);
+
+        scenes.forComponents(AWItems.SPATIAL_STABILISER.get())
+                .addStoryBoard("spatial_stabiliser", StabiliserScenes::spatialStabiliser);
+
+        scenes.forComponents(AWItems.COOLING_VENT.get())
+                .addStoryBoard("cooling_vent", CoolingScenes::coolingVent);
+
+        scenes.forComponents(AWItems.SPATIAL_WAVE_DETECTOR.get())
+                .addStoryBoard("spatial_wave_detector", DetectorScenes::spatialWaveDetector);
+
+        // The crafting layer: each machine's scene goes on what it makes as well, since the player holding an
+        // Opened Rift Lens or a Folded Warp Crystal in JEI is the one asking how it is made.
+        scenes.forComponents(AWItems.RIFT_BRAZIER.get(), AWItems.OPENED_RIFT_LENS.get(), AWItems.WARP_GLASS.get())
+                .addStoryBoard("rift_brazier", CraftScenes::rifting);
+        scenes.forComponents(AWItems.RIFT_COLLAR.get())
+                .addStoryBoard("rift_wellhead", uk.co.iceconchy.aerowarptics.compat.ponder.scene.WellheadScenes::wellhead);
+        scenes.forComponents(AWItems.RIFT_SUNDERER.get())
+                .addStoryBoard("rift_sunderer", uk.co.iceconchy.aerowarptics.compat.ponder.scene.SundererScenes::sunderer);
+        scenes.forComponents(AWItems.COLLAPSE_CRADLE.get())
+                .addStoryBoard("collapse_cradle", CraftScenes::collapse)
+                .addStoryBoard("collapse_cradle", CraftScenes::folding);
+        scenes.forComponents(AWItems.SINGULARITY_CORE.get())
+                .addStoryBoard("collapse_cradle", CraftScenes::collapse);
+        scenes.forComponents(AWItems.FOLDED_WARP_CRYSTAL.get(), AWItems.PEARLESCENT_WARP_CRYSTAL.get(),
+                        AWItems.SHIP_COMPASS.get())
+                .addStoryBoard("collapse_cradle", CraftScenes::folding);
+        // The heart is what a sealed fissure leaves, so it plays the sealing - and the collapse it is for.
+        scenes.forComponents(AWItems.SCAR_HEART.get())
+                .addStoryBoard("rift_fissure", FissureScenes::closing)
+                .addStoryBoard("collapse_cradle", CraftScenes::collapse);
+
         // Every tier is the same machine with different numbers, so they share the scene rather than
-        // each getting a near-identical one.
+        // each getting a near-identical one. The frame scene goes on the drives as well as on the
+        // casing: a frame is a thing a drive does, and the player holding the drive is the one who has
+        // not yet heard it can.
         scenes.forComponents(drives())
-                .addStoryBoard("rift_drive", DriveScenes::riftDrive);
+                .addStoryBoard("rift_drive", DriveScenes::riftDrive)
+                .addStoryBoard("drive_extender", DriveScenes::driveExtender);
+
+        scenes.forComponents(AWItems.DRIVE_EXTENDER.get())
+                .addStoryBoard("drive_extender", DriveScenes::driveExtender);
 
         // The frame is most of a gate by block count, so it earns the same pair of scenes as the
         // controller - a player holding a stack of frame is exactly the player who needs them.

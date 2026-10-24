@@ -54,7 +54,32 @@ public enum RiftModulatorTheme {
     /** The rift refuses to arrive all at once, stuttering in and out in hard steps with a grinding wheeze. */
     VWORP("vworp"),
     /** Every piece picks its own way out, and picks again next time. Never twice the same rift. */
-    IMPROBABILITY("improbability");
+    IMPROBABILITY("improbability"),
+
+    // ---------------------------------------------------------------- the next two
+    // Neither is a jump from elsewhere. One is a portal every player has already built, and the other
+    // is a rift that has not been finished yet.
+
+    /**
+     * The End. The face is the End portal's own starfield, bleeding in while a pair of enderman eyes
+     * opens across the middle and stares at whoever is watching - and the pane teleports away.
+     */
+    ENDER("ender"),
+    /**
+     * Pencil and paper. The rift is drawn into being - construction lines, loose outlines, hatching -
+     * the world is smudged out of the way, and what is left is paper washed in the pilot's colours.
+     */
+    SKETCH("sketch"),
+
+    // ------------------------------------------------------------- and one more
+    // Back to borrowing, for a jump big enough to need its own weather.
+
+    /**
+     * A capital ship arriving. Nothing breaks: an ink-black cloud boils out of nowhere, crawling with
+     * lightning, space bends round it, and the hull bores out of its middle lit by the flashes inside
+     * it - and the moment the ship is clear, the cloud falls in on itself and is gone.
+     */
+    MOSTLY_DANGEROUS("mostly_dangerous");
 
     private final String name;
 
@@ -75,7 +100,7 @@ public enum RiftModulatorTheme {
     /**
      * The theme before this one, wrapping round.
      *
-     * <p>One button cycling twelve themes is a lot of clicking to get back to the one you have just
+     * <p>One button cycling fifteen themes is a lot of clicking to get back to the one you have just
      * gone past, so the Modulator's screen reverses the cycle on a shifted click. Worth having as a
      * method rather than as arithmetic at the call site so that it wraps the same way {@link #next()}
      * does - {@code (ordinal() - 1) % length} is negative for {@link #STANDARD}, which is exactly the

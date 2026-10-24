@@ -1,0 +1,41 @@
+{
+  "type": "create:mechanical_crafting",
+  "key": {
+    "D": {
+      "item": "aerowarptics:rift_drive_mk_iii"
+    },
+    "G": {
+      "item": "aerowarptics:singularity_core"
+    },
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    },
+    "P": {
+      "item": "aerowarptics:pearlescent_warp_crystal"
+    },
+    "T": {
+      "item": "create:railway_casing"
+    },
+    "B": {
+      "item": "create:brass_casing"
+    },
+    "H": {
+      "item": "minecraft:echo_shard"
+    },
+    "L": {
+      "item": "aerowarptics:rift_lens"
+    }
+  },
+  "pattern": [
+    " PSP ",
+    "PTGTP",
+    "SHDHS",
+    "PBLBP",
+    " PSP "
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_drive_singularity"
+  },
+  "accept_mirrored": false
+}

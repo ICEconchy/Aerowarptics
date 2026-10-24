@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
+import uk.co.iceconchy.aerowarptics.hold.Holds;
 
 import java.util.Comparator;
 
@@ -42,7 +43,7 @@ public final class ProbeTicket {
      */
     public static void hold(ServerLevel level, BlockPos centre, int radiusBlocks) {
         ChunkPos chunk = new ChunkPos(centre);
-        level.getChunkSource().addRegionTicket(PROBE_SOUNDING, chunk, radiusFor(radiusBlocks), chunk);
+        Holds.ground(level, PROBE_SOUNDING, chunk, radiusFor(radiusBlocks));
     }
 
     /**

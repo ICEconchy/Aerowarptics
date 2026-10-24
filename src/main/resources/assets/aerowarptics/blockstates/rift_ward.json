@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "lit=false": {
+      "model": "aerowarptics:block/rift_ward"
+    },
+    "lit=true": {
+      "model": "aerowarptics:block/rift_ward"
+    }
+  }
+}

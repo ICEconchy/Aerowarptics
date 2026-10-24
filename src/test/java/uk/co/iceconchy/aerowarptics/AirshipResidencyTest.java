@@ -4,7 +4,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.world.level.ChunkPos;
 import net.neoforged.neoforge.common.world.chunk.TicketSet;
 import org.junit.jupiter.api.Test;
-import uk.co.iceconchy.aerowarptics.warp.AirshipResidency;
+import uk.co.iceconchy.aerowarptics.hold.AirshipResidency;
 
 import java.util.HashSet;
 import java.util.Set;

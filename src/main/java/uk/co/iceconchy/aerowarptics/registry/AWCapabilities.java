@@ -45,5 +45,127 @@ public final class AWCapabilities {
         // nothing, exactly the bug this whole registry exists to prevent - see the class doc.
         event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_MODULATOR.get(),
                 (modulator, side) -> modulator.tank());
+        // The coupler's tank, for the same reason: a pipe that looks connected and moves nothing.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_COUPLER.get(),
+                (coupler, side) -> coupler.tank());
+        // The cradle's essence tank, on a pipe as the plan draws it, and its core and heart slots to a funnel.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.COLLAPSE_CRADLE.get(),
+                (cradle, side) -> cradle.tank());
+        event.registerBlockEntity(Capabilities.ItemHandler.BLOCK, AWBlockEntities.COLLAPSE_CRADLE.get(),
+                (cradle, side) -> cradle.items());
+        // And the same two on every other block of the machine, which is every block a pipe or a funnel can
+        // reach: the master stands in the middle of the floor with parts on all its sides but the shaft's.
+        event.registerBlock(Capabilities.FluidHandler.BLOCK,
+                (level, pos, state, entity, side) -> cradleAt(level, pos, state) instanceof
+                        uk.co.iceconchy.aerowarptics.collapse.CollapseCradleBlockEntity cradle ? cradle.tank() : null,
+                AWBlocks.COLLAPSE_CRADLE_PART.get());
+        event.registerBlock(Capabilities.ItemHandler.BLOCK,
+                (level, pos, state, entity, side) -> cradleAt(level, pos, state) instanceof
+                        uk.co.iceconchy.aerowarptics.collapse.CollapseCradleBlockEntity cradle ? cradle.items() : null,
+                AWBlocks.COLLAPSE_CRADLE_PART.get());
+        // The brazier burns what it is given, and a brazier fed by the bucket is a brazier that goes out.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_BRAZIER.get(),
+                (brazier, side) -> brazier.tank());
+        // Each relic's floor: the tank to a pipe, and the cradle's slots to a funnel. Create's pipes and funnels only
+        // look for a capability where there is a block entity, so these - relays with block entities of their own -
+        // are where they join; the parts above have none, and are registered for anything that asks without one.
+        event.registerBlock(Capabilities.FluidHandler.BLOCK,
+                (level, pos, state, entity, side) -> baseMaster(level, pos, state) instanceof
+                        uk.co.iceconchy.aerowarptics.collapse.CollapseCradleBlockEntity cradle ? cradle.tank() : null,
+                AWBlocks.COLLAPSE_CRADLE_BASE.get());
+        event.registerBlock(Capabilities.ItemHandler.BLOCK,
+                (level, pos, state, entity, side) -> baseMaster(level, pos, state) instanceof
+                        uk.co.iceconchy.aerowarptics.collapse.CollapseCradleBlockEntity cradle ? cradle.items() : null,
+                AWBlocks.COLLAPSE_CRADLE_BASE.get());
+        event.registerBlock(Capabilities.FluidHandler.BLOCK,
+                (level, pos, state, entity, side) -> baseMaster(level, pos, state) instanceof
+                        uk.co.iceconchy.aerowarptics.plotter.RiftPlotterBlockEntity plotter ? plotter.tank() : null,
+                AWBlocks.RIFT_PLOTTER_BASE.get());
+        // The ward's tank, at its master, across its floor, and for anything that asks a part without a block entity.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_WARD.get(),
+                (ward, side) -> ward.tank());
+        event.registerBlock(Capabilities.FluidHandler.BLOCK,
+                (level, pos, state, entity, side) -> baseMaster(level, pos, state) instanceof
+                        uk.co.iceconchy.aerowarptics.ward.RiftWardBlockEntity ward ? ward.tank() : null,
+                AWBlocks.RIFT_WARD_BASE.get());
+        event.registerBlock(Capabilities.FluidHandler.BLOCK,
+                (level, pos, state, entity, side) ->
+                        uk.co.iceconchy.aerowarptics.ward.RiftWardPartBlock.stillValid(level, pos, state)
+                                && level.getBlockEntity(uk.co.iceconchy.aerowarptics.ward.RiftWardPartBlock.master(pos, state))
+                                instanceof uk.co.iceconchy.aerowarptics.ward.RiftWardBlockEntity ward ? ward.tank() : null,
+                AWBlocks.RIFT_WARD_PART.get());
+        // The plotter's tank, which a long plot drains faster than any bucket can fill: it wants a pipe, as the
+        // cradle's does.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_PLOTTER.get(),
+                (plotter, side) -> plotter.tank());
+        event.registerBlock(Capabilities.FluidHandler.BLOCK,
+                (level, pos, state, entity, side) -> plotterAt(level, pos, state) instanceof
+                        uk.co.iceconchy.aerowarptics.plotter.RiftPlotterBlockEntity plotter ? plotter.tank() : null,
+                AWBlocks.RIFT_PLOTTER_PART.get());
+        registerWellhead(event);
+        // A Rift Sunderer's charge: Rift Essence in, and back out again while it is idle.
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_SUNDERER.get(),
+                (sunderer, side) -> sunderer.fluids());
+    }
+
+    /**
+     * A Rift Wellhead: essence out and blocks in, at the collar and at every port of its frame. A tap hands out the
+     * tank and the hatch takes the feed; the collar itself answers for both, so a small frame with a pipe on its
+     * collar works as one with a pipe on a tap does.
+     */
+    private static void registerWellhead(RegisterCapabilitiesEvent event) {
+        event.registerBlockEntity(Capabilities.FluidHandler.BLOCK, AWBlockEntities.RIFT_COLLAR.get(),
+                (collar, side) -> collar.tap());
+        event.registerBlockEntity(Capabilities.ItemHandler.BLOCK, AWBlockEntities.RIFT_COLLAR.get(),
+                (collar, side) -> collar.hatch());
+        // By block, not by block entity type: a port has a block entity only so a pipe will look at it, and holds
+        // no tank of its own for CapabilityCoverageTest to find.
+        event.registerBlock(Capabilities.FluidHandler.BLOCK,
+                (level, pos, state, entity, side) -> {
+                    uk.co.iceconchy.aerowarptics.wellhead.RiftCollarBlockEntity collar =
+                            uk.co.iceconchy.aerowarptics.wellhead.WellheadShellBlock.collar(level, pos, state);
+                    return collar != null && !state.getValue(uk.co.iceconchy.aerowarptics.wellhead.RiftWellheadPortBlock.HATCH)
+                            ? collar.tap() : null;
+                },
+                AWBlocks.RIFT_WELLHEAD_PORT.get());
+        event.registerBlock(Capabilities.ItemHandler.BLOCK,
+                (level, pos, state, entity, side) -> {
+                    uk.co.iceconchy.aerowarptics.wellhead.RiftCollarBlockEntity collar =
+                            uk.co.iceconchy.aerowarptics.wellhead.WellheadShellBlock.collar(level, pos, state);
+                    return collar != null && state.getValue(uk.co.iceconchy.aerowarptics.wellhead.RiftWellheadPortBlock.HATCH)
+                            ? collar.hatch() : null;
+                },
+                AWBlocks.RIFT_WELLHEAD_PORT.get());
+    }
+
+    /** The block entity of the relic machine a base belongs to, or null if it has come apart. */
+    private static net.minecraft.world.level.block.entity.BlockEntity baseMaster(net.minecraft.world.level.Level level,
+                                                                              net.minecraft.core.BlockPos pos,
+                                                                              net.minecraft.world.level.block.state.BlockState state) {
+        if (!(state.getBlock() instanceof uk.co.iceconchy.aerowarptics.collapse.RelicBaseBlock base)
+                || !base.stillValid(level, pos, state)) {
+            return null;
+        }
+        return level.getBlockEntity(uk.co.iceconchy.aerowarptics.collapse.RelicBaseBlock.master(pos, state));
+    }
+
+    /** The block entity of the Rift Plotter a part belongs to, or null if it has come apart. */
+    private static net.minecraft.world.level.block.entity.BlockEntity plotterAt(net.minecraft.world.level.Level level,
+                                                                             net.minecraft.core.BlockPos pos,
+                                                                             net.minecraft.world.level.block.state.BlockState state) {
+        if (!uk.co.iceconchy.aerowarptics.plotter.RiftPlotterPartBlock.stillValid(level, pos, state)) {
+            return null;
+        }
+        return level.getBlockEntity(uk.co.iceconchy.aerowarptics.plotter.RiftPlotterPartBlock.master(pos, state));
+    }
+
+    /** The block entity of the Collapse Cradle a part belongs to, or null if it has come apart. */
+    private static net.minecraft.world.level.block.entity.BlockEntity cradleAt(net.minecraft.world.level.Level level,
+                                                                            net.minecraft.core.BlockPos pos,
+                                                                            net.minecraft.world.level.block.state.BlockState state) {
+        if (!uk.co.iceconchy.aerowarptics.collapse.CollapseCradlePartBlock.stillValid(level, pos, state)) {
+            return null;
+        }
+        return level.getBlockEntity(uk.co.iceconchy.aerowarptics.collapse.CollapseCradlePartBlock.master(pos, state));
     }
 }

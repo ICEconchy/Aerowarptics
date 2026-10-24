@@ -1,23 +1,22 @@
 {
-  "type": "create:mixing",
-  "heat_requirement": "superheated",
+  "type": "aerowarptics:folding",
   "ingredients": [
     {
-      "item": "aerowarptics:warp_crystal"
+      "item": "aerowarptics:folded_warp_crystal"
     },
     {
       "item": "minecraft:shulker_shell"
     },
     {
-      "item": "minecraft:amethyst_shard"
-    },
-    {
-      "item": "minecraft:amethyst_shard"
+      "type": "neoforge:single",
+      "amount": 250,
+      "fluid": "aerowarptics:rift_essence"
     }
   ],
   "results": [
     {
       "id": "aerowarptics:pearlescent_warp_crystal"
     }
-  ]
+  ],
+  "processing_time": 240
 }

@@ -57,7 +57,13 @@ import java.util.List;
  * travel.
  *
  * <p>Geometry is plain quads on two passes - the opaque face, then additive fire over the top - so
- * there is no texture to load, nothing to bind, and no shader dependency.
+ * there is no texture to load, nothing to bind, and no shader dependency. With one exception, by
+ * request: an Ender rift paints its face and bore with vanilla's own End portal program (see
+ * {@code AWRenderTypes.RIFT_END_SKY}), which is still an opaque occluder and hides a hull the same way.
+ * And one variation on the passes: a Sketch rift is drawn in ink, which is dark, so its furniture goes
+ * on the translucent glass pass rather than the additive one - see {@link ThemeLook#inked}. A Mostly
+ * Dangerous rift's cloud is dark for the same reason and goes on that pass too, ahead of the light that
+ * plays over it; and that theme is the one thing that bends the view, which is {@link GravityLens}.
  */
 @EventBusSubscriber(modid = AeroWarptics.MODID, value = Dist.CLIENT)
 public final class RiftEffectManager {
@@ -124,6 +130,12 @@ public final class RiftEffectManager {
      */
     private static final int HOLD_TICKS = 6;
 
+    /**
+     * Ticks an aperture stands past the end of a passage if nothing closes it. The same spare the open cue
+     * gives it, and for the same reason: only a backstop, against the cue that ends it going missing.
+     */
+    static final int PASSAGE_SPARE_TICKS = 40;
+
     /** How far through a close the sealing flash begins. The last fifth of it. */
     private static final float SEAL_SPARK = 0.8F;
 
@@ -168,10 +180,91 @@ public final class RiftEffectManager {
     /** How many ways an improbable piece can choose to leave. */
     private static final int IMPROBABLE_WAYS = 5;
 
-    /** Half-width of a crack where it leaves the impact, as a fraction of the aperture. */
-    private static final float CRACK_ROOT = 0.030F;
-    /** Half-width of a crack at its running tip. A fracture narrows as it travels. */
-    private static final float CRACK_TIP = 0.006F;
+    /** Patches of the End an Ender rift's face bleeds through in before the hole exists. */
+    private static final int BLEED_BLOTCHES = 6;
+    /**
+     * How far out those patches may reach, as a fraction of the rim. Inside it, because a patch past the
+     * tear would be a square of starfield hanging in the sky beside the aperture.
+     */
+    private static final float BLEED_REACH = 0.95F;
+    /** Where the bleed's blotches start in the rift's noise, clear of every other draw from it. */
+    private static final int BLEED_SALT = 40_000;
+    /** How far into the wind-up the End starts to show through. */
+    private static final float BLEED_FROM = 0.25F;
+    /** Segments round one patch. It is lumpy, not round, so it does not need many. */
+    private static final int BLEED_SEGMENTS = 20;
+    private static final Blotches.Blotch[] NO_BLOTCHES = {};
+    private static final Nebula.Puff[] NO_PUFFS = {};
+    private static final Nebula.Trail[] NO_TRAILS = {};
+    private static final RiftLightning.Emitter[] NO_EMITTERS = {};
+
+    /**
+     * How near a rift someone has to be for the flashes lighting a hull coming out of it to light their
+     * world too, as a multiple of its radius - and never less than {@link #FLASH_NEAREST} blocks.
+     *
+     * <p>The flash is vanilla's own lightning flash, which lights everything the sky lights. Close to, it
+     * is the ship lit up by the storm it is coming out of; from the far side of a map it would be a
+     * flicker with no cause anyone can see.
+     */
+    private static final double FLASH_REACH = 12.0D;
+    private static final double FLASH_NEAREST = 64.0D;
+
+    /**
+     * How much of an Ender piece's life it spends at home, flickering, before it is somewhere else.
+     *
+     * <p>Under a third: the flicker is the warning and the hop is the event, and a warning that goes on
+     * longer than what it warns of reads as the piece being stuck.
+     */
+    private static final float BLINK_HOP = 0.28F;
+
+    /** Rings and segments across a Sketch's paper face - finer than the lit one, because it is coloured
+     * in a piece at a time and the pieces are what the reveal is made of. */
+    private static final int PAPER_RINGS = 6;
+    private static final int PAPER_SEGMENTS = 48;
+    /** How far the fill is lightened towards paper: crayon on a page is never the pure colour. */
+    private static final float PAPER_TINT = 0.22F;
+
+    /**
+     * Half-width of a crack's bright core where it leaves the impact, as a fraction of the aperture.
+     *
+     * <p>Thin. The old spokes were wedges four times this wide at the root, which is a star, not a
+     * crack - what a fracture in a window actually shows is a hairline of caught light.
+     */
+    private static final float CRACK_ROOT = 0.0075F;
+    /** Half-width of that core at the rim. A fracture is widest where the glass took the blow. */
+    private static final float CRACK_TIP = 0.0038F;
+    /** Half-width of the soft light either side of a crack's core, as a fraction of the aperture. */
+    private static final float CRACK_HALO = 0.022F;
+    /**
+     * Least half-width of a crack's core, per block of distance to the aperture: about half a pixel at
+     * an ordinary field of view.
+     *
+     * <p>A line thinner than a pixel does not draw thinner, it draws intermittently, and a distant
+     * pane's cracks would shimmer in and out as they fell between rows.
+     */
+    private static final double HAIRLINE = 0.0006D;
+    /** How far through the crack phase the pane starts to sag, and its cells to catch the light. */
+    private static final float SAG_FROM = 0.15F;
+    /**
+     * Ticks a piece of the web takes to fade once the glass round it has let go - about as long as a
+     * loose piece takes to fade in, so the one hands over to the other.
+     */
+    private static final float FALL_FADE = 2.0F;
+    /** How far through the crack phase the strike's flash has faded to the glow of the crush. */
+    private static final float FLASH_SPAN = 0.35F;
+    /** Wedges in the soft glow of the strike. */
+    private static final int FLASH_WEDGES = 10;
+    /** How thick the cut edge of a loose piece of glass is, as a fraction of the aperture. */
+    private static final float GLASS_EDGE = 0.016F;
+    /** Most of a piece's size its cut edge may take up. Past this a small piece is all edge anyway. */
+    private static final float GLASS_EDGE_MAX = 0.42F;
+    /** How fast a loose piece of glass falls, as a fraction of the aperture per tick, per tick. */
+    private static final float GLASS_FALL = 0.0009F;
+    /** Render-thread scratch for {@link #glassPiece}: its corners, and the same corners inset by its edge. */
+    private static final double[] PIECE_U = new double[4];
+    private static final double[] PIECE_V = new double[4];
+    private static final double[] INSET_U = new double[4];
+    private static final double[] INSET_V = new double[4];
 
 
     /** How much further out than the rim a bolt off the aperture reaches, as a fraction of it. */
@@ -242,6 +335,10 @@ public final class RiftEffectManager {
          * burn white-hot, because a blue rift with a pink-white edge is not a blue rift.
          */
         final boolean canonical;
+        /** What the face and bore are made of - see {@link ThemeLook.Surface}. */
+        final ThemeLook.Surface surface;
+        /** When the wind-up makes a sound, as fractions of it - see {@link ThemeLook#beats}. */
+        final float[] beats;
         final int openTicks;
         /** Not final: a collapse cuts the hold short at the moment it happens. See {@link #collapse}. */
         int holdTicks;
@@ -261,6 +358,8 @@ public final class RiftEffectManager {
         final RiftModulatorTheme theme;
         /** Which fracture shape that theme cuts along - see {@link RiftShatter#patternFor}. */
         final RiftShatter.Pattern pattern;
+        /** The cracks the pane shows before it goes, and the corners its pieces are cut at. */
+        final RiftShatter.Web web;
         final RiftShatter.Shard[] shards;
         /**
          * The rim's wander frozen at the moment the pane breaks.
@@ -274,6 +373,30 @@ public final class RiftEffectManager {
         boolean broken;
         /** What is loose inside the bore, if this aperture ever grows one. */
         final RiftDebris.Mote[] motes;
+        /**
+         * The blobs this aperture's face is covered by as it arrives, if its theme has any: the End
+         * bleeding through an Ender rift, or the patches a Sketch colours in. Empty for every other theme.
+         */
+        final Blotches.Blotch[] blotches;
+        /** What a Sketch's pencil draws and when, or {@code null} for a rift nobody is drawing. */
+        final SketchPlan sketch;
+        /** A Mostly Dangerous rift's cloud, or empty for every other theme - see {@link Nebula}. */
+        final Nebula.Puff[] puffs;
+        /** The lightning crawling over that cloud, and the flashes deep inside it. */
+        final RiftLightning.Emitter[] cloudArcs;
+        final RiftLightning.Emitter[] cloudFlashes;
+        /** Where the trails hang once a ship has come out of it. */
+        final Nebula.Trail[] trails;
+        /**
+         * When a hull reached this aperture and when it should be done with it, in ticks since the rift
+         * appeared, or {@link SketchPencil#NEVER}.
+         *
+         * <p>Only a Sketch's pencil reads them, to get out of the way and to come back. Kept as the two
+         * moments rather than as a smoothed number so that everything the pencil does stays a pure
+         * function of the clock - see {@link SketchPencil}.
+         */
+        float transitFrom = SketchPencil.NEVER;
+        float transitUntil = SketchPencil.NEVER;
 
         /** Lightning discharging off the torn rim. See {@link RiftLightning}. */
         final RiftLightning.Emitter[] apertureBolts;
@@ -312,6 +435,11 @@ public final class RiftEffectManager {
          * never cross the frame however the wander lands.
          */
         double reach(double angle, float time) {
+            if (surface == ThemeLook.Surface.PAPER) {
+                // A drawn circle is not torn. Its edge is the line somebody drew round it, so the face,
+                // the bore and every stroke share one clean rim rather than a crawling one.
+                return 1.0D;
+            }
             float torn = RiftTear.rim(angle, time);
             if (profile == null || profile.length == 0) {
                 return torn;
@@ -369,6 +497,12 @@ public final class RiftEffectManager {
          */
         boolean groundStrikes = true;
 
+        /**
+         * Whether this rift hangs behind glass, and so has its light drawn before the glass rather than after
+         * the particles - see {@link RiftEffectManager#drawLight}. A fissure, and nothing else.
+         */
+        boolean underGlass;
+
         ActiveRift(Vec3 centre, Vec3 normal, double radius, int colour, int accentColour, float throat,
                    RiftModulatorTheme theme, int openTicks, int holdTicks, int closeTicks) {
             this.centre = centre;
@@ -382,6 +516,8 @@ public final class RiftEffectManager {
             this.canonical = palette != null;
             this.colour = palette != null ? palette.core() : colour;
             this.accentColour = palette != null ? palette.rim() : accentColour;
+            this.surface = ThemeLook.surface(theme);
+            this.beats = ThemeLook.beats(theme);
             this.throat = throat;
             this.openTicks = openTicks;
             this.holdTicks = holdTicks;
@@ -389,8 +525,20 @@ public final class RiftEffectManager {
             this.seed = where;
             this.theme = theme;
             this.pattern = RiftShatter.patternFor(theme);
-            this.shards = RiftShatter.fracture(seed, pattern);
+            this.web = RiftShatter.web(seed, pattern);
+            this.shards = RiftShatter.fracture(web);
             this.motes = RiftDebris.field(seed);
+            this.blotches = surface == ThemeLook.Surface.END_SKY
+                    ? Blotches.scatter(where, BLEED_BLOTCHES, BLEED_REACH, BLEED_SALT)
+                    : NO_BLOTCHES;
+            this.sketch = surface == ThemeLook.Surface.PAPER
+                    ? SketchPlan.of(where, Math.max(1.0F, openTicks))
+                    : null;
+            boolean cloud = surface == ThemeLook.Surface.NEBULA;
+            this.puffs = cloud ? Nebula.puffs(where) : NO_PUFFS;
+            this.cloudArcs = cloud ? Nebula.arcField(where) : NO_EMITTERS;
+            this.cloudFlashes = cloud ? Nebula.flashField(where) : NO_EMITTERS;
+            this.trails = cloud ? Nebula.trails(where) : NO_TRAILS;
             this.apertureBolts = RiftLightning.apertureField(seed);
             this.corridorBolts = RiftLightning.corridorField(seed);
             this.groundBolts = RiftLightning.groundField(seed);
@@ -412,8 +560,56 @@ public final class RiftEffectManager {
             return openTicks + holdTicks + closeTicks;
         }
 
+        /**
+         * The handful of moments a Sketch's pencil acts on.
+         *
+         * <p>Built fresh rather than kept, because two of them move: the close is wherever the hold
+         * currently ends, which {@link #collapse} brings forward the instant the rift is told to let go.
+         */
+        SketchPencil.Events sketchEvents() {
+            return new SketchPencil.Events(openTicks, transitFrom, transitUntil,
+                    openTicks + holdTicks, closeTicks, seed);
+        }
+
         boolean expired() {
             return age >= lifetime();
+        }
+
+        /**
+         * A hull is going through: jump to open, grow the throat, and stand for as long as it takes.
+         *
+         * @param ticks how long the hull will be inside, by the server's reckoning
+         */
+        void passage(int ticks) {
+            transitTicks = Math.max(transitTicks, ticks);
+            // A hull has arrived, so the aperture stops animating and is simply there. Hiding a ship is
+            // the face's job and it cannot do it half open - the same reasoning as the throat below. This
+            // is what stops a short run at the rift, or a brisk one, from catching the shatter mid-break
+            // and flying a visible hull through a hole that has not finished appearing.
+            if (age < openTicks) {
+                age = openTicks;
+                lastAge = age;
+            }
+            // Held for the whole passage and a margin, whatever it was opened with. That hold was the
+            // server's forecast of when the hull would come, made seconds ago, and a server that fell
+            // behind since - a large hull's crossing, the far side's ground loading - would otherwise see
+            // the aperture close on schedule around a hull that is still inside it. An explicit close
+            // still ends it the moment the hull is out; this only moves the backstop.
+            holdTicks = Math.max(holdTicks, age - openTicks + ticks + PASSAGE_SPARE_TICKS);
+            // When the pencil has to get out of the way, and when it may come back. Taken after the jump
+            // above, so a hull that arrives before the drawing was finished ducks it from where the jump
+            // left it rather than from where it would have been.
+            if (transitFrom < 0.0F) {
+                transitFrom = age;
+            }
+            transitUntil = Math.max(transitUntil, age + ticks);
+            if (throat < 0.0F) {
+                // An aperture a hull comes *out* of already has the hull inside it the moment this
+                // arrives, so its throat has to be there immediately. Growing it over a few ticks would
+                // leave the ship briefly visible from the side, which is the whole thing being fixed.
+                throatOpen = 1.0F;
+                throatOpenLast = 1.0F;
+            }
         }
 
         /** Sends the aperture into its collapse now, whatever it had left to run. */
@@ -444,11 +640,22 @@ public final class RiftEffectManager {
          */
         float aperture(float partialTick) {
             float time = Mth.lerp(partialTick, lastAge, age);
+            if (surface == ThemeLook.Surface.PAPER) {
+                // A drawing does not grow: it is coloured in, and the face appears where the crayon has
+                // been - see drawPaperFace. So the hole is full size from the first stroke, and the only
+                // thing that ever shrinks it is being screwed up at the end.
+                return SketchPencil.crumple(sealProgress(partialTick));
+            }
             if (time < openTicks) {
                 return RiftShatter.hole(openProgress(partialTick));
             }
             if (time < openTicks + holdTicks) {
                 return 1.0F;
+            }
+            if (surface == ThemeLook.Surface.NEBULA) {
+                // Not a hole shrinking but a cloud falling in on itself, and the hole goes with it on the
+                // same curve - so the cloud's inner edge is over the rim the whole way down.
+                return Nebula.shrink(Nebula.collapse(sealProgress(partialTick)));
             }
             float t = (time - openTicks - holdTicks) / Math.max(1.0F, closeTicks);
             return Math.max(0.0F, 1.0F - t * t); // collapses faster than it opened
@@ -469,7 +676,11 @@ public final class RiftEffectManager {
 
         /** 0..1 through the close, or {@code 0} while the aperture is still standing. */
         float sealProgress(float partialTick) {
-            float time = Mth.lerp(partialTick, lastAge, age);
+            return sealAt(Mth.lerp(partialTick, lastAge, age));
+        }
+
+        /** 0..1 through the close at a given age - for asking where a tick started and where it ended. */
+        float sealAt(float time) {
             float elapsed = time - openTicks - holdTicks;
             return elapsed <= 0.0F ? 0.0F : Math.min(1.0F, elapsed / Math.max(1.0F, closeTicks));
         }
@@ -483,7 +694,10 @@ public final class RiftEffectManager {
 
     // ------------------------------------------------------------------ feed
 
-    /** What the moment of release sounds like, for whichever way this aperture comes apart. */
+    /**
+     * What the moment of release sounds like, for whichever way this aperture comes apart - or
+     * {@code null} for one that makes its own noises from its own timeline instead.
+     */
     private static SoundEvent breakSound(RiftModulatorTheme theme) {
         return switch (theme) {
             // Pitched right down by the caller, which turns a door into heavy machinery under load.
@@ -501,6 +715,29 @@ public final class RiftEffectManager {
             case EVENTFUL_HORIZON -> SoundEvents.ENDER_DRAGON_GROWL; // a roar, at this pitch - it is violent
             case VWORP -> SoundEvents.SHULKER_BOX_OPEN; // a groaning grind at this pitch
             case IMPROBABILITY -> SoundEvents.ILLUSIONER_MIRROR_MOVE; // warbly and not quite real
+            case ENDER -> SoundEvents.ENDERMAN_TELEPORT; // the pane does exactly what an enderman does
+            // A drawing is never heard breaking, because it never breaks: its pencil is heard instead,
+            // stroke by stroke - see playSketch.
+            case SKETCH -> null;
+            // Nothing breaks here either, but a hole opening in the middle of a thundercloud is heard.
+            case MOSTLY_DANGEROUS -> SoundEvents.LIGHTNING_BOLT_THUNDER;
+        };
+    }
+
+    /**
+     * What a theme's wind-up sounds like at each of its {@link ThemeLook#beats}, or {@code null} for a
+     * theme whose wind-up is silent.
+     */
+    private static SoundEvent beatSound(RiftModulatorTheme theme) {
+        return switch (theme) {
+            // Heard the instant the eyes start to open, which is the instant it would be in the End.
+            case ENDER -> SoundEvents.ENDERMAN_STARE;
+            // A charge building out of nothing, which is what the cloud is doing.
+            case MOSTLY_DANGEROUS -> SoundEvents.WARDEN_SONIC_CHARGE;
+            // A sketch's pencil is heard stroke by stroke from its own plan, well past the wind-up - see
+            // onClientTick - rather than at moments inside it.
+            case SKETCH, STANDARD, EMBER, STARLIGHT, ARCANE, CLOCKWORK, STARBLOCKS, BEDROCK, BOLDLY_GONE,
+                    LUDICROUS, EVENTFUL_HORIZON, VWORP, IMPROBABILITY -> null;
         };
     }
 
@@ -510,8 +747,14 @@ public final class RiftEffectManager {
         if (!packet.hasRift() || !AWConfig.RIFT_DISTORTION.get()) {
             return;
         }
-        ACTIVE.add(new ActiveRift(packet.centre(), packet.normal(), packet.radius(), colour, accentColour,
-                packet.throat(), theme, openTicks, holdTicks, closeTicks));
+        ActiveRift rift = new ActiveRift(packet.centre(), packet.normal(), packet.radius(), colour, accentColour,
+                packet.throat(), theme, openTicks, holdTicks, closeTicks);
+        // Round for any drive's own rift. A flotilla going through one together tears an ellipse round the
+        // whole formation, which is usually far wider than it is tall - see FleetPassage. Bounded, so a cue
+        // from a confused server cannot draw a rift a hair tall or a mile high.
+        float aspect = packet.aspect();
+        rift.aspect = Float.isFinite(aspect) ? Mth.clamp(aspect, 0.02F, 50.0F) : 1.0F;
+        ACTIVE.add(rift);
     }
 
     /**
@@ -524,6 +767,18 @@ public final class RiftEffectManager {
      */
     public static void hold(long holder, Vec3 centre, Vec3 normal, double halfWidth, double halfHeight,
                             int colour, int openTicks, boolean groundStrikes) {
+        hold(holder, centre, normal, halfWidth, halfHeight, colour, colour, RiftModulatorTheme.STANDARD, openTicks,
+                groundStrikes);
+    }
+
+    /**
+     * {@link #hold}, dressed: a held aperture in a Modulator's colours and theme. Only a Collapse Cradle's
+     * ritual asks for one, with the look of the Modulator standing beside it; the theme is fixed when the
+     * aperture is first opened, as a drive's is.
+     */
+    public static void hold(long holder, Vec3 centre, Vec3 normal, double halfWidth, double halfHeight,
+                            int colour, int accentColour, RiftModulatorTheme theme, int openTicks,
+                            boolean groundStrikes) {
         if (!AWConfig.RIFT_DISTORTION.get()) {
             return;
         }
@@ -535,9 +790,9 @@ public final class RiftEffectManager {
                 return;
             }
         }
-        // Flat colour and the standard break: gates and chutes have no Modulator to dress them.
-        ActiveRift rift = new ActiveRift(centre, normal, halfWidth, colour, colour, 0.0F,
-                RiftModulatorTheme.STANDARD, Math.max(1, openTicks), HELD_FOREVER, GATE_CLOSE_TICKS);
+        // Flat colour and the standard break for gates and chutes, which have no Modulator to dress them.
+        ActiveRift rift = new ActiveRift(centre, normal, halfWidth, colour, accentColour, 0.0F,
+                theme, Math.max(1, openTicks), HELD_FOREVER, GATE_CLOSE_TICKS);
         rift.aspect = (float) (halfHeight / Math.max(1.0e-3D, halfWidth));
         rift.holder = holder;
         rift.keepAlive = HOLD_TICKS;
@@ -555,6 +810,19 @@ public final class RiftEffectManager {
      * aperture stood at full size for the entire close and then shrank afterwards, which reads as a
      * gate that shuts a beat late.
      */
+    /**
+     * Says a held rift hangs behind glass, so its light is drawn before the glass - see {@link #drawLight}.
+     * Asked each tick it is held, as its size is, so it survives the aperture being opened anew.
+     */
+    public static void underGlass(long holder) {
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.holder == holder) {
+                rift.underGlass = true;
+                return;
+            }
+        }
+    }
+
     /**
      * Re-aims a held aperture so it faces a given direction.
      *
@@ -638,25 +906,33 @@ public final class RiftEffectManager {
      */
     public static void transit(Vec3 centre, int ticks) {
         ActiveRift rift = nearest(centre);
+        if (rift != null) {
+            rift.passage(ticks);
+        }
+    }
+
+    /**
+     * Keeps the aperture at this position up for at least this many ticks more.
+     *
+     * @return whether there was one standing to keep up
+     */
+    public static boolean renew(Vec3 centre, int ticks) {
+        ActiveRift rift = nearest(centre);
         if (rift == null) {
-            return;
+            return false;
         }
-        rift.transitTicks = Math.max(rift.transitTicks, ticks);
-        // A hull has arrived, so the aperture stops animating and is simply there. Hiding a ship is
-        // the face's job and it cannot do it half open - the same reasoning as the throat below. This
-        // is what stops a short run at the rift, or a brisk one, from catching the shatter mid-break
-        // and flying a visible hull through a hole that has not finished appearing.
-        if (rift.age < rift.openTicks) {
-            rift.age = rift.openTicks;
-            rift.lastAge = rift.age;
-        }
-        if (rift.throat < 0.0F) {
-            // An aperture a hull comes *out* of already has the hull inside it the moment this
-            // arrives, so its throat has to be there immediately. Growing it over a few ticks would
-            // leave the ship briefly visible from the side, which is the whole thing being fixed.
-            rift.throatOpen = 1.0F;
-            rift.throatOpenLast = 1.0F;
-        }
+        rift.holdTicks = Math.max(rift.holdTicks, rift.age - rift.openTicks + ticks);
+        return true;
+    }
+
+    /**
+     * Whether this client has a standing aperture at this position.
+     *
+     * <p>Asked before a transit cue, because a client can be told a hull is going through an aperture it
+     * never saw open - see {@code WarpEffects.onStage}.
+     */
+    public static boolean isOpen(Vec3 centre) {
+        return nearest(centre) != null;
     }
 
     /** Collapses the aperture at this position, rather than waiting for it to time out. */
@@ -668,15 +944,22 @@ public final class RiftEffectManager {
     }
 
     /**
-     * The rift closest to a position, if one is close enough to be the one meant.
+     * The standing rift closest to a position, if one is close enough to be the one meant.
      *
      * <p>Matched by position because that is the only thing both ends of a cue agree on: the server
      * plans an aperture at a point and every later cue about it carries that same point.
+     *
+     * <p>One already closing is never the one meant. It cannot hide a hull, and it is already doing the
+     * only thing a close could ask of it - so a transit cue that finds only that opens a fresh aperture in
+     * front of it, and a close goes to the fresh one rather than being spent on the one already going.
      */
     private static ActiveRift nearest(Vec3 centre) {
         ActiveRift best = null;
         double bestDistance = 4.0D * 4.0D;
         for (ActiveRift rift : ACTIVE) {
+            if (rift.isCollapsing()) {
+                continue;
+            }
             double distance = rift.centre.distanceToSqr(centre);
             if (distance < bestDistance) {
                 bestDistance = distance;
@@ -715,12 +998,20 @@ public final class RiftEffectManager {
                 // The pane goes. Announced once, from the client that is watching it, because the
                 // fracture is worked out from the rift's position and needs nothing from the server.
                 rift.broken = true;
-                // Volume over one is range rather than loudness in Minecraft, so a big aperture is
-                // heard breaking from further off rather than more sharply from close up.
-                level.playLocalSound(rift.centre.x, rift.centre.y, rift.centre.z,
-                        breakSound(rift.theme), SoundSource.BLOCKS,
-                        (float) Math.min(4.0D, 1.6D + rift.radius * 0.10D), 0.45F, true);
+                // A theme with nothing to break may have nothing to say about it either: a Sketch is
+                // drawn open, and makes its own noises from its own timeline - see playSketch.
+                SoundEvent release = breakSound(rift.theme);
+                if (release != null) {
+                    // Volume over one is range rather than loudness in Minecraft, so a big aperture is
+                    // heard breaking from further off rather than more sharply from close up.
+                    level.playLocalSound(rift.centre.x, rift.centre.y, rift.centre.z,
+                            release, SoundSource.BLOCKS,
+                            (float) Math.min(4.0D, 1.6D + rift.radius * 0.10D), 0.45F, true);
+                }
             }
+            playBeats(level, rift);
+            playSketch(level, rift);
+            playNebula(level, rift);
             if (rift.transitTicks > 0) {
                 rift.transitTicks--;
                 WarpEffects.tearFire(level, rift.centre, rift.right, rift.up, rift.radius, rift.colour);
@@ -744,10 +1035,112 @@ public final class RiftEffectManager {
         }
     }
 
+    /**
+     * The sounds a theme's wind-up makes, at the moments its drawing reaches them.
+     *
+     * <p>One at most per tick. A rift jumped straight to open by a hull arriving has skipped its wind-up
+     * and plays none of them - the break it lands on is the only thing worth hearing by then.
+     */
+    private static void playBeats(ClientLevel level, ActiveRift rift) {
+        if (rift.beats.length == 0 || rift.lastAge >= rift.openTicks) {
+            return;
+        }
+        SoundEvent sound = beatSound(rift.theme);
+        if (sound == null) {
+            return;
+        }
+        float windUp = Math.max(1.0F, rift.openTicks * RiftShatter.CRACK_PHASE);
+        float before = rift.lastAge / windUp;
+        float after = rift.age / windUp;
+        for (int beat = 0; beat < rift.beats.length; beat++) {
+            if (before < rift.beats[beat] && after >= rift.beats[beat]) {
+                level.playLocalSound(rift.centre.x, rift.centre.y, rift.centre.z, sound, SoundSource.BLOCKS,
+                        (float) Math.min(2.0D, 0.8D + rift.radius * 0.05D),
+                        0.9F + 0.2F * RiftShatter.noise(rift.seed, 31 + beat), true);
+                return;
+            }
+        }
+    }
+
+    /**
+     * A Sketch's pencil, heard: the scratch of it touching down on a line, its point tapping the page,
+     * the swish of it whirling about, and the scribbling out, crumpling and lobbing at the end.
+     *
+     * <p>All of it comes from the same timeline the pencil is drawn from, so nothing can be heard that
+     * is not also being watched.
+     */
+    private static void playSketch(ClientLevel level, ActiveRift rift) {
+        if (rift.sketch == null) {
+            return;
+        }
+        float volume = (float) Math.min(2.0D, 0.7D + rift.radius * 0.05D);
+        for (SketchPencil.Cue cue : SketchPencil.cues(rift.sketch, rift.sketchEvents(), rift.lastAge, rift.age)) {
+            float pitch = 0.85F + 0.3F * RiftShatter.noise(rift.seed, 33 + rift.age);
+            switch (cue) {
+                case DRAW -> play(level, rift, SoundEvents.UI_CARTOGRAPHY_TABLE_TAKE_RESULT, volume, pitch);
+                // Faster and higher than the drawing: the same pencil, used in a hurry.
+                case SCRIBBLE -> play(level, rift, SoundEvents.UI_CARTOGRAPHY_TABLE_TAKE_RESULT,
+                        volume, pitch + 0.45F);
+                // Quiet, because an idle pencil is background: it should be noticed, not listened to.
+                case TAP -> play(level, rift, SoundEvents.WOODEN_BUTTON_CLICK_ON, volume * 0.35F, pitch + 0.6F);
+                case SWISH -> play(level, rift, SoundEvents.PLAYER_ATTACK_SWEEP, volume * 0.3F, pitch + 0.5F);
+                case CRUMPLE -> play(level, rift, SoundEvents.BUNDLE_INSERT, volume, 0.7F);
+                case TOSS -> play(level, rift, SoundEvents.SNOWBALL_THROW, volume, 0.8F);
+            }
+        }
+    }
+
+    /**
+     * A Mostly Dangerous rift's moments: the flashes that light a hull coming out, and the cloud falling
+     * in on itself - heard as it starts to go, and as the last of it arrives in the middle, which is also
+     * when the smoke and the wreckage are thrown out.
+     *
+     * <p>The flashes light the world only for whoever is near enough to see what caused them, and only at
+     * the far end of a jump, where a ship is coming out: they are vanilla's lightning flash, so they also
+     * respect its Hide Lightning Flashes setting without any help from here.
+     */
+    private static void playNebula(ClientLevel level, ActiveRift rift) {
+        if (rift.surface != ThemeLook.Surface.NEBULA) {
+            return;
+        }
+        float volume = (float) Math.min(3.0D, 1.0D + rift.radius * 0.08D);
+        if (rift.throat < 0.0F) {
+            int flashes = Nebula.emergenceStarts(rift.lastAge, rift.age, rift.transitFrom);
+            if (flashes > 0) {
+                Vec3 eye = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+                double near = Math.max(FLASH_NEAREST, rift.radius * FLASH_REACH);
+                if (eye.distanceToSqr(rift.centre) < near * near) {
+                    level.setSkyFlashTime(2);
+                }
+                play(level, rift, SoundEvents.LIGHTNING_BOLT_IMPACT, volume * 0.6F,
+                        0.7F + 0.4F * RiftShatter.noise(rift.seed, 35 + rift.age));
+            }
+        }
+        float before = rift.sealAt(rift.lastAge);
+        float after = rift.sealAt(rift.age);
+        if (before <= 0.0F && after > 0.0F) {
+            // The in-breath: everything about to be dragged into the middle.
+            play(level, rift, SoundEvents.RESPAWN_ANCHOR_DEPLETE.value(), volume, 0.5F);
+        }
+        if (before < Nebula.COLLAPSE_TO && after >= Nebula.COLLAPSE_TO) {
+            play(level, rift, SoundEvents.GENERIC_EXPLODE.value(), volume, 0.55F);
+            WarpEffects.dispersal(level, rift.centre, rift.right, rift.up, rift.normal, rift.radius);
+        }
+    }
+
+    private static void play(ClientLevel level, ActiveRift rift, SoundEvent sound, float volume, float pitch) {
+        level.playLocalSound(rift.centre.x, rift.centre.y, rift.centre.z, sound, SoundSource.BLOCKS,
+                volume, pitch, true);
+    }
+
     // ---------------------------------------------------------------- render
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
+        // Under a shader pack this is drawn once the pack has finished the frame - see AfterShaders.
+        if (AfterShaders.defer(event)) {
+            return;
+        }
         if (ACTIVE.isEmpty()) {
             return;
         }
@@ -765,7 +1158,7 @@ public final class RiftEffectManager {
         poseStack.pushPose();
         poseStack.translate(-eye.x, -eye.y, -eye.z);
 
-        MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
+        MultiBufferSource.BufferSource buffers = AfterShaders.buffers();
         Matrix4f matrix = poseStack.last().pose();
 
         if (membranePass) {
@@ -773,56 +1166,152 @@ public final class RiftEffectManager {
             // the face over its mouth: the face is what a viewer looking straight down the aperture
             // sees, and it must win.
             VertexConsumer consumer = buffers.getBuffer(AWRenderTypes.RIFT_MEMBRANE);
+            boolean endSky = false;
             for (ActiveRift rift : ACTIVE) {
+                if (rift.surface == ThemeLook.Surface.END_SKY) {
+                    endSky = true;
+                    continue;
+                }
                 drawThroat(consumer, matrix, rift, partialTick);
                 drawFace(consumer, matrix, rift, partialTick);
+                // The pencil a sketch is drawn with, and the ball it screws the drawing up into. Solid,
+                // so they go where solid things go: they hide what is behind them, and the lines drawn
+                // afterwards are hidden where they cover them.
+                RiftFurniture.pencil(consumer, matrix, rift, partialTick, eye);
+                RiftFurniture.paperBall(consumer, matrix, rift, partialTick, eye);
             }
             buffers.endBatch(AWRenderTypes.RIFT_MEMBRANE);
-        } else {
-            // Additive light over everything, including the face it is burning around. Two-sided:
-            // an aperture is a hole people stand on both sides of, and a culled glow means half of
-            // them are looking at a bare occluder.
-            VertexConsumer fire = buffers.getBuffer(AWRenderTypes.RIFT_FIRE);
-            for (ActiveRift rift : ACTIVE) {
-                drawHaze(fire, matrix, rift, partialTick);
-                // What the crew see from inside the bore, for the themes that borrow their corridor from
-                // somewhere - hyperspace, a warp bubble, the time vortex. Drawn just inside the tube's own
-                // wall, so the solid tube hides every stroke of it from anyone outside.
-                RiftFurniture.corridor(fire, matrix, rift, partialTick);
-                drawFarLight(fire, matrix, rift, partialTick);
-                drawFire(fire, matrix, rift, partialTick, eye);
-                drawOpening(fire, matrix, rift, partialTick, eye);
-                // What a theme stands around its aperture, for as long as the aperture stands. Scaled
-                // by the hole's own size inside, so it grows in behind the wind-up and leaves with the
-                // seal rather than needing a clock of its own.
-                RiftFurniture.standing(fire, matrix, rift, partialTick, eye);
-                drawSpark(fire, matrix, rift, partialTick, eye);
-                // Only for themes whose source crackles - see ThemeLook.crackles.
-                if (AWConfig.RIFT_LIGHTNING.get() && ThemeLook.crackles(rift.theme)) {
-                    drawApertureLightning(fire, matrix, rift, partialTick, eye);
-                    drawCorridorLightning(fire, matrix, rift, partialTick);
-                    // Only a rift with open ground beneath it reaches for it - not a chute, which is
-                    // caged around its own rift and would only ever strike the block it sits in.
-                    if (rift.groundStrikes) {
-                        drawGroundLightning(fire, matrix, rift, partialTick);
+
+            // The End's rifts, as a batch of their own after the membrane's is finished: both are
+            // custom types sharing one buffer, and asking for the second would end the first under the
+            // loop still writing into it. Same order, same geometry - only the shader differs - plus the
+            // sky bleeding through ahead of the hole.
+            if (endSky) {
+                VertexConsumer sky = buffers.getBuffer(AWRenderTypes.RIFT_END_SKY);
+                for (ActiveRift rift : ACTIVE) {
+                    if (rift.surface != ThemeLook.Surface.END_SKY) {
+                        continue;
                     }
+                    drawThroat(sky, matrix, rift, partialTick);
+                    drawBleed(sky, matrix, rift, partialTick);
+                    drawFace(sky, matrix, rift, partialTick);
+                }
+                buffers.endBatch(AWRenderTypes.RIFT_END_SKY);
+            }
+
+            // Bent space, last: the lens redraws the view round a rift out of a copy of the frame, and the
+            // copy has to be taken now, once every face and throat is down. A copy taken before them would
+            // hold the very hull they are there to hide, and the lens would draw it bent round the rift for
+            // everyone to see. Taken after, it can only move about what was already on screen. See GravityLens.
+            GravityLens.draw(ACTIVE, buffers, camera, partialTick);
+
+            // And the light of any rift that hangs behind glass, now rather than after the particles - see
+            // drawLight for why.
+            for (ActiveRift rift : ACTIVE) {
+                if (rift.underGlass) {
+                    drawLight(buffers, matrix, partialTick, eye, true);
+                    break;
                 }
             }
-            buffers.endBatch(AWRenderTypes.RIFT_FIRE);
+        } else {
+            drawLight(buffers, matrix, partialTick, eye, false);
+        }
 
-            // Glass last, and translucent rather than additive: a shard passing in front of a burning
-            // rim should darken it, not add to it, or every piece disappears into the light it came
-            // off.
-            VertexConsumer glass = buffers.getBuffer(AWRenderTypes.RIFT_SHARD);
+        poseStack.popPose();
+    }
+
+    /**
+     * Everything of a rift that is light, ink or glass rather than a solid face: the haze, the fire, what stands
+     * round it, its lightning, and its shards.
+     *
+     * <p>Drawn twice a frame, for two kinds of rift. Most are drawn after the particles, over everything. A rift
+     * that hangs behind glass - a fissure, which is what a Rift Wellhead's frame is built round - is drawn
+     * {@code early}, straight after its own face and before the game's tripwire layer, which is where Warp Glass
+     * is. Glass writes depth, so light drawn after it is thrown away wherever the glass stands in front: the
+     * face showed through and its rings did not (seen in game, 2026-10-09). Drawn before, the glass blends over
+     * the lot. Only fissures, because moving every rift's light ahead of the particles would change how every
+     * rift in the mod looks for the sake of the one that is ever boxed in.
+     *
+     * @param early whether this is the pass for rifts behind glass
+     */
+    private static void drawLight(MultiBufferSource.BufferSource buffers, Matrix4f matrix, float partialTick, Vec3 eye,
+                                  boolean early) {
+        // A cloud is dark, and additive light cannot draw dark - so it goes on the glass pass, the way
+        // ink does, and it goes first, as a batch of its own: the lightning crawling over it and the
+        // flashes inside it are light, and have to land on top of it rather than be dimmed by it.
+        boolean clouded = false;
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.underGlass != early) {
+                continue;
+            }
+            clouded |= rift.surface == ThemeLook.Surface.NEBULA;
+        }
+        if (clouded) {
+            VertexConsumer cloud = buffers.getBuffer(AWRenderTypes.RIFT_SHARD);
             for (ActiveRift rift : ACTIVE) {
-                drawShards(glass, matrix, rift, partialTick, eye);
-                drawSeal(glass, matrix, rift, partialTick, eye);
-                drawMotes(glass, matrix, rift, partialTick, eye);
+                if (rift.underGlass != early) {
+                    continue;
+                }
+                RiftFurniture.cloud(cloud, matrix, rift, partialTick, eye);
             }
             buffers.endBatch(AWRenderTypes.RIFT_SHARD);
         }
 
-        poseStack.popPose();
+        // Additive light over everything, including the face it is burning around. Two-sided:
+        // an aperture is a hole people stand on both sides of, and a culled glow means half of
+        // them are looking at a bare occluder.
+        VertexConsumer fire = buffers.getBuffer(AWRenderTypes.RIFT_FIRE);
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.underGlass != early) {
+                continue;
+            }
+            // A rift drawn in ink has no light in it at all - no haze, no fire, no far light, no
+            // flash. What it has instead goes on the glass pass below, because ink is dark and this
+            // pass can only add.
+            if (rift.surface == ThemeLook.Surface.PAPER) {
+                continue;
+            }
+            drawHaze(fire, matrix, rift, partialTick);
+            // What the crew see from inside the bore, for the themes that borrow their corridor from
+            // somewhere - hyperspace, a warp bubble, the time vortex. Drawn just inside the tube's own
+            // wall, so the solid tube hides every stroke of it from anyone outside.
+            RiftFurniture.corridor(fire, matrix, rift, partialTick);
+            drawFarLight(fire, matrix, rift, partialTick);
+            drawFire(fire, matrix, rift, partialTick, eye);
+            drawOpening(fire, matrix, rift, partialTick, eye);
+            // What a theme stands around its aperture, for as long as the aperture stands. Scaled
+            // by the hole's own size inside, so it grows in behind the wind-up and leaves with the
+            // seal rather than needing a clock of its own.
+            RiftFurniture.standing(fire, matrix, rift, partialTick, eye);
+            drawSpark(fire, matrix, rift, partialTick, eye);
+            // Only for themes whose source crackles - see ThemeLook.crackles.
+            if (AWConfig.RIFT_LIGHTNING.get() && ThemeLook.crackles(rift.theme)) {
+                drawApertureLightning(fire, matrix, rift, partialTick, eye);
+                drawCorridorLightning(fire, matrix, rift, partialTick);
+                // Only a rift with open ground beneath it reaches for it - not a chute, which is
+                // caged around its own rift and would only ever strike the block it sits in.
+                if (rift.groundStrikes) {
+                    drawGroundLightning(fire, matrix, rift, partialTick);
+                }
+            }
+        }
+        buffers.endBatch(AWRenderTypes.RIFT_FIRE);
+
+        // Glass last, and translucent rather than additive: a shard passing in front of a burning
+        // rim should darken it, not add to it, or every piece disappears into the light it came
+        // off.
+        VertexConsumer glass = buffers.getBuffer(AWRenderTypes.RIFT_SHARD);
+        for (ActiveRift rift : ACTIVE) {
+            if (rift.underGlass != early) {
+                continue;
+            }
+            drawShards(glass, matrix, rift, partialTick, eye);
+            drawSeal(glass, matrix, rift, partialTick, eye);
+            drawMotes(glass, matrix, rift, partialTick, eye);
+            // A drawn rift's pencil lines and crayon: its wind-up, what stands round it, and its bore.
+            RiftFurniture.inked(glass, matrix, rift, partialTick, eye);
+        }
+        buffers.endBatch(AWRenderTypes.RIFT_SHARD);
     }
 
     /**
@@ -842,6 +1331,10 @@ public final class RiftEffectManager {
         if (aperture <= 0.001F) {
             return;
         }
+        if (rift.surface == ThemeLook.Surface.PAPER) {
+            drawPaperFace(consumer, matrix, rift, partialTick, aperture);
+            return;
+        }
         float time = (rift.lastAge + partialTick) * 0.12F;
         double cover = rift.radius * aperture;
 
@@ -855,9 +1348,10 @@ public final class RiftEffectManager {
         for (int ring = 0; ring < FACE_RINGS.length - 1; ring++) {
             float innerT = FACE_RINGS[ring];
             float outerT = FACE_RINGS[ring + 1];
-            // Nothing in the middle, a glow towards the edge, and the rim itself burning.
-            float innerGlow = faceGlow(innerT);
-            float outerGlow = faceGlow(outerT);
+            // Nothing in the middle, a glow towards the edge, and the rim itself burning - unless the face
+            // is paper, which is simply paper all the way across.
+            float innerGlow = faceGlow(rift, innerT);
+            float outerGlow = faceGlow(rift, outerT);
             float innerRed = Mth.lerp(innerT, coreRed, rimRed);
             float innerGreen = Mth.lerp(innerT, coreGreen, rimGreen);
             float innerBlue = Mth.lerp(innerT, coreBlue, rimBlue);
@@ -877,6 +1371,79 @@ public final class RiftEffectManager {
                 face(consumer, matrix, rift, a0, rim0 * outerT, outerRed, outerGreen, outerBlue, outerGlow);
             }
         }
+    }
+
+    /**
+     * A Sketch's face: the hole coloured in.
+     *
+     * <p>Revealed by the crayon rather than grown as a circle. A piece of the face is there once the
+     * colouring has reached it - {@code SketchPlan.front} says how far that is, taken from where the
+     * pencil's point actually is - so the hole fills in behind the crayon, band by band, and is complete
+     * the moment the fill stroke is. A hull that arrives early jumps the rift to fully open, which lands
+     * here as all of it, so the face is never caught half coloured with a ship coming at it.
+     *
+     * <p>Finer than the lit face, because here the pieces are what the reveal is made of: a coarse one
+     * would colour itself in in four visible steps.
+     *
+     * <p>At the close it is crumpled instead - shrinking towards the middle and going ragged at its edge
+     * as it screws up, which is {@link SketchPencil#crumple} and {@link SketchPencil#jag}.
+     */
+    private static void drawPaperFace(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                      float partialTick, float crumple) {
+        SketchPlan plan = rift.sketch;
+        if (plan == null) {
+            return;
+        }
+        float time = Mth.lerp(partialTick, rift.lastAge, rift.age);
+        float front = plan.front(time);
+        if (front <= -1.0F) {
+            return; // nothing coloured in yet: the world is still there to see inside the outline
+        }
+        float jag = SketchPencil.jag(rift.sealProgress(partialTick));
+        // The pilot's own colour, lightened towards paper: crayon lets the page through, and a flat fill
+        // of the pure colour reads as a painted disc rather than as something coloured in.
+        float red = Mth.lerp(PAPER_TINT, ((rift.colour >> 16) & 0xFF) / 255.0F,
+                ((ThemeLook.PAPER >> 16) & 0xFF) / 255.0F);
+        float green = Mth.lerp(PAPER_TINT, ((rift.colour >> 8) & 0xFF) / 255.0F,
+                ((ThemeLook.PAPER >> 8) & 0xFF) / 255.0F);
+        float blue = Mth.lerp(PAPER_TINT, (rift.colour & 0xFF) / 255.0F, (ThemeLook.PAPER & 0xFF) / 255.0F);
+        double cover = rift.radius * crumple;
+
+        for (int ring = 0; ring < PAPER_RINGS; ring++) {
+            double inner = ring / (double) PAPER_RINGS;
+            double outer = (ring + 1) / (double) PAPER_RINGS;
+            for (int segment = 0; segment < PAPER_SEGMENTS; segment++) {
+                double a0 = segment * (Math.PI * 2.0D / PAPER_SEGMENTS);
+                double a1 = (segment + 1) * (Math.PI * 2.0D / PAPER_SEGMENTS);
+                double midAngle = (a0 + a1) * 0.5D;
+                double midRadius = (inner + outer) * 0.5D;
+                // Has the crayon reached this piece? Measured across the fill's own heading, which is the
+                // line the colouring sweeps along.
+                if (plan.across((float) (Math.cos(midAngle) * midRadius),
+                        (float) (Math.sin(midAngle) * midRadius)) > front) {
+                    continue;
+                }
+                double fold0 = crease(rift, segment, jag);
+                double fold1 = crease(rift, segment + 1, jag);
+                solidLocal(consumer, matrix, rift, Math.cos(a0) * inner * cover * fold0,
+                        Math.sin(a0) * inner * cover * fold0, red, green, blue);
+                solidLocal(consumer, matrix, rift, Math.cos(a1) * inner * cover * fold1,
+                        Math.sin(a1) * inner * cover * fold1, red, green, blue);
+                solidLocal(consumer, matrix, rift, Math.cos(a1) * outer * cover * fold1,
+                        Math.sin(a1) * outer * cover * fold1, red, green, blue);
+                solidLocal(consumer, matrix, rift, Math.cos(a0) * outer * cover * fold0,
+                        Math.sin(a0) * outer * cover * fold0, red, green, blue);
+            }
+        }
+    }
+
+    /**
+     * How far in the page is folded at one of its segments as it crumples - shared by the face and by
+     * every line drawn on it, so the paper and its drawing screw up together.
+     */
+    static double crease(ActiveRift rift, int segment, float jag) {
+        return jag <= 0.0F ? 1.0D
+                : 1.0D - jag * RiftShatter.noise(rift.seed, 23_000 + Math.floorMod(segment, PAPER_SEGMENTS));
     }
 
     /**
@@ -901,9 +1468,12 @@ public final class RiftEffectManager {
         // Signed, so the tube runs behind whichever face of the aperture the hull is hidden on.
         double depth = rift.throat * open;
 
-        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
-        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
-        float blue = (rift.colour & 0xFF) / 255.0F;
+        // A paper tube is paper, whatever colour the hole in front of it was coloured in.
+        boolean paper = rift.surface == ThemeLook.Surface.PAPER;
+        int tube = paper ? ThemeLook.PAPER : rift.colour;
+        float red = ((tube >> 16) & 0xFF) / 255.0F;
+        float green = ((tube >> 8) & 0xFF) / 255.0F;
+        float blue = (tube & 0xFF) / 255.0F;
 
         float band = bandPosition(rift, partialTick);
 
@@ -913,9 +1483,9 @@ public final class RiftEffectManager {
             // Every few ribs is a gate: a bright ring rather than another stripe. A hull passing
             // through one of these is the clearest speed cue the corridor has, because it is a
             // discrete event at a known distance rather than a gradient sliding by.
-            float nearGlow = Math.min(1.0F, throatGlow(nearT, band)
+            float nearGlow = paper ? paperGlow(nearT) : Math.min(1.0F, throatGlow(nearT, band)
                     + (ring % GATE_EVERY == 0 ? GATE_GLOW : 0.0F));
-            float farGlow = Math.min(1.0F, throatGlow(farT, band)
+            float farGlow = paper ? paperGlow(farT) : Math.min(1.0F, throatGlow(farT, band)
                     + ((ring + 1) % GATE_EVERY == 0 ? GATE_GLOW : 0.0F));
             // Alternate rings stand slightly proud, so the bore has actual relief to catch the light
             // instead of being a smooth pipe with stripes painted on it.
@@ -937,6 +1507,55 @@ public final class RiftEffectManager {
     }
 
     /**
+     * The End showing through an Ender rift before the rift is there.
+     *
+     * <p>The one theme whose occluder arrives early, and deliberately: the stare is meant to be
+     * something looking out of the End at you, which it cannot do from in front of an intact sky. So
+     * from a quarter of the way into the wind-up, lumpy patches of the End's surface spread across the
+     * face - each growing from its own moment until they are all full size by the break - and the face
+     * proper then grows in over them. The shader projects from the screen, so where a patch and the face
+     * overlap there is nothing to see but one sky.
+     *
+     * <p>This only ever adds occluder, never removes any, so it cannot weaken the face's hiding of a
+     * hull - and no hull is near the plane while a rift is still winding up anyway; one that arrives
+     * early jumps the rift straight to open, which ends this.
+     */
+    private static void drawBleed(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float partialTick) {
+        float progress = rift.openProgress(partialTick);
+        if (progress >= 1.0F || rift.blotches.length == 0) {
+            return;
+        }
+        float charge = progress / RiftShatter.CRACK_PHASE;
+        float spread = (charge - BLEED_FROM) / (1.0F - BLEED_FROM);
+        if (spread <= 0.0F) {
+            return;
+        }
+        float creep = (rift.lastAge + partialTick) * 0.1F;
+        for (Blotches.Blotch blotch : rift.blotches) {
+            float grown = Blotches.grown(blotch, spread);
+            if (grown <= 0.001F) {
+                continue;
+            }
+            double size = rift.radius * blotch.radius() * grown;
+            double centreU = rift.radius * blotch.u();
+            double centreV = rift.radius * blotch.v();
+            for (int segment = 0; segment < BLEED_SEGMENTS; segment++) {
+                double a0 = segment * (Math.PI * 2.0D / BLEED_SEGMENTS);
+                double a1 = (segment + 1) * (Math.PI * 2.0D / BLEED_SEGMENTS);
+                double r0 = size * Blotches.edge(blotch, a0, creep);
+                double r1 = size * Blotches.edge(blotch, a1, creep);
+                // A fan, as quads with the middle twice - the same trick the fangs use for a triangle.
+                solidLocal(consumer, matrix, rift, centreU, centreV, 1.0F, 1.0F, 1.0F);
+                solidLocal(consumer, matrix, rift, centreU + Math.cos(a0) * r0, centreV + Math.sin(a0) * r0,
+                        1.0F, 1.0F, 1.0F);
+                solidLocal(consumer, matrix, rift, centreU + Math.cos(a1) * r1, centreV + Math.sin(a1) * r1,
+                        1.0F, 1.0F, 1.0F);
+                solidLocal(consumer, matrix, rift, centreU, centreV, 1.0F, 1.0F, 1.0F);
+            }
+        }
+    }
+
+    /**
      * A soft sleeve of light around the outside of the bore.
      *
      * <p>This is what stops the tunnel reading as a hole cut in the screen. An opaque shape against
@@ -946,6 +1565,9 @@ public final class RiftEffectManager {
      */
     private static void drawHaze(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                  float partialTick) {
+        if (rift.surface == ThemeLook.Surface.NEBULA) {
+            return; // the cloud is its own atmosphere, and a sleeve of black light adds nothing
+        }
         float open = Mth.lerp(partialTick, rift.throatOpenLast, rift.throatOpen);
         if (open <= 0.001F || rift.throat == 0.0F) {
             return;
@@ -1022,9 +1644,31 @@ public final class RiftEffectManager {
         return Math.min(1.0F, distance + pulse);
     }
 
-    /** How lit the face is at a given fraction of the way out: black throat, burning edge. */
-    private static float faceGlow(float t) {
+    /**
+     * How lit the face is at a given fraction of the way out: black throat, burning edge.
+     *
+     * <p>Paper is the exception, and is flat: the shading on a drawn hole is the pencil's job, and a
+     * face that went dark in the middle would be a hole drawn in light with pencil lines over it.
+     */
+    private static float faceGlow(ActiveRift rift, float t) {
+        if (rift.surface == ThemeLook.Surface.PAPER) {
+            return 1.0F;
+        }
+        if (rift.surface == ThemeLook.Surface.NEBULA) {
+            // Black to the edge, bar the faintest trace of the arc-light at the very rim: the heart of a
+            // thundercloud, not a tear burning.
+            return 0.03F + 0.12F * t * t;
+        }
         return 0.04F + 0.96F * (float) Math.pow(t, 3.5D);
+    }
+
+    /**
+     * How light a paper bore is at a given fraction of its depth: nearly as pale as the face at the
+     * mouth, and a little greyer further down, the way paper looks rolled into a tube. Nothing travels
+     * along it and no rib flares - the hatching drawn over it is what gives it depth.
+     */
+    private static float paperGlow(float t) {
+        return 1.0F - 0.28F * t;
     }
 
     /**
@@ -1034,6 +1678,9 @@ public final class RiftEffectManager {
      */
     private static void drawFire(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                  float partialTick, Vec3 eye) {
+        if (rift.surface == ThemeLook.Surface.NEBULA) {
+            return; // a cloud does not burn: its light is its lightning, drawn by RiftFurniture
+        }
         float aperture = rift.aperture(partialTick);
         if (aperture <= 0.001F) {
             return;
@@ -1133,72 +1780,412 @@ public final class RiftEffectManager {
     }
 
     /**
-     * The fracture, before anything has broken loose.
+     * The pane cracking, before anything has broken loose.
      *
-     * <p>A hard point of impact and cracks racing out from it over an intact view - the hole does not
-     * exist yet, and the world behind the aperture is still there to see. This is the whole of what an
+     * <p>Drawn the way a struck window actually goes, over an intact view - the hole does not exist
+     * yet, and the world behind the aperture is still there to see. A white crush of pulverised glass
+     * where the blow landed; radial cracks racing out of it at their own paces, kinking wherever they
+     * cross a ring; ring cracks zipping across between them from the middle outwards, each only once
+     * both the cracks it bridges have got that far; and the odd short branch that forks off and runs
+     * out. The cells between them start catching the light at slightly different angles as the sheet
+     * sags, and just before it goes every crack flares as it opens up. This is the whole of what an
      * opening rift looks like for its first half second under the standard theme, and it is the reason
      * the hole arriving lands as an event rather than as a shape growing.
+     *
+     * <p>Every crack between two rings is a line the pieces are cut along - see {@link RiftShatter.Web}
+     * - so when the pane goes, each shard that leaves is a cell the eye has just watched being drawn.
      */
     private static void drawCracks(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                    float partialTick, Vec3 eye) {
         float progress = rift.openProgress(partialTick);
-        if (progress >= 1.0F) {
+        float since = rift.sinceBreak(partialTick);
+        // The web outlives the break for exactly as long as there is glass left standing for it to be
+        // in, and goes with that glass - see standing().
+        if (progress >= 1.0F || since > RiftShatter.BREAK_SPREAD + FALL_FADE) {
             return;
         }
-        float crackProgress = progress / RiftShatter.CRACK_PHASE;
-        // Cracks outlive the break by a moment and are then gone. Past that they are shard edges, and
-        // drawing them as well would leave a wheel of spokes hanging in an empty hole.
-        float alpha = crackProgress <= 1.0F ? 1.0F : 1.0F - (crackProgress - 1.0F) * 4.0F;
-        if (alpha <= 0.0F) {
-            return;
-        }
-        float reach = RiftShatter.crackReach(crackProgress);
+        // Held at its end once the pane has gone: nothing cracks any further, it only falls.
+        float crackProgress = Math.min(1.0F, progress / RiftShatter.CRACK_PHASE);
 
         double towardsEye = (eye.x - rift.centre.x) * rift.normal.x
                 + (eye.y - rift.centre.y) * rift.normal.y
                 + (eye.z - rift.centre.z) * rift.normal.z;
         float bias = towardsEye >= 0.0D ? FIRE_BIAS : -FIRE_BIAS;
-
-        float red = ((rift.colour >> 16) & 0xFF) / 255.0F;
-        float green = ((rift.colour >> 8) & 0xFF) / 255.0F;
-        float blue = (rift.colour & 0xFF) / 255.0F;
+        float[] tint = RiftFurniture.channels(rift.colour);
 
         // Full radius, not the aperture's: the pane that is breaking is already the size of the hole
         // it is about to become. The hole then opens outwards to meet the pieces leaving it.
         double cover = rift.radius;
+        double hairline = eye.distanceTo(rift.centre) * HAIRLINE;
+        double halo = Math.max(cover * CRACK_HALO, hairline * 3.5D);
+        RiftShatter.Web web = rift.web;
+        // Every crack opens up and flares in the moment before the pane goes, which is what tells the
+        // eye the break is coming instead of letting it arrive out of a still picture.
+        float flare = 1.0F + 0.6F * ease(0.8F, 1.0F, crackProgress);
 
-        for (float angle : RiftShatter.crackAngles(rift.seed, rift.pattern)) {
-            double along = Math.cos(angle);
-            double across = Math.sin(angle);
-            double sideU = -across;
-            double sideV = along;
-            double tip = cover * rift.reach(angle, rift.rimTime) * reach;
-            double root = cover * CRACK_ROOT;
-            double point = cover * CRACK_TIP;
+        drawSag(consumer, matrix, rift, partialTick, eye, bias, crackProgress, since, tint);
 
-            // White at the impact and cooling to the rift's own colour as it runs, so the eye reads
-            // the direction the fracture travelled rather than a static star.
-            localVertex(consumer, matrix, rift, sideU * root, sideV * root, bias,
-                    1.0F, 1.0F, 1.0F, alpha * 0.9F);
-            localVertex(consumer, matrix, rift, -sideU * root, -sideV * root, bias,
-                    1.0F, 1.0F, 1.0F, alpha * 0.9F);
-            localVertex(consumer, matrix, rift, along * tip - sideU * point, across * tip - sideV * point,
-                    bias, red, green, blue, alpha * 0.15F);
-            localVertex(consumer, matrix, rift, along * tip + sideU * point, across * tip + sideV * point,
-                    bias, red, green, blue, alpha * 0.15F);
+        for (int crack = 0; crack < web.cracks(); crack++) {
+            float reach = web.radialReach(crack, crackProgress);
+            if (reach <= 0.0F) {
+                continue;
+            }
+            float weight = web.weight(crack);
+            for (int point = 1; point < web.pathPoints(); point++) {
+                float from = web.pathAlong(crack, point - 1);
+                if (from >= reach) {
+                    break;
+                }
+                // A run lies between two pieces of the same ring, and goes when they do.
+                int span = (point - 1) / RiftShatter.Web.STEPS;
+                float lit = standing(since, (web.ring(span) + web.ring(span + 1)) * 0.5F)
+                        * flare * (0.55F + 0.45F * weight);
+                if (lit <= 0.0F) {
+                    continue;
+                }
+                float to = web.pathAlong(crack, point);
+                float cut = to <= reach ? 1.0F : (reach - from) / (to - from);
+                float x0 = web.pathU(crack, point - 1);
+                float y0 = web.pathV(crack, point - 1);
+                float x1 = Mth.lerp(cut, x0, web.pathU(crack, point));
+                float y1 = Mth.lerp(cut, y0, web.pathV(crack, point));
+                crackRun(consumer, matrix, rift, bias, cover, x0, y0, x1, y1,
+                        crackCore(cover, hairline, from, weight),
+                        crackCore(cover, hairline, Mth.lerp(cut, from, to), weight),
+                        halo * (0.6D + 0.4D * weight), tint, lit);
+                if (cut < 1.0F) {
+                    // The running front: brightest while the fracture is still fast, and gone by the
+                    // time it arrives. The ease that slows the crack is what dims its spark.
+                    crackSpark(consumer, matrix, rift, bias, cover, x1, y1, hairline,
+                            lit * (float) Math.pow(1.0F - reach, 2.0D / 3.0D));
+                }
+            }
         }
 
-        // The strike itself: brightest at the instant of impact and gone by the time the cracks have
-        // run, which is what makes the middle read as where all this started.
-        float flash = Math.max(0.0F, 1.0F - crackProgress) * alpha;
-        if (flash > 0.0F) {
-            double size = cover * (0.06D + 0.10D * flash);
-            localVertex(consumer, matrix, rift, 0.0D, size, bias, 1.0F, 1.0F, 1.0F, flash);
-            localVertex(consumer, matrix, rift, size, 0.0D, bias, 1.0F, 1.0F, 1.0F, flash * 0.55F);
-            localVertex(consumer, matrix, rift, 0.0D, -size, bias, 1.0F, 1.0F, 1.0F, flash);
-            localVertex(consumer, matrix, rift, -size, 0.0D, bias, 1.0F, 1.0F, 1.0F, flash * 0.55F);
+        for (int crack = 0; crack < web.cracks(); crack++) {
+            for (int ring = 1; ring < web.rings(); ring++) {
+                float zip = web.chordReach(crack, ring, crackProgress);
+                if (zip <= 0.0F) {
+                    continue;
+                }
+                // Finer than the radials either side of it, as the secondary fracture it is.
+                float weight = Math.min(web.weight(crack), web.weight(crack + 1)) * 0.85F;
+                // The inner edge of a piece of the ring outside it, which it stays with - once the
+                // piece inside has gone it is the broken edge of what is left.
+                float lit = standing(since, (web.ring(ring) + web.ring(ring + 1)) * 0.5F)
+                        * flare * (0.5F + 0.45F * weight);
+                if (lit <= 0.0F) {
+                    continue;
+                }
+                double core = crackCore(cover, hairline, web.ring(ring), weight) * 0.8D;
+                double glow = halo * (0.45D + 0.4D * weight);
+                int first = web.chordForward(crack, ring) ? crack : crack + 1;
+                int last = web.chordForward(crack, ring) ? crack + 1 : crack;
+                float ax = web.nodeU(first, ring);
+                float ay = web.nodeV(first, ring);
+                float mx = web.chordMidU(crack, ring);
+                float my = web.chordMidV(crack, ring);
+                float bx = web.nodeU(last, ring);
+                float by = web.nodeV(last, ring);
+                // Across from one radial to the other through the bend in the middle, half the run
+                // each side of it.
+                float half = Math.min(1.0F, zip * 2.0F);
+                float tipX = Mth.lerp(half, ax, mx);
+                float tipY = Mth.lerp(half, ay, my);
+                crackRun(consumer, matrix, rift, bias, cover, ax, ay, tipX, tipY, core, core, glow, tint, lit);
+                if (zip > 0.5F) {
+                    float rest = (zip - 0.5F) * 2.0F;
+                    tipX = Mth.lerp(rest, mx, bx);
+                    tipY = Mth.lerp(rest, my, by);
+                    crackRun(consumer, matrix, rift, bias, cover, mx, my, tipX, tipY, core, core, glow, tint, lit);
+                }
+                if (zip < 1.0F) {
+                    crackSpark(consumer, matrix, rift, bias, cover, tipX, tipY, hairline, lit * (1.0F - zip));
+                }
+            }
         }
+
+        for (RiftShatter.Branch branch : web.branches()) {
+            float grown = branch.reach(crackProgress);
+            if (grown <= 0.0F) {
+                continue;
+            }
+            float out = (float) Math.hypot(branch.u0(), branch.v0());
+            float lit = standing(since, out) * flare * 0.7F;
+            if (lit <= 0.0F) {
+                continue;
+            }
+            float weight = web.weight(branch.crack()) * 0.7F;
+            double root = crackCore(cover, hairline, out, weight) * 0.8D;
+            // Narrowing to nothing: a branch is a crack that ran out of energy before it got anywhere.
+            crackRun(consumer, matrix, rift, bias, cover, branch.u0(), branch.v0(),
+                    Mth.lerp(grown, branch.u0(), branch.u1()), Mth.lerp(grown, branch.v0(), branch.v1()),
+                    root, Math.max(hairline, root * (1.0D - 0.7D * grown)), halo * 0.4D, tint, lit);
+        }
+
+        drawImpact(consumer, matrix, rift, bias, cover, hairline, crackProgress, standing(since, 0.0F), tint);
+    }
+
+    /**
+     * How much of the pane is still standing at a distance out from the impact, 0..1, given the ticks
+     * since it broke.
+     *
+     * <p>Glass lets go from the impact outwards over {@link RiftShatter#BREAK_SPREAD} ticks, so the web
+     * has to go the same way. Wiped all at once at the break, as it used to be, the outer pane vanished
+     * a good few ticks before any of its pieces fell, and for that moment there was neither crack nor
+     * glass where a window should have been. Kept any longer, a crack would hang in the air where the
+     * glass either side of it had already gone.
+     *
+     * @param out how far out, as a fraction of the rim
+     */
+    private static float standing(float since, float out) {
+        return 1.0F - Mth.clamp((since - out * RiftShatter.BREAK_SPREAD) / FALL_FADE, 0.0F, 1.0F);
+    }
+
+    /** Half-width of a crack's core at a point this far out, never finer than a hairline. */
+    private static double crackCore(double cover, double hairline, float out, float weight) {
+        return Math.max(hairline, cover * Mth.lerp(Mth.clamp(out, 0.0F, 1.0F), CRACK_ROOT, CRACK_TIP)
+                * (0.6F + 0.4F * weight));
+    }
+
+    /**
+     * How far a point of the web really sits from the middle, per unit of rim fraction.
+     *
+     * <p>The web is worked out on a unit circle; the pane it cracks is the torn one, frozen at the
+     * moment it breaks. Scaling each point by the rim's reach at its own angle bends the whole web to
+     * that shape, the same way the pieces that come out of it are bent.
+     */
+    private static double tornScale(ActiveRift rift, double cover, double x, double y) {
+        return cover * rift.reach(Math.atan2(y, x), rift.rimTime);
+    }
+
+    /**
+     * One straight run of a crack: a bright hairline core, and a soft glow either side of it.
+     *
+     * <p>The core overruns both its ends by its own width, so two runs meeting at a kink overlap
+     * rather than leaving a notch in the outside of the bend - and, the pass being additive, the
+     * overlap lights the joint the way a junction in real cracked glass catches the light. The glow
+     * does not overrun, or every joint would bloom.
+     *
+     * @param x0    where the run starts, in rim fractions - see {@link #tornScale}
+     * @param core0 half-width of the core at the start, in blocks
+     * @param halo  how far the glow reaches either side, in blocks
+     */
+    private static void crackRun(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float bias,
+                                 double cover, float x0, float y0, float x1, float y1,
+                                 double core0, double core1, double halo, float[] tint, float alpha) {
+        double scale0 = tornScale(rift, cover, x0, y0);
+        double scale1 = tornScale(rift, cover, x1, y1);
+        double u0 = x0 * scale0;
+        double v0 = y0 * scale0;
+        double u1 = x1 * scale1;
+        double v1 = y1 * scale1;
+        double du = u1 - u0;
+        double dv = v1 - v0;
+        double length = Math.sqrt(du * du + dv * dv);
+        if (length < 1.0e-6D) {
+            return;
+        }
+        double alongU = du / length;
+        double alongV = dv / length;
+        double sideU = -alongV;
+        double sideV = alongU;
+
+        // Nearly white: a crack is light caught on a fracture face, not a line of the rift's colour.
+        float coreRed = Mth.lerp(0.2F, 1.0F, tint[0]);
+        float coreGreen = Mth.lerp(0.2F, 1.0F, tint[1]);
+        float coreBlue = Mth.lerp(0.2F, 1.0F, tint[2]);
+        double startU = u0 - alongU * core0;
+        double startV = v0 - alongV * core0;
+        double endU = u1 + alongU * core1;
+        double endV = v1 + alongV * core1;
+        localVertex(consumer, matrix, rift, startU + sideU * core0, startV + sideV * core0, bias,
+                coreRed, coreGreen, coreBlue, alpha);
+        localVertex(consumer, matrix, rift, startU - sideU * core0, startV - sideV * core0, bias,
+                coreRed, coreGreen, coreBlue, alpha);
+        localVertex(consumer, matrix, rift, endU - sideU * core1, endV - sideV * core1, bias,
+                coreRed, coreGreen, coreBlue, alpha);
+        localVertex(consumer, matrix, rift, endU + sideU * core1, endV + sideV * core1, bias,
+                coreRed, coreGreen, coreBlue, alpha);
+
+        // Lit along the crack and gone at the edge of the glow, one side at a time, so it is a soft
+        // bloom rather than a wider bar.
+        float glow = Math.min(1.0F, alpha) * 0.4F;
+        for (int side = -1; side <= 1; side += 2) {
+            double reachU = sideU * halo * side;
+            double reachV = sideV * halo * side;
+            localVertex(consumer, matrix, rift, u0, v0, bias, tint[0], tint[1], tint[2], glow);
+            localVertex(consumer, matrix, rift, u0 + reachU, v0 + reachV, bias, tint[0], tint[1], tint[2], 0.0F);
+            localVertex(consumer, matrix, rift, u1 + reachU, v1 + reachV, bias, tint[0], tint[1], tint[2], 0.0F);
+            localVertex(consumer, matrix, rift, u1, v1, bias, tint[0], tint[1], tint[2], glow);
+        }
+    }
+
+    /** The front of a running crack: a point of white light, at a point given in rim fractions. */
+    private static void crackSpark(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float bias,
+                                   double cover, float x, float y, double hairline, float alpha) {
+        if (alpha <= 0.01F) {
+            return;
+        }
+        double scale = tornScale(rift, cover, x, y);
+        double u = x * scale;
+        double v = y * scale;
+        double size = Math.max(cover * 0.02D, hairline * 4.0D);
+        float lit = Math.min(1.0F, alpha);
+        localVertex(consumer, matrix, rift, u, v + size, bias, 1.0F, 1.0F, 1.0F, lit);
+        localVertex(consumer, matrix, rift, u + size, v, bias, 1.0F, 1.0F, 1.0F, lit);
+        localVertex(consumer, matrix, rift, u, v - size, bias, 1.0F, 1.0F, 1.0F, lit);
+        localVertex(consumer, matrix, rift, u - size, v, bias, 1.0F, 1.0F, 1.0F, lit);
+    }
+
+    /**
+     * Where the blow landed: a star of glass crushed white, and the flash of the strike itself.
+     *
+     * <p>The crush is there from the first frame to the break. Pulverised glass is white rather than
+     * clear, which is why a real impact point reads as a bright spot with the cracks leaving it rather
+     * than as the place the lines happen to meet. The flash is brightest at the instant of the blow and
+     * settles to a small glow on the crush by the time the cracks have run.
+     */
+    private static void drawImpact(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float bias,
+                                   double cover, double hairline, float crackProgress, float alpha,
+                                   float[] tint) {
+        if (alpha <= 0.0F) {
+            return;
+        }
+        RiftShatter.Web web = rift.web;
+        double root = Math.max(hairline, cover * 0.010D);
+        for (int spike = 0; spike < RiftShatter.CRUSH_SPIKES; spike++) {
+            double along = Math.cos(web.crushAngle(spike));
+            double across = Math.sin(web.crushAngle(spike));
+            double length = cover * web.crushLength(spike);
+            // A sliver: wide where it leaves the middle, a point at its end.
+            localVertex(consumer, matrix, rift, -across * root, along * root, bias,
+                    1.0F, 1.0F, 1.0F, alpha * 0.85F);
+            localVertex(consumer, matrix, rift, across * root, -along * root, bias,
+                    1.0F, 1.0F, 1.0F, alpha * 0.85F);
+            localVertex(consumer, matrix, rift, along * length, across * length, bias,
+                    tint[0], tint[1], tint[2], alpha * 0.2F);
+            localVertex(consumer, matrix, rift, along * length, across * length, bias,
+                    tint[0], tint[1], tint[2], alpha * 0.2F);
+        }
+
+        float flash = Math.max(0.0F, 1.0F - crackProgress / FLASH_SPAN);
+        float glow = alpha * (0.35F + 0.65F * flash);
+        double size = cover * (0.035D + 0.16D * flash * flash);
+        for (int wedge = 0; wedge < FLASH_WEDGES; wedge++) {
+            double a0 = wedge / (double) FLASH_WEDGES * Math.PI * 2.0D;
+            double a1 = (wedge + 1) / (double) FLASH_WEDGES * Math.PI * 2.0D;
+            // A triangle drawn as a quad with its first two corners on the same point.
+            localVertex(consumer, matrix, rift, 0.0D, 0.0D, bias, 1.0F, 1.0F, 1.0F, glow);
+            localVertex(consumer, matrix, rift, 0.0D, 0.0D, bias, 1.0F, 1.0F, 1.0F, glow);
+            localVertex(consumer, matrix, rift, Math.cos(a0) * size, Math.sin(a0) * size, bias,
+                    tint[0], tint[1], tint[2], 0.0F);
+            localVertex(consumer, matrix, rift, Math.cos(a1) * size, Math.sin(a1) * size, bias,
+                    tint[0], tint[1], tint[2], 0.0F);
+        }
+    }
+
+    /**
+     * The cells between the cracks catching the light, each at its own angle.
+     *
+     * <p>What says "glass" more than any line does. An intact pane mirrors the sky as one sheet; a
+     * cracked one sags as it gives, every cell a degree or two its own way, so neighbouring cells
+     * mirror different things and the web shows up as a patchwork of brighter and darker panes. A cell
+     * only shows once the cracks round it have been drawn - a pane with no crack to have made it would
+     * be glass tilting for no reason - and the whole sheet shivers in the moment before it goes.
+     */
+    private static void drawSag(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, float partialTick,
+                                Vec3 eye, float bias, float crackProgress, float since, float[] tint) {
+        float sag = ease(SAG_FROM, 1.0F, crackProgress);
+        if (sag <= 0.0F) {
+            return;
+        }
+        RiftShatter.Web web = rift.web;
+        double cover = rift.radius;
+        float clock = Mth.lerp(partialTick, rift.lastAge, rift.age);
+        float shiver = ease(0.8F, 1.0F, crackProgress);
+        // Mostly white, like the sky it is mirroring, with a little of the rift in it.
+        float red = Mth.lerp(0.35F, 1.0F, tint[0]);
+        float green = Mth.lerp(0.35F, 1.0F, tint[1]);
+        float blue = Mth.lerp(0.35F, 1.0F, tint[2]);
+
+        // The cells are the pieces about to fall, so they are drawn from the pieces' own outlines -
+        // which are the web's crossings, laid out in the same order.
+        for (int ring = 0; ring < web.rings(); ring++) {
+            for (int crack = 0; crack < web.cracks(); crack++) {
+                float formed = web.cellFormed(crack, ring, crackProgress);
+                if (formed <= 0.0F) {
+                    continue;
+                }
+                RiftShatter.Shard shard = rift.shards[ring * web.cracks() + crack];
+                // Gone as its piece goes, which is fading in as this fades out.
+                float standing = 1.0F - Mth.clamp((since - shard.delay()) / FALL_FADE, 0.0F, 1.0F);
+                if (standing <= 0.0F) {
+                    continue;
+                }
+                RiftShatter.Outline outline = shard.outline();
+                double centreU = 0.0D;
+                double centreV = 0.0D;
+                for (int corner = 0; corner < 4; corner++) {
+                    double angle = outline.angle(corner);
+                    double out = cover * rift.reach(angle, rift.rimTime) * outline.radius(corner);
+                    PIECE_U[corner] = Math.cos(angle) * out;
+                    PIECE_V[corner] = Math.sin(angle) * out;
+                    centreU += PIECE_U[corner] * 0.25D;
+                    centreV += PIECE_V[corner] * 0.25D;
+                }
+                float wobble = 1.0F + shiver * 0.5F * Mth.sin(clock * 2.9F + (ring * 31 + crack) * 1.7F);
+                float tilt = sag * wobble;
+                float sheen = skyGlint(rift, eye, centreU, centreV,
+                        web.tiltU(crack, ring) * tilt, web.tiltV(crack, ring) * tilt);
+                float glow = standing * formed * sag * (0.025F + 0.17F * sheen);
+                int first = outline.firstCorner();
+                for (int turnRound = 0; turnRound < 4; turnRound++) {
+                    int corner = (first + turnRound) % 4;
+                    localVertex(consumer, matrix, rift, PIECE_U[corner], PIECE_V[corner], bias,
+                            red, green, blue, glow);
+                }
+            }
+        }
+    }
+
+    /**
+     * How much bright sky a slightly tilted piece of pane mirrors towards the viewer, 0..1.
+     *
+     * <p>Not {@link #glint}, which asks how square-on a piece is and so lights every cell of a flat
+     * pane the same when it is seen face-on. A cracked window reads as cracked because its cells
+     * reflect <em>different things</em>, so this reflects the line of sight off the tilted cell and
+     * asks how far up it ends up pointing. "Up is bright" is all the sky there is to it, and it is
+     * enough to tell one cell from its neighbour.
+     *
+     * @param tiltU how far the cell has turned towards the aperture's right axis, in radians-ish
+     * @param tiltV how far towards its up axis
+     */
+    private static float skyGlint(ActiveRift rift, Vec3 eye, double u, double v, float tiltU, float tiltV) {
+        v *= rift.aspect;
+        double normalX = rift.normal.x + rift.right.x * tiltU + rift.up.x * tiltV;
+        double normalY = rift.normal.y + rift.right.y * tiltU + rift.up.y * tiltV;
+        double normalZ = rift.normal.z + rift.right.z * tiltU + rift.up.z * tiltV;
+        double normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ);
+        double toEyeX = eye.x - (rift.centre.x + rift.right.x * u + rift.up.x * v);
+        double toEyeY = eye.y - (rift.centre.y + rift.right.y * u + rift.up.y * v);
+        double toEyeZ = eye.z - (rift.centre.z + rift.right.z * u + rift.up.z * v);
+        double eyeLength = Math.sqrt(toEyeX * toEyeX + toEyeY * toEyeY + toEyeZ * toEyeZ);
+        if (eyeLength < 1.0e-6D || normalLength < 1.0e-6D) {
+            return 1.0F;
+        }
+        double facing = (normalX * toEyeX + normalY * toEyeY + normalZ * toEyeZ) / (normalLength * eyeLength);
+        // The line of sight reflected off the cell, 2(n.e)n - e - which comes out the same whichever
+        // face the viewer is looking at, since flipping n flips n.e with it. Only its height matters.
+        double reflectedY = 2.0D * facing * normalY / normalLength - toEyeY / eyeLength;
+        float sky = (float) Mth.clamp((reflectedY + 0.35D) / 1.1D, 0.0D, 1.0D);
+        return sky * sky;
+    }
+
+    /** 0 below {@code from}, 1 above {@code to}, and a smooth S between. */
+    private static float ease(float from, float to, float x) {
+        float t = Mth.clamp((x - from) / (to - from), 0.0F, 1.0F);
+        return t * t * (3.0F - 2.0F * t);
     }
 
     /**
@@ -1219,7 +2206,8 @@ public final class RiftEffectManager {
     private static void drawShards(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                    float partialTick, Vec3 eye) {
         float since = rift.sinceBreak(partialTick);
-        if (since <= 0.0F || since > RiftShatter.SHARD_LIFE + 8.0F) {
+        if (since <= 0.0F || since > RiftShatter.SHARD_LIFE + 8.0F
+                || rift.pattern.motion() == RiftShatter.Motion.UNBROKEN) {
             return;
         }
 
@@ -1299,10 +2287,51 @@ public final class RiftEffectManager {
                 case PLAID -> plaidShard(consumer, matrix, rift, shard, cover, travel, fade);
                 case STUTTER -> stutterShard(consumer, matrix, rift, shard, cover, travel, fade,
                         red, green, blue);
+                case BLINK -> blinkShard(consumer, matrix, rift, shard, cover, since, life, fade,
+                        red, green, blue);
+                case UNBROKEN -> {
+                    // Unreachable: returned above. Nothing broke, so there is nothing to draw.
+                }
                 case IMPROBABLE -> improbableShard(consumer, matrix, rift, shard, cover, since, travel,
                         fade, life);
             }
         }
+    }
+
+    // ------------------------------------------------------------ the last two
+
+    /**
+     * A piece that teleports: flickering where it was cut, then gone, then somewhere else.
+     *
+     * <p>Only ever in one of two places. At home it stutters on and off on its own clock, faster as the
+     * hop nears, and warms from the End's teal towards an eye's magenta; then it is simply elsewhere -
+     * turned some way round the rim and thrown out past it - arriving bright and cooling back into the
+     * void as it dwindles. Nothing is drawn between the two, which is the whole difference between a
+     * teleport and a very fast move.
+     */
+    private static void blinkShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                   RiftShatter.Shard shard, double cover, float since, float life,
+                                   float fade, float red, float green, float blue) {
+        float[] eye = RiftFurniture.channels(rift.accentColour);
+        if (life < BLINK_HOP) {
+            float charge = life / BLINK_HOP;
+            // Its own phase from the piece's own noise, so the field flickers rather than strobing.
+            boolean on = Mth.sin(since * (1.4F + 4.5F * charge) + shard.axis() * 7.0F) > -0.25F;
+            planarShard(consumer, matrix, rift, shard, cover, 0.0F, 0.0D, 0.0D, 1.0D,
+                    Mth.lerp(charge, red, eye[0]), Mth.lerp(charge, green, eye[1]), Mth.lerp(charge, blue, eye[2]),
+                    fade * (on ? 0.85F : 0.2F));
+            return;
+        }
+        float away = (life - BLINK_HOP) / (1.0F - BLINK_HOP);
+        float[] hot = RiftFurniture.channels(ThemeLook.ENDER_EYE_HOT);
+        // White-pink the instant it lands, the eye's colour a moment later, the void by the end.
+        float arrive = Math.max(0.0F, 1.0F - away * 5.0F);
+        float cool = Mth.clamp((away - 0.2F) * 1.25F, 0.0F, 1.0F);
+        float r = Mth.lerp(cool, Mth.lerp(arrive, eye[0], hot[0]), red);
+        float g = Mth.lerp(cool, Mth.lerp(arrive, eye[1], hot[1]), green);
+        float b = Mth.lerp(cool, Mth.lerp(arrive, eye[2], hot[2]), blue);
+        planarShard(consumer, matrix, rift, shard, cover, shard.spin(), shard.outward() * cover, 0.0D,
+                0.8D - 0.5D * away, r, g, b, fade * 0.9F);
     }
 
     // ------------------------------------------------------- the borrowed motions
@@ -1532,67 +2561,109 @@ public final class RiftEffectManager {
 
 
     /**
-     * One piece of glass, thrown clear and tumbling.
+     * One piece of glass, thrown clear, tumbling, and falling.
      *
-     * <p>The piece keeps its own frame and turns in it, so the corners stay a rigid shape rather than
-     * shearing the way rotating each corner about the centre would.
+     * <p>Everything about the throw eases off, but gravity does not, so a piece bursts clear, coasts,
+     * and is dropping by the time it fades - the arc that tells a pane coming out of its frame from a
+     * burst of light.
      */
     private static void tumblingShard(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                       RiftShatter.Shard shard, Vec3 eye, double cover, float elapsed,
                                       float travel, float fade, float red, float green, float blue) {
-        double rim0 = rift.reach(shard.angle0(), rift.rimTime);
-        double rim1 = rift.reach(shard.angle1(), rift.rimTime);
-        double cos0 = Math.cos(shard.angle0());
-        double sin0 = Math.sin(shard.angle0());
-        double cos1 = Math.cos(shard.angle1());
-        double sin1 = Math.sin(shard.angle1());
+        float since = Math.max(0.0F, elapsed);
+        glassPiece(consumer, matrix, rift, shard, eye, cover, shard.spin() * since,
+                shard.outward() * cover * travel, shard.push() * cover * 0.45D * travel,
+                GLASS_FALL * cover * since * since, fade * 0.85F, red, green, blue);
+    }
 
-        double near0 = cover * rim0 * shard.innerT();
-        double far0 = cover * rim0 * shard.outerT();
-        double near1 = cover * rim1 * shard.innerT();
-        double far1 = cover * rim1 * shard.outerT();
+    /**
+     * One piece of the pane, drawn as glass: a faint body inside a bright cut edge.
+     *
+     * <p>The edge is what makes it read. A flat translucent tile is a tile; the same tile with its
+     * rim picked out is a piece of something with thickness, which is the whole difference between a
+     * pane of glass and a sheet of coloured light. The edge is a set width in from each corner rather
+     * than a share of the piece, because a pane is as thick as it is however it broke - so the little
+     * slivers from round the impact come out nearly all edge, and glitter.
+     *
+     * <p>Cut to the piece's {@link RiftShatter.Outline}, so it is the cell the cracks outlined. The
+     * piece keeps its own frame and turns in it, so the corners stay a rigid shape rather than
+     * shearing the way rotating each corner about the centre would.
+     *
+     * @param turn     radians it has tumbled through
+     * @param outward  how far it has been thrown from the impact, in blocks
+     * @param push     how far it has been thrown along the aperture's normal, in blocks
+     * @param drop     how far it has fallen, in blocks
+     * @param strength how solid it is at its brightest, which is the fade and the pass's own ceiling
+     */
+    private static void glassPiece(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
+                                   RiftShatter.Shard shard, Vec3 eye, double cover, float turn,
+                                   double outward, double push, double drop, float strength,
+                                   float red, float green, float blue) {
+        RiftShatter.Outline outline = shard.outline();
+        double centreU = 0.0D;
+        double centreV = 0.0D;
+        for (int corner = 0; corner < 4; corner++) {
+            double angle = outline.angle(corner);
+            double out = cover * rift.reach(angle, rift.rimTime) * outline.radius(corner);
+            PIECE_U[corner] = Math.cos(angle) * out;
+            PIECE_V[corner] = Math.sin(angle) * out;
+            centreU += PIECE_U[corner] * 0.25D;
+            centreV += PIECE_V[corner] * 0.25D;
+        }
+        double edge = cover * GLASS_EDGE;
+        for (int corner = 0; corner < 4; corner++) {
+            PIECE_U[corner] -= centreU;
+            PIECE_V[corner] -= centreV;
+            double length = Math.sqrt(PIECE_U[corner] * PIECE_U[corner] + PIECE_V[corner] * PIECE_V[corner]);
+            double keep = length < 1.0e-6D ? 0.0D : 1.0D - Math.min(GLASS_EDGE_MAX, edge / length);
+            INSET_U[corner] = PIECE_U[corner] * keep;
+            INSET_V[corner] = PIECE_V[corner] * keep;
+        }
 
-        double u0 = cos0 * near0;
-        double v0 = sin0 * near0;
-        double u1 = cos1 * near1;
-        double v1 = sin1 * near1;
-        double u2 = cos1 * far1;
-        double v2 = sin1 * far1;
-        double u3 = cos0 * far0;
-        double v3 = sin0 * far0;
-
-        double centreU = (u0 + u1 + u2 + u3) * 0.25D;
-        double centreV = (v0 + v1 + v2 + v3) * 0.25D;
-
-        float turn = shard.spin() * Math.max(0.0F, elapsed);
         float axisU = Mth.cos(shard.axis());
         float axisV = Mth.sin(shard.axis());
         Vector3f alongU = new Vector3f(1.0F, 0.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
         Vector3f alongV = new Vector3f(0.0F, 1.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
         Vector3f facing = new Vector3f(0.0F, 0.0F, 1.0F).rotateAxis(turn, axisU, axisV, 0.0F);
 
-        double outward = shard.outward() * cover * travel;
-        double baseU = centreU + Math.cos(shard.midAngle()) * outward;
-        double baseV = centreV + Math.sin(shard.midAngle()) * outward;
-        // Signed, so a pane bursts both ways rather than all of it coming at the viewer.
-        double baseW = shard.push() * cover * 0.45D * travel;
+        // Down is the world's, not the aperture's, so it is taken into the aperture's frame - with the
+        // up axis divided by the aspect, which localVertex multiplies back in.
+        double baseU = centreU + Math.cos(shard.midAngle()) * outward - rift.right.y * drop;
+        double baseV = centreV + Math.sin(shard.midAngle()) * outward - rift.up.y * drop / rift.aspect;
+        double baseW = push - rift.normal.y * drop;
 
         float sheen = glint(rift, eye, facing, baseU, baseV, baseW);
         float lit = 0.45F + 0.55F * sheen;
         float white = sheen * sheen;
-        float alpha = fade * (0.22F + 0.78F * sheen) * 0.85F;
-        float shardRed = Mth.lerp(white, red, 1.0F) * lit;
-        float shardGreen = Mth.lerp(white, green, 1.0F) * lit;
-        float shardBlue = Mth.lerp(white, blue, 1.0F) * lit;
+        float bodyAlpha = strength * (0.14F + 0.62F * sheen);
+        float bodyRed = Mth.lerp(white, red, 1.0F) * lit;
+        float bodyGreen = Mth.lerp(white, green, 1.0F) * lit;
+        float bodyBlue = Mth.lerp(white, blue, 1.0F) * lit;
+        // The cut edge is nearly white and never faint: it is light caught end-on in the glass, which
+        // it catches whichever way the piece has turned.
+        float edgeAlpha = strength * (0.55F + 0.45F * sheen);
+        float edgeWhite = 0.55F + 0.45F * white;
+        float edgeRed = Mth.lerp(edgeWhite, red, 1.0F);
+        float edgeGreen = Mth.lerp(edgeWhite, green, 1.0F);
+        float edgeBlue = Mth.lerp(edgeWhite, blue, 1.0F);
 
-        corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                u0 - centreU, v0 - centreV, shardRed, shardGreen, shardBlue, alpha);
-        corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                u1 - centreU, v1 - centreV, shardRed, shardGreen, shardBlue, alpha);
-        corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                u2 - centreU, v2 - centreV, shardRed, shardGreen, shardBlue, alpha);
-        corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                u3 - centreU, v3 - centreV, shardRed, shardGreen, shardBlue, alpha);
+        int first = outline.firstCorner();
+        for (int turnRound = 0; turnRound < 4; turnRound++) {
+            int corner = (first + turnRound) % 4;
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    INSET_U[corner], INSET_V[corner], bodyRed, bodyGreen, bodyBlue, bodyAlpha);
+        }
+        for (int corner = 0; corner < 4; corner++) {
+            int next = (corner + 1) % 4;
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    PIECE_U[corner], PIECE_V[corner], edgeRed, edgeGreen, edgeBlue, edgeAlpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    PIECE_U[next], PIECE_V[next], edgeRed, edgeGreen, edgeBlue, edgeAlpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    INSET_U[next], INSET_V[next], edgeRed, edgeGreen, edgeBlue, edgeAlpha);
+            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
+                    INSET_U[corner], INSET_V[corner], edgeRed, edgeGreen, edgeBlue, edgeAlpha);
+        }
     }
 
     /**
@@ -1689,7 +2760,8 @@ public final class RiftEffectManager {
     private static void drawSeal(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                  float partialTick, Vec3 eye) {
         float progress = rift.sealProgress(partialTick);
-        if (progress <= 0.0F || progress >= 1.0F) {
+        // A pane that never broke has nothing to come back.
+        if (progress <= 0.0F || progress >= 1.0F || rift.pattern.motion() == RiftShatter.Motion.UNBROKEN) {
             return;
         }
 
@@ -1708,6 +2780,21 @@ public final class RiftEffectManager {
             }
             // One at the rim, nothing at home: the piece falls inwards as its life runs out.
             float out = 1.0F - RiftShatter.travel(life);
+
+            // A teleported piece comes home the way it left: at the one place it went, and then home,
+            // flickering in - never anywhere between.
+            if (rift.pattern.motion() == RiftShatter.Motion.BLINK) {
+                if (out > 0.5F) {
+                    float[] lit = RiftFurniture.channels(rift.accentColour);
+                    planarShard(consumer, matrix, rift, shard, cover, shard.spin(), shard.outward() * cover,
+                            0.0D, 0.6D, lit[0], lit[1], lit[2], fade * 0.85F);
+                } else {
+                    boolean on = Mth.sin(progress * 90.0F + shard.axis() * 7.0F) > -0.25F;
+                    planarShard(consumer, matrix, rift, shard, cover, 0.0F, 0.0D, 0.0D, 1.0D,
+                            red, green, blue, fade * (on ? 0.8F : 0.2F));
+                }
+                continue;
+            }
 
             // Whatever a theme's pieces did on the way out, they undo on the way back - a shutter that
             // swung open has to swing closed, and a circle that burned away has to be written again
@@ -1755,59 +2842,12 @@ public final class RiftEffectManager {
                 continue;
             }
 
-            double rim0 = rift.reach(shard.angle0(), rift.rimTime);
-            double rim1 = rift.reach(shard.angle1(), rift.rimTime);
-            double cos0 = Math.cos(shard.angle0());
-            double sin0 = Math.sin(shard.angle0());
-            double cos1 = Math.cos(shard.angle1());
-            double sin1 = Math.sin(shard.angle1());
-
-            double near0 = cover * rim0 * shard.innerT();
-            double far0 = cover * rim0 * shard.outerT();
-            double near1 = cover * rim1 * shard.innerT();
-            double far1 = cover * rim1 * shard.outerT();
-
-            double u0 = cos0 * near0;
-            double v0 = sin0 * near0;
-            double u1 = cos1 * near1;
-            double v1 = sin1 * near1;
-            double u2 = cos1 * far1;
-            double v2 = sin1 * far1;
-            double u3 = cos0 * far0;
-            double v3 = sin0 * far0;
-
-            double centreU = (u0 + u1 + u2 + u3) * 0.25D;
-            double centreV = (v0 + v1 + v2 + v3) * 0.25D;
-
-            // Still turning as it comes in, and square by the time it lands.
-            float turn = shard.spin() * out * RiftShatter.BREAK_SPREAD * 3.0F;
-            float axisU = Mth.cos(shard.axis());
-            float axisV = Mth.sin(shard.axis());
-            Vector3f alongU = new Vector3f(1.0F, 0.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
-            Vector3f alongV = new Vector3f(0.0F, 1.0F, 0.0F).rotateAxis(turn, axisU, axisV, 0.0F);
-            Vector3f facing = new Vector3f(0.0F, 0.0F, 1.0F).rotateAxis(turn, axisU, axisV, 0.0F);
-
-            double outward = shard.outward() * cover * out;
-            double baseU = centreU + Math.cos(shard.midAngle()) * outward;
-            double baseV = centreV + Math.sin(shard.midAngle()) * outward;
-            double baseW = shard.push() * cover * 0.45D * out;
-
-            float sheen = glint(rift, eye, facing, baseU, baseV, baseW);
-            float white = sheen * sheen;
-            float lit = 0.45F + 0.55F * sheen;
-            float alpha = fade * (0.22F + 0.78F * sheen) * 0.9F;
-            float shardRed = Mth.lerp(white, red, 1.0F) * lit;
-            float shardGreen = Mth.lerp(white, green, 1.0F) * lit;
-            float shardBlue = Mth.lerp(white, blue, 1.0F) * lit;
-
-            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                    u0 - centreU, v0 - centreV, shardRed, shardGreen, shardBlue, alpha);
-            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                    u1 - centreU, v1 - centreV, shardRed, shardGreen, shardBlue, alpha);
-            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                    u2 - centreU, v2 - centreV, shardRed, shardGreen, shardBlue, alpha);
-            corner(consumer, matrix, rift, baseU, baseV, baseW, alongU, alongV,
-                    u3 - centreU, v3 - centreV, shardRed, shardGreen, shardBlue, alpha);
+            // Still turning as it comes in, and square by the time it lands. Not falling: a piece
+            // that fell on the way out and rose on the way back would read as the opening rewound.
+            glassPiece(consumer, matrix, rift, shard, eye, cover,
+                    shard.spin() * out * RiftShatter.BREAK_SPREAD * 3.0F,
+                    shard.outward() * cover * out, shard.push() * cover * 0.45D * out, 0.0D,
+                    fade * 0.9F, red, green, blue);
         }
     }
 
@@ -1821,6 +2861,9 @@ public final class RiftEffectManager {
      */
     private static void drawSpark(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift,
                                   float partialTick, Vec3 eye) {
+        if (rift.surface == ThemeLook.Surface.NEBULA) {
+            return; // it seals on its own flash, as the collapse arrives - see Nebula.pop
+        }
         float progress = rift.sealProgress(partialTick);
         if (progress <= SEAL_SPARK) {
             return;
@@ -2539,6 +3582,34 @@ public final class RiftEffectManager {
                                     float x, float y, float z,
                                     float red, float green, float blue, float alpha) {
         consumer.addVertex(matrix, x, y, z).setColor(red, green, blue, alpha);
+    }
+
+    /**
+     * An opaque vertex at {@code (u, v)} in the aperture's own plane - the solid counterpart of
+     * {@link #localVertex}, for the one opaque surface that is not laid out round the middle.
+     *
+     * <p>Only the End's bleed uses it, and its format has no colour, so the white here is never seen.
+     */
+    private static void solidLocal(VertexConsumer consumer, Matrix4f matrix, ActiveRift rift, double u, double v,
+                                   float red, float green, float blue) {
+        double up = v * rift.aspect;
+        solidVertex(consumer, matrix,
+                (float) (rift.centre.x + rift.right.x * u + rift.up.x * up),
+                (float) (rift.centre.y + rift.right.y * u + rift.up.y * up),
+                (float) (rift.centre.z + rift.right.z * u + rift.up.z * up),
+                red, green, blue, 1.0F);
+    }
+
+    /**
+     * An opaque vertex already placed in the world - for the one solid thing {@link RiftFurniture}
+     * builds, a Sketch's pencil, which it lays out in three dimensions itself.
+     *
+     * <p>Package-private so that the pencil still goes through {@link #solidVertex}, and so through the
+     * one writer the membrane's format has.
+     */
+    static void solidWorld(VertexConsumer consumer, Matrix4f matrix, double x, double y, double z,
+                           float red, float green, float blue) {
+        solidVertex(consumer, matrix, (float) x, (float) y, (float) z, red, green, blue, 1.0F);
     }
 
     /**

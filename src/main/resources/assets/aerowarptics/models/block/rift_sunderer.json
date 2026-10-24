@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top": "aerowarptics:block/rift_gate_frame",
+    "side": "aerowarptics:block/rift_gate_frame",
+    "front": "aerowarptics:block/rift_sunderer_front"
+  }
+}

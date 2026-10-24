@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_coupler"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.fleet_in_being.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.fleet_in_being.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "full": {
+      "trigger": "aerowarptics:flotilla_fold",
+      "conditions": {
+        "full": true
+      }
+    }
+  },
+  "requirements": [
+    [
+      "full"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:line_abreast"
+}

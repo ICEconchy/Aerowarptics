@@ -47,13 +47,17 @@ public final class LaunchClearance {
      * box were then handed to an obstruction test that had no idea they were part of the same ship,
      * which refused every launch outright. A vessel with sub-levels could not warp at all.
      *
-     * <p>So the sweep is the hull. What a propeller does to the terrain it passes is between the
+     * <p>The connected plots have since come back - {@link Airship#vesselWorldBounds()} - because the
+     * obstruction test now knows a vessel's own sub-levels from a stranger's, and a ship built in sections
+     * was having only its drive's section looked at. The contraptions stay out.
+     *
+     * <p>So the sweep is the hull and its parts. What a propeller does to the terrain it passes is between the
      * propeller and the terrain - Sable's solver has never ejected a ship over a blade - whereas
      * flying the hull itself into a hillside is the failure this check exists for, and the hull's own
      * box catches that exactly.
      */
     private static BoundingBox3dc clearanceHull(Airship airship) {
-        return airship.worldBounds();
+        return airship.vesselWorldBounds();
     }
 
     /**
@@ -225,6 +229,16 @@ public final class LaunchClearance {
             }
         }
         return null;
+    }
+
+    /**
+     * The other vessels the bow guard read as standing in its path, for a refusal with no block to name.
+     * Empty when it was a block, or chunks, that stopped it.
+     */
+    public static java.util.List<dev.ryanhcode.sable.sublevel.SubLevel> guardHulls(Airship airship,
+                                                                                    ServerLevel level,
+                                                                                    Vector3dc bow) {
+        return SafeArrival.otherHulls(airship, level, testedSegments(clearanceHull(airship), bow, guardReach()));
     }
 
     /**

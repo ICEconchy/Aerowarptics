@@ -34,7 +34,7 @@ class WarpAnchorRegistryTest {
     }
 
     private static WarpAnchor anchor(UUID id, String name, BlockPos pos, ResourceKey<Level> dimension) {
-        return new WarpAnchor(id, name, dimension, pos, null, "", WarpAnchorAccess.PUBLIC, "", true, 6);
+        return new WarpAnchor(id, name, dimension, pos, null, "", WarpAnchorAccess.PUBLIC, null, true, 6);
     }
 
     /** Round-trips a registry through NBT the way the world save does. */
@@ -131,7 +131,7 @@ class WarpAnchorRegistryTest {
         WarpAnchorRegistry registry = new WarpAnchorRegistry();
         UUID owner = UUID.randomUUID();
         WarpAnchor a = new WarpAnchor(UUID.randomUUID(), "Brasshaven", OVERWORLD, new BlockPos(1250, 110, -8400),
-                owner, "Pilot", WarpAnchorAccess.PRIVATE, "trade-route", false, 40);
+                owner, "Pilot", WarpAnchorAccess.NETWORK, UUID.randomUUID(), false, 40);
         WarpAnchor b = anchor(UUID.randomUUID(), "Ashfall", new BlockPos(-40, 32, 90), NETHER);
         registry.register(a);
         registry.register(b);
@@ -170,7 +170,7 @@ class WarpAnchorRegistryTest {
     void theArrivalHeightSurvivesEveryOtherEdit() {
         WarpAnchor anchor = anchor("Brasshaven", new BlockPos(1, 2, 3)).withArrivalHeight(40);
         WarpAnchor edited = anchor.withName("Ironreach").withAccess(WarpAnchorAccess.PRIVATE)
-                .withNetwork("north").withEnabled(false).withPosition(NETHER, new BlockPos(9, 9, 9));
+                .withNetwork(UUID.randomUUID()).withEnabled(false).withPosition(NETHER, new BlockPos(9, 9, 9));
 
         assertEquals(40, edited.arrivalHeight());
         assertEquals("Ironreach", edited.withArrivalHeight(12).name());
@@ -217,6 +217,62 @@ class WarpAnchorRegistryTest {
         assertEquals(good, reloaded.byId(good.id()));
     }
 
+    // ---------------------------------------------------------------- networks
+
+    /**
+     * A member put out of a network takes their own anchors off it and nobody else's, in the record,
+     * whether or not the blocks are loaded - and an anchor that was open to the network is shut, not opened.
+     */
+    @Test
+    void anchorsComeOffANetworkByOwnerOrAllTogether() {
+        WarpAnchorRegistry registry = new WarpAnchorRegistry();
+        UUID network = UUID.randomUUID();
+        UUID pilot = UUID.randomUUID();
+        UUID mate = UUID.randomUUID();
+        WarpAnchor pilots = new WarpAnchor(UUID.randomUUID(), "Pilot's", OVERWORLD, BlockPos.ZERO,
+                pilot, "Pilot", WarpAnchorAccess.NETWORK, network, true, 6);
+        WarpAnchor mates = new WarpAnchor(UUID.randomUUID(), "Mate's", OVERWORLD, new BlockPos(1, 0, 0),
+                mate, "Mate", WarpAnchorAccess.NETWORK, network, true, 6);
+        WarpAnchor matesPublic = new WarpAnchor(UUID.randomUUID(), "Mate's Dock", OVERWORLD, new BlockPos(2, 0, 0),
+                mate, "Mate", WarpAnchorAccess.PUBLIC, network, true, 6);
+        WarpAnchor elsewhere = new WarpAnchor(UUID.randomUUID(), "Elsewhere", OVERWORLD, new BlockPos(3, 0, 0),
+                mate, "Mate", WarpAnchorAccess.NETWORK, UUID.randomUUID(), true, 6);
+        for (WarpAnchor anchor : new WarpAnchor[]{pilots, mates, matesPublic, elsewhere}) {
+            registry.register(anchor);
+        }
+
+        int off = registry.detach(anchor -> network.equals(anchor.network()) && anchor.isOwnedBy(mate)).size();
+
+        assertEquals(2, off);
+        assertNull(registry.byId(mates.id()).network());
+        assertEquals(WarpAnchorAccess.PRIVATE, registry.byId(mates.id()).access(),
+                "an anchor open to its network was left open to it, or opened, as its owner left");
+        assertEquals(WarpAnchorAccess.PUBLIC, registry.byId(matesPublic.id()).access());
+        assertEquals(pilots, registry.byId(pilots.id()), "the owner's anchor came off with the member's");
+        assertEquals(elsewhere, registry.byId(elsewhere.id()), "an anchor on another network was touched");
+        assertEquals(mates.id(), registry.byName("Mate's").id(), "coming off a network lost an anchor its name");
+
+        assertEquals(1, registry.detach(anchor -> network.equals(anchor.network())).size());
+        assertTrue(registry.detach(anchor -> network.equals(anchor.network())).isEmpty());
+        assertEquals(WarpAnchorAccess.PRIVATE, reload(registry).byId(pilots.id()).access());
+    }
+
+    /**
+     * A save from before networks were real holds a label nothing ever read. It loads, with no network:
+     * the anchor's own block still has the label and adopts it when it next loads.
+     */
+    @Test
+    void anAnchorSavedWithAnOldNetworkLabelLoadsWithNoNetwork() {
+        CompoundTag old = anchor("Brasshaven", new BlockPos(1, 2, 3)).save();
+        old.putString("Network", "trade-route");
+
+        WarpAnchor loaded = WarpAnchor.load(old);
+
+        assertNotNull(loaded);
+        assertNull(loaded.network());
+        assertEquals("Brasshaven", loaded.name());
+    }
+
     @Test
     void anEmptyRegistryRoundTripsCleanly() {
         WarpAnchorRegistry reloaded = reload(new WarpAnchorRegistry());
@@ -229,11 +285,11 @@ class WarpAnchorRegistryTest {
         UUID pilot = UUID.randomUUID();
         UUID other = UUID.randomUUID();
         registry.register(new WarpAnchor(UUID.randomUUID(), "A", OVERWORLD, BlockPos.ZERO,
-                pilot, "Pilot", WarpAnchorAccess.PUBLIC, "", true, 6));
+                pilot, "Pilot", WarpAnchorAccess.PUBLIC, null, true, 6));
         registry.register(new WarpAnchor(UUID.randomUUID(), "B", OVERWORLD, new BlockPos(1, 0, 0),
-                pilot, "Pilot", WarpAnchorAccess.PUBLIC, "", true, 6));
+                pilot, "Pilot", WarpAnchorAccess.PUBLIC, null, true, 6));
         registry.register(new WarpAnchor(UUID.randomUUID(), "C", OVERWORLD, new BlockPos(2, 0, 0),
-                other, "Other", WarpAnchorAccess.PUBLIC, "", true, 6));
+                other, "Other", WarpAnchorAccess.PUBLIC, null, true, 6));
 
         assertEquals(2, registry.countOwnedBy(pilot));
         assertEquals(1, registry.countOwnedBy(other));

@@ -10,16 +10,58 @@ Create 6.0.10's API and the invariants in AGENTS.md, then stress-tested by a rev
 are folded in. Line numbers are as of that date and will drift. Where this document says "decision",
 see the list at the end.
 
-**Status: planned, not started.**
+**Status: built, 2026-09-28 - every phase, unit-tested (1094 tests), not yet seen in game.**
 
 | Phase | What | Effort | Status |
 | --- | --- | --- | --- |
-| 0 | Retire fissure ore | S | Open — best done before 1.3.1 ships |
-| 1 | Foundations: test upgrades, shared siphon draught, Classic pack, Rift Core assembly, Rift Pearl, Rift Casing | M | Open |
-| 2 | Rifting and the Seal | M | Open |
-| 3 | Folding | M–L | Open |
-| 4 | The Collapse | L | Open |
-| 5 | Storm work | M | Open |
+| 0 | Retire fissure ore | S | Done |
+| 1 | Foundations: test upgrades, shared siphon draught, Classic pack, Rift Core assembly, Rift Pearl, Rift Casing | M | Done |
+| 2 | Rifting and the Seal | M | Done |
+| 3 | Folding | M–L | Done |
+| 4 | The Collapse | L | Done |
+| 5 | Storm work | M | Done |
+
+Where the build settled something this plan left open, or differs from it:
+
+- **The Rift Pearl, thrown, hops what it hits, never its thrower.** Like a chorus fruit, through the chorus
+  fruit's own teleport event, within eight blocks (`RiftHop`, shared with rifting). Carrying the thrower would
+  have to fire the ender pearl's own teleport event, which claim mods listen for by that type, or skip it and
+  walk through protected borders. (Built first as a harmless flare; the user asked for the hop.)
+- **The Spatial Stabiliser takes one Gyroscopic Mechanism** where it took two Electron Tubes.
+- **The Mk I is built with Rift Casing** like every other machine that took a Brass Casing, so its tree has
+  warp dust in it from the casing as well as the crystals; it still has no essence and no rift.
+- **The collapse takes its offerings off the depots all at once, as it begins,** so a ritual never finds half
+  its offerings gone; a streak of sparks from each depot draws them in through spin-up and opening. Depots are
+  any Create Depot within `collapseDepotReach` on the cradle's own level, up to eight.
+- **The Singularity costs 656 by effort**, not 610: the Scar Heart and the essence are priced (30, and 0.004 a
+  millibucket), which the plan's figure left out. The last step is ×2.26, inside the band.
+- **The Ship's Compass has its own dial and needle** - thirty-two hand-drawn frames (2026-10-08), numbered as
+  vanilla numbers its compass, where it used to be vanilla's dial under a violet badge - pointed at the ship by a
+  position the server keeps on the stack - loaded or not, the hold ledger's last sighting.
+- **The Stormglass's four readings are four textures,** switched by an item property; see AGENTS.md on why the
+  property is quarters and not the ordinal.
+- **Some of the new item icons are still placeholders** in the mod's palette, drawn once by a throwaway script,
+  waiting for the same hand as the rest: the Opened Rift Lens, Scar Chart, Incomplete Rift Core and Relic
+  Armillary. The Rift Pearl has its real art (2026-09-30), and so do the Folded Warp Crystal, Scar Heart and
+  the Stormglasses (2026-10-06) - animated strips, the Stormglasses at 32x32 a frame - and the Ship's Compass
+  (2026-10-08).
+- **The Collapse Cradle was redesigned as forgotten technology** (the user's choices, 2026-09-29): a 3x3x3
+  machine placed whole from one item and refusing to move; weathered rift-stone and verdigris bronze patched with
+  the player's brass; crafted as before plus a **Relic Armillary**, found in a cache barrel in every rift scar
+  ruin (0.4 a barrel); and fully mechanical - gears, pistons, jointed arms that hand the core up to the rift,
+  an iris in the crown, and three rings that tumble round the hole and lock flat in the hush, all posed from
+  the ritual's clock (`CradleWorks`). The hole and the rift shrank to fit inside the innermost ring
+  (`HOLE_FULL` 0.85 to 0.45, `APERTURE_WIDE` 1.35 to 0.55) and the orbit moved outside the pillars (2.4 to 3.0).
+- **The Fold Crucible is gone; the Collapse Cradle folds** (the user's choice, 2026-09-29). Phase 3 below is
+  history. Folding is the cradle's lesser work: the arms hold up to sixteen, the cup a second ingredient, and
+  each craft burns Rift Essence (100 mB a Folded Warp Crystal, 250 a Pearlescent, 50 a Ship's Compass) in a
+  few seconds' animation, at `collapseFoldMinimumSpeed` or faster. No warp length is asked for any more, so
+  the Mk III's act is a fold at a cradle - and so a found Relic Armillary - rather than a long jump; nothing
+  folded goes into the cradle, which `ProgressionActTest` holds. The Ship's Compass comes out unbound and is
+  bound by sneak-using it on a drive. The cradle also gained a panel (slots, tank, shaft, stabilisers, a
+  heading dial and a Begin button beside the redstone pulse) and a failing look when a collapse heads for
+  trouble.
+  See README, "The cradle is forgotten technology".
 
 ---
 
@@ -80,7 +122,7 @@ The load-bearing decisions, each short enough for a handbook page.
 6. **Every gate has a second road.**
    - **Opened lenses:** a brazier's essence stands in for a found fissure.
    - **Storms:** they gate nothing.
-   - **The Scar Heart** comes only from found scars (decision 3). Its second road is geography plus a
+   - **The Scar Heart** comes only from found scars (decision 3, which a Sunderer's tear does not change). Its second road is geography plus a
      tool: scars are common, and a **Scar Chart** leads to the nearest unvisited one. A world with none
      turns on the **Classic recipes** pack.
 7. **Every process is a datapack recipe type with a JEI category.** Pack makers can hang their own
@@ -253,6 +295,17 @@ If you cannot turn the cradle, you cannot fly the drive it makes.
 5. **Collapse.** The rift falls in on itself (the theme's own closing, a flash, the exit shockwave).
    `SpatialWaveDetectorBlockEntity.announce` pulses detectors, so an arm can collect the result.
 
+*Redone as a set piece (2026-09-28, the user's choices):* a **landmark** - a column of light 320 blocks
+into the sky, the day dimmed for 160 blocks round, the boom heard at 128. The rift folds into a **black
+hole** at 40%: a ball of darkness with the offerings in orbit and a disc of light round it, space bent past
+its edge, lightning to the stabilisers, a Scar Heart beating faster; a silent **hush** for the last 5%,
+when everything falls into a point; then a flash, a boom and a ring of air. The player **watches** - setup
+still decides - but how unsteady it is shows throughout, from where instability is *heading*. It **pulls**
+loose things and players in as it winds and **knocks back** everything at the end, and a flung or spat
+collapse **hurts** whoever is too close (less behind cover; never blocks, items or armour stands). See
+`CollapseChoreography`, `CollapseSpectacle`, and `collapsePullRange` / `collapseBlastRange` /
+`collapseBlastDamage`.
+
 **Instability** (`CollapseInstability`, pure, shaped and tested like `StabiliserCushion`):
 - **Rises** with a raging storm (which also shortens the ritual, cutting both ways as it does for
   warps), rotation below optimal, and a tank running short.
@@ -338,7 +391,7 @@ It gives players without a drive a road to essence, and a reason to fly into the
   Simulated's gyroscopic mechanism is the precedent in this stack.
 - **Rift Pearl** (spout: Ender Pearl + 250 mB; emptying gives 200 mB back — the loss is a sink). It is
   essence in item form, so it can enter bench and mechanical-crafter recipes that cannot take fluids.
-  It is also a denomination to trade, and thrown it is a harmless pearl with a rift cue. Consumed by
+  It is also a denomination to trade, and thrown it hops what it hits like a chorus fruit. Consumed by
   the **Rift Beacon** (one pearl replaces a brass sheet — a thing that summons should carry a pearl)
   and the **Collapse Cradle**.
 - **Rift Casing** (item application: Warp Dust on a Brass Casing). The addon's own casing, used by every
@@ -610,9 +663,13 @@ Teaching ships with each phase — the mod's "standing cost":
 1. **The reshaped ladder is the default.** The **Classic recipes** pack restores today's recipes per
    world — opt-in, `PackSource.FEATURE`. Not a config switch: recipes load before a world's server
    config, and there is no common config.
-2. **Recorded for later.** Nothing here is built yet; phases are built one at a time, when chosen.
+2. **Built in order.** Recorded first, then built phase by phase on 2026-09-28; see Status at the top.
 3. **Scars stay found, never made.** No code places a fissure; a failed Collapse spits its inputs back
    and spends only the heart and the essence.
+   *Amended by the owner, 2026-10-16:* a **Rift Sunderer** may tear a fissure at home - a single-use heart for a
+   ring of gate frame, `docs/rift-sunderer-plan.md`. What it tears is *conjured*: it seals with **no Scar Heart**,
+   gives a siphon nothing, and gutters shut unless a Rift Wellhead holds it. So the heart, and with it the
+   Singularity, still comes only from a found scar; what is opened up is the wellhead, at home.
 4. **Players may call storms, on by default.** The call is refused while a storm rages, while weather
    is frozen and inside a minimum calm, and forced off when natural storms are off. A review pass
    suggested default-off, because `/weather` is operator-only; the author's choice stands, with

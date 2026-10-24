@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:opened_rift_lens"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.seen_a_rift.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.seen_a_rift.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "opened_lens": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "aerowarptics:opened_rift_lens"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "opened_lens"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:rift_drive"
+}

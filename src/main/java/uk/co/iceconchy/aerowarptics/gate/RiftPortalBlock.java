@@ -196,7 +196,7 @@ public class RiftPortalBlock extends Block {
      * asks what it lands on. Every one of them has to land on frame: a hole in a wall is only a hole
      * in a wall while there is a wall.
      */
-    private static boolean stillRinged(LevelReader level, BlockPos pos, Direction.Axis span) {
+    static boolean stillRinged(LevelReader level, BlockPos pos, Direction.Axis span) {
         Direction across = span == Direction.Axis.X ? Direction.EAST : Direction.SOUTH;
         for (Direction direction : new Direction[] {across, across.getOpposite(), Direction.UP, Direction.DOWN}) {
             if (!reachesFrame(level, pos, direction)) {
@@ -211,7 +211,9 @@ public class RiftPortalBlock extends Block {
         for (int step = 0; step < MAX_REACH; step++) {
             cursor.move(direction);
             BlockState state = level.getBlockState(cursor);
-            if (state.is(AWBlocks.RIFT_PORTAL.get())) {
+            // A socket is a lane's cell of the same opening with the gate shut - see RiftSocketBlock - and
+            // walked through as the pane is, or a gate half pane and half socket reads as no ring at all.
+            if (state.is(AWBlocks.RIFT_PORTAL.get()) || state.is(AWBlocks.RIFT_SOCKET.get())) {
                 continue;
             }
             return state.is(AWBlocks.RIFT_GATE_FRAME.get()) || state.is(AWBlocks.RIFT_GATE.get());

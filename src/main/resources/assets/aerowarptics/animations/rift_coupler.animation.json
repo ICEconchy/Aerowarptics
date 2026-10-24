@@ -1,0 +1,175 @@
+{
+	"format_version": "1.8.0",
+	"animations": {
+		"animation.rift_coupler.idle": {
+			"loop": true,
+			"animation_length": 6,
+			"bones": {
+				"gem": {
+					"position": {
+						"0.0": {
+							"vector": [
+								0,
+								-0.25,
+								0
+							]
+						},
+						"3.0": {
+							"vector": [
+								0,
+								0,
+								0
+							],
+							"easing": "easeInOutQuad"
+						},
+						"6.0": {
+							"vector": [
+								0,
+								-0.25,
+								0
+							],
+							"easing": "easeInOutQuad"
+						}
+					}
+				}
+			}
+		},
+		"animation.rift_coupler.muster": {
+			"loop": true,
+			"animation_length": 0.25,
+			"bones": {
+				"Lfork": {
+					"position": {
+						"0.0": {
+							"vector": [
+								-0.1,
+								0,
+								0
+							]
+						},
+						"0.0417": {
+							"vector": [
+								0.1,
+								0,
+								0
+							]
+						},
+						"0.0833": {
+							"vector": [
+								-0.1,
+								0,
+								0
+							]
+						},
+						"0.125": {
+							"vector": [
+								0.1,
+								0,
+								0
+							]
+						},
+						"0.1667": {
+							"vector": [
+								-0.1,
+								0,
+								0
+							]
+						},
+						"0.2083": {
+							"vector": [
+								0.1,
+								0,
+								0
+							]
+						},
+						"0.25": {
+							"vector": [
+								-0.1,
+								0,
+								0
+							]
+						}
+					}
+				},
+				"gem": {
+					"scale": {
+						"0.0": {
+							"vector": [
+								1,
+								1,
+								1
+							]
+						},
+						"0.125": {
+							"vector": [
+								0.95,
+								0.95,
+								0.95
+							]
+						},
+						"0.25": {
+							"vector": [
+								1,
+								1,
+								1
+							]
+						}
+					}
+				},
+				"Rfork": {
+					"position": {
+						"0.0": {
+							"vector": [
+								0.1,
+								0,
+								0
+							]
+						},
+						"0.0417": {
+							"vector": [
+								-0.1,
+								0,
+								0
+							]
+						},
+						"0.0833": {
+							"vector": [
+								0.1,
+								0,
+								0
+							]
+						},
+						"0.125": {
+							"vector": [
+								-0.1,
+								0,
+								0
+							]
+						},
+						"0.1667": {
+							"vector": [
+								0.1,
+								0,
+								0
+							]
+						},
+						"0.2083": {
+							"vector": [
+								-0.1,
+								0,
+								0
+							]
+						},
+						"0.25": {
+							"vector": [
+								0.1,
+								0,
+								0
+							]
+						}
+					}
+				}
+			}
+		}
+	}
+}

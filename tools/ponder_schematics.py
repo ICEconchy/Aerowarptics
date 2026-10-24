@@ -78,15 +78,21 @@ def int_list(values):
     return (LIST, (INT, list(values)))
 
 
-def write_structure(path, size, palette, blocks):
-    """palette: list of (name, {property: value}); blocks: {(x, y, z): palette index}."""
+def write_structure(path, size, palette, blocks, nbt=None):
+    """palette: list of (name, {property: value}); blocks: {(x, y, z): palette index}; nbt: {(x, y, z): {key:
+    string}} for block entities that need data of their own - a barrel's loot table - written as strings."""
+    nbt = nbt or {}
+
+    def entry(pos, state):
+        block = {"pos": int_list(pos), "state": (INT, state)}
+        if pos in nbt:
+            block["nbt"] = (COMPOUND, {key: (STRING, value) for key, value in sorted(nbt[pos].items())})
+        return block
+
     root = {
         "size": int_list(size),
         "entities": (LIST, (END, [])),
-        "blocks": (LIST, (COMPOUND, [
-            {"pos": int_list(pos), "state": (INT, state)}
-            for pos, state in sorted(blocks.items())
-        ])),
+        "blocks": (LIST, (COMPOUND, [entry(pos, state) for pos, state in sorted(blocks.items())])),
         "palette": (LIST, (COMPOUND, [
             ({"Name": (STRING, name)} if not properties else
              {"Name": (STRING, name),
@@ -118,6 +124,7 @@ class Scene:
         self.palette = []
         self.index = {}
         self.blocks = {}
+        self.nbt = {}
 
     def _state(self, name, properties):
         key = (name, tuple(sorted(properties.items())))
@@ -126,11 +133,19 @@ class Scene:
             self.palette.append((name, properties))
         return self.index[key]
 
-    def put(self, x, y, z, name, **properties):
+    def put(self, x, y, z, name, /, **properties):
         for axis, value, limit in (("x", x, self.size[0]), ("y", y, self.size[1]), ("z", z, self.size[2])):
             if not 0 <= value < limit:
                 raise ValueError(f"{name} at ({x},{y},{z}) is outside the scene: {axis}={value} of {limit}")
         self.blocks[(x, y, z)] = self._state(name, {k: str(v) for k, v in properties.items()})
+        self.nbt.pop((x, y, z), None)
+
+    def data(self, x, y, z, **tags):
+        """Block entity data for what stands at a position - put it there first. Strings only, which is all a
+        loot table needs."""
+        if (x, y, z) not in self.blocks:
+            raise ValueError(f"nothing at ({x},{y},{z}) to give data to")
+        self.nbt[(x, y, z)] = dict(tags)
 
     def fill(self, x0, y0, z0, x1, y1, z1, name, **properties):
         for x in range(x0, x1 + 1):
@@ -160,7 +175,7 @@ class Scene:
 
     def save(self, root, name):
         path = os.path.join(root, *name.split("/")) + ".nbt"
-        count = write_structure(path, self.size, self.palette, self.blocks)
+        count = write_structure(path, self.size, self.palette, self.blocks, self.nbt)
         print(f"  {name+'.nbt':36} {self.size[0]}x{self.size[1]}x{self.size[2]}"
               f"  {count:3d} blocks  {len(self.palette):2d} states")
 
@@ -174,9 +189,16 @@ DRIVE = "aerowarptics:rift_drive_mk_ii"
 PROBE = "aerowarptics:rift_probe"
 CHUTE = "aerowarptics:rift_chute"
 MODULATOR = "aerowarptics:rift_modulator"
+COUPLER = "aerowarptics:rift_coupler"
 GATE = "aerowarptics:rift_gate"
 FISSURE = "aerowarptics:rift_fissure"
 FRAME = "aerowarptics:rift_gate_frame"
+EXTENDER = "aerowarptics:drive_extender"
+STABILISER = "aerowarptics:spatial_stabiliser"
+DETECTOR = "aerowarptics:spatial_wave_detector"
+BRAZIER = "aerowarptics:rift_brazier"
+CRADLE = "aerowarptics:collapse_cradle"
+VENT = "aerowarptics:cooling_vent"
 
 
 def spatial_siphon():
@@ -258,6 +280,85 @@ def rift_drive():
     return scene
 
 
+def drive_extender():
+    """A drive buried in the middle of a three-cube of extenders, with power arriving at one face.
+
+    The drive goes in the centre rather than on a face on purpose: it is the arrangement players do
+    not believe works, and the shaft coming in at the bottom of the cube - two blocks from the drive
+    and touching nothing but casing - is the whole reason a formed extender is a kinetic relay.
+
+    The extenders are written unformed, so the scene can complete the cube itself and the forming is
+    something the player watches rather than something already done when the lights come up.
+    """
+    scene = Scene((6, 5, 6))
+    scene.base_plate()
+    for x in range(1, 4):
+        for y in range(1, 4):
+            for z in range(1, 4):
+                if (x, y, z) != (2, 2, 2):
+                    scene.put(x, y, z, EXTENDER, formed="false")
+    scene.put(2, 2, 2, DRIVE, facing="south")
+    scene.motor_line(2, 1, 4, 1, "z", "north")
+    return scene
+
+
+def spatial_stabiliser():
+    """A stabiliser bolted to a drive, with a lever on top of it.
+
+    No motor, unlike every other drive scene here. A stabiliser needs the drive beside it and nothing
+    else - it never asks whether the drive is turning - and the lesson is the switch, so a shaft would
+    only invite the guess that one is needed. The lever sits on the machine's own cap so that what the
+    scene throws is unmistakably this machine's switch.
+    """
+    scene = Scene((6, 5, 6))
+    scene.base_plate()
+    scene.put(2, 1, 2, DRIVE, facing="south")
+    scene.put(1, 1, 2, STABILISER, powered="false")
+    scene.put(1, 2, 2, "minecraft:lever", face="floor", facing="south", powered="false")
+    return scene
+
+
+def cooling_vent():
+    """A turning drive with four coolers round it: three vents and a block of ice.
+
+    Four, because four is how many count - a fifth would be a cooler doing nothing in a scene that could
+    not say which. Each vent is backed onto the drive with its louvres away from it, the way one lands
+    when it is placed on a drive, which is also the arrangement that needs no shaft of its own: the motor
+    turns the drive and the drive turns the vents. The south face is the motor's and the north is the
+    ice's, so the vents take west, east and the top.
+    """
+    scene = Scene((6, 5, 6))
+    scene.base_plate()
+    scene.put(2, 1, 2, DRIVE, facing="south")
+    scene.motor_line(2, 1, 3, 1, "z", "north")
+    scene.put(1, 1, 2, VENT, facing="west")
+    scene.put(3, 1, 2, VENT, facing="east")
+    scene.put(2, 2, 2, VENT, facing="up")
+    scene.put(2, 1, 1, "minecraft:ice")
+    return scene
+
+
+def spatial_wave_detector():
+    """A detector wired to a lamp, and a Warp Anchor across the plate for something to arrive at.
+
+    Everything ships quiet - detector at nought, dust unpowered, lamp dark - because the scene sets
+    each block's signal itself, by position, to show a strong reading and then a weak one. The dust
+    runs straight east from the detector so the fall-off along it reads left to right.
+
+    No airship and no gate: a Ponder level has neither, and the lesson is what the detector does when
+    something arrives, not what arrived. The anchor stands in only as the place a ship would be sent.
+    """
+    scene = Scene((6, 5, 6))
+    scene.base_plate()
+    scene.put(1, 1, 1, DETECTOR, power=0)
+    for x in (2, 3):
+        scene.put(x, 1, 1, "minecraft:redstone_wire",
+                  east="side", west="side", north="none", south="none", power=0)
+    scene.put(4, 1, 1, "minecraft:redstone_lamp", lit="false")
+    scene.put(3, 1, 3, ANCHOR, facing="north", waterlogged="false")
+    return scene
+
+
 def rift_modulator():
     """A drive under power, a Modulator bolted to its side, and a trickle of essence reaching it."""
     scene = Scene((6, 5, 6))
@@ -272,6 +373,24 @@ def rift_modulator():
               waterlogged="false")
     scene.put(1, 1, 0, "create:fluid_tank", bottom="true", top="false", shape="window")
     scene.put(1, 2, 0, "create:fluid_tank", bottom="false", top="true", shape="window")
+    return scene
+
+
+def rift_coupler():
+    """Two drives under power, a flagship's and an escort's, each with a Rift Coupler on top.
+
+    Side by side across the plate, four blocks apart, because a flotilla is ships kept apart: the
+    escort's slot is shown as an outline round its own drive and the harmonic tether as a line between
+    the two couplers. No airship, as in every scene here - a Ponder level has none - so the scene teaches
+    the order of things, which is what nothing else in the game spells out.
+    """
+    scene = Scene((7, 5, 7))
+    scene.base_plate(7)
+    for x in (1, 5):
+        scene.put(x, 1, 1, DRIVE, facing="south")
+        scene.motor_line(x, 1, 2, 2, "z", "north")
+        # Standing on the drive, facing the way it does: the facing it takes from the drive when placed.
+        scene.put(x, 2, 1, COUPLER, facing="south")
     return scene
 
 
@@ -334,6 +453,94 @@ def rift_beacon():
     return scene
 
 
+def rift_brazier():
+    """A fan blowing across a brazier onto a depot, and a lever beside the brazier.
+
+    Everything ships quiet - the brazier unlit, the lever off - because the scene lights it by position:
+    the lever at (2, 1, 1) and the brazier beside it at (2, 1, 2). No shaft to the fan: a Ponder level does not
+    carry the air, and the lesson is the catalyst, not the fan.
+    """
+    scene = Scene((6, 4, 6))
+    scene.base_plate()
+    scene.put(0, 1, 2, "create:encased_fan", facing="east")
+    scene.put(2, 1, 2, BRAZIER, powered="false", lit="false")
+    scene.put(2, 1, 1, "minecraft:lever", face="floor", facing="south", powered="false")
+    scene.put(4, 1, 2, "create:depot")
+    return scene
+
+
+def collapse_cradle():
+    """A cradle in the middle, a ring of eight depots round it, and a stabiliser at each edge of the plate.
+
+    The cradle is three blocks each way: its master at (3, 1, 3), in the middle of its floor, and the other
+    twenty-six its parts, each told where in the machine it stands - which is all a part knows.
+
+    The stabilisers ship switched off, at (0, 1, 3), (6, 1, 3), (3, 1, 0) and (3, 1, 6), because the scene
+    switches them on by position - evenly spaced, which is the lesson.
+    """
+    scene = Scene((7, 5, 7))
+    scene.base_plate(7)
+    for dx in (-1, 0, 1):
+        for dy in (0, 1, 2):
+            for dz in (-1, 0, 1):
+                if (dx, dy, dz) != (0, 0, 0):
+                    scene.put(3 + dx, 1 + dy, 3 + dz, CRADLE + "_part", x=dx + 1, y=dy, z=dz + 1)
+    scene.put(3, 1, 3, CRADLE)
+    for x, z in ((1, 1), (3, 1), (5, 1), (1, 3), (5, 3), (1, 5), (3, 5), (5, 5)):
+        scene.put(x, 1, z, "create:depot")
+    for x, z in ((0, 3), (6, 3), (3, 0), (3, 6)):
+        scene.put(x, 1, z, STABILISER, powered="false")
+    return scene
+
+
+def rift_wellhead():
+    """A three-block frame round a fissure, its collar in the south side, and a stabiliser either side of it.
+
+    The frame is the one a player builds, a moment before it forms: Rift Casing for its edges and corners, Warp
+    Glass in the middle of each face, the fissure at (3, 2, 3) and the collar at (3, 2, 4) facing south, out of
+    the machine. A three-cube's faces are all middle, so its glass is six blocks less the collar's.
+
+    The stabilisers ship switched off, at (0, 1, 3) and (6, 1, 3), because the scene switches them on by position.
+    """
+    scene = Scene((7, 5, 7))
+    scene.base_plate(7)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                faces = sum(1 for d in (dx, dy, dz) if d != 0)
+                if faces == 0:
+                    scene.put(3, 2, 3, FISSURE, harnessed="false")
+                elif (dx, dy, dz) == (0, 0, 1):
+                    scene.put(3, 2, 4, "aerowarptics:rift_collar", facing="south", formed="false")
+                else:
+                    scene.put(3 + dx, 2 + dy, 3 + dz,
+                              "aerowarptics:warp_glass" if faces == 1 else "aerowarptics:rift_casing")
+    for x in (0, 6):
+        scene.put(x, 1, 3, STABILISER, powered="false")
+    return scene
+
+
+def rift_sunderer():
+    """
+    The gate ring's five by five frame with a three by three opening, standing across X - and a Rift Sunderer in
+    the bottom of it where a gate's controller would go, facing south, its one shaft on its back to the north.
+
+    The scene bursts some of the frame itself, so the schematic is the ring a player builds, whole.
+    """
+    scene = Scene((6, 6, 6))
+    scene.base_plate()
+
+    ring_z = 2
+    for x in range(0, 5):
+        for y in range(1, 6):
+            if x in (0, 4) or y in (1, 5):
+                scene.put(x, y, ring_z, FRAME)
+    scene.put(2, 1, ring_z, "aerowarptics:rift_sunderer", facing="south", charge="0")
+    scene.put(2, 1, ring_z - 1, "create:shaft", axis="z", waterlogged="false")
+    scene.put(2, 1, ring_z - 2, "create:creative_motor", facing="south")
+    return scene
+
+
 SCENES = {
     "spatial_siphon": spatial_siphon,
     "warp_anchor": warp_anchor,
@@ -341,10 +548,19 @@ SCENES = {
     "rift_probe": rift_probe,
     "rift_chute": rift_chute,
     "rift_modulator": rift_modulator,
+    "rift_coupler": rift_coupler,
     "rift_drive": rift_drive,
+    "drive_extender": drive_extender,
+    "spatial_stabiliser": spatial_stabiliser,
+    "cooling_vent": cooling_vent,
+    "spatial_wave_detector": spatial_wave_detector,
     "rift_gate": rift_gate,
     "rift_fissure": rift_fissure,
     "rift_beacon": rift_beacon,
+    "rift_brazier": rift_brazier,
+    "collapse_cradle": collapse_cradle,
+    "rift_wellhead": rift_wellhead,
+    "rift_sunderer": rift_sunderer,
 }
 
 

@@ -13,6 +13,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
@@ -41,10 +42,19 @@ import java.util.List;
  *       ask the hooks below; the fog colour does have an event, and is changed here;
  *   <li>the rain, in {@link RiftStormRain}, which also fades vanilla's own rain out;
  *   <li>the aurora, in {@link RiftStormAurora};
+ *   <li>tears opening onto the End's sky, in {@link RiftStormTears}; a vortex turning overhead, in
+ *       {@link RiftStormVortex}; and shards of fire streaking across it all, in {@link RiftStormStreaks};
+ *   <li>sheet lightning flickering inside the clouds, in {@link RiftStormCloudFlashes}, which also lends the
+ *       cloud deck a little of each flash through {@link #cloudColour};
  *   <li>bolts of rift fire splitting the sky at a distance, each lighting the sky and the ground violet
  *       for an instant and followed by a low, slowed-down roll of thunder, and a few sparks of the
  *       same fire drifting down through open air - both drawn here.
  * </ul>
+ *
+ * <p>The rain and everything hung in the sky are drawn from here too, together, after the clouds and against
+ * the depth the world had before them, so the clouds never cover any of it - see {@link CloudlessDepth}. The
+ * bolts are left where they are, before the clouds and behind them: lightning is the one thing in a storm that
+ * ought to be.
  *
  * <p>The darkening is the one thing in this mod that tints anything on purpose, and it tints the way
  * vanilla's own rain does: the sky, the clouds, the fog's colour and the daylight, never the fog's
@@ -58,8 +68,9 @@ import java.util.List;
  *
  * <p>The bolts obey the same {@code riftLightning} setting the apertures' own lightning does, and the
  * sparks the same {@code particleDensity}, so a player who has turned those down for performance does
- * not have them turned back up by the weather. The darkened sky, rain and aurora answer to
- * {@code riftStormWeather}; the flashes also answer to vanilla's own "Hide Lightning Flashes".
+ * not have them turned back up by the weather. The darkened sky, rain, aurora, tears, vortex and streaks
+ * answer to {@code riftStormWeather}; the cloud flashes to that and {@code riftLightning} both; and every flash
+ * also answers to vanilla's own "Hide Lightning Flashes".
  */
 @EventBusSubscriber(modid = AeroWarptics.MODID, value = Dist.CLIENT)
 public final class RiftStormSky {
@@ -73,8 +84,8 @@ public final class RiftStormSky {
     private static final int BOLT_MOST_GAP = 140;
     /** Points along a bolt's main channel, top to bottom. */
     private static final int SEGMENTS = 10;
-    /** Sparks a tick at full strength and a particle density of one. Embers now; the rain is the rain. */
-    private static final float SPARKS_PER_TICK = 1.0F;
+    /** Sparks a tick at full strength and a particle density of one. A stray ember now and then, not a shower. */
+    private static final float SPARKS_PER_TICK = 0.25F;
     /** How much of a flash is lost each tick. A strike lights the sky for about four ticks. */
     private static final float FLASH_DECAY = 0.25F;
     /** How far round the player sparks fall, horizontally. */
@@ -101,6 +112,16 @@ public final class RiftStormSky {
     private static float lastFlash;
     private static int boltCountdown = BOLT_LEAST_GAP;
 
+    /**
+     * Darkening lent to the sky by something that is not a storm, {@code 0..1}: a flotilla counting down to
+     * a fold. Only the sky, the clouds, the daylight and the fog take it - never the rain or the aurora, so a
+     * fleet about to go dims the day for a few seconds without calling up a storm to do it.
+     */
+    private static float lent;
+    private static float lastLent;
+    /** What is being asked for this tick; the darkening eases towards it. Asked afresh every tick. */
+    private static float lendTarget;
+
     private RiftStormSky() {
     }
 
@@ -115,7 +136,18 @@ public final class RiftStormSky {
         calm();
     }
 
+    /**
+     * Asks for the sky to be this dark, for this tick only. The strongest ask of the tick wins, and a
+     * tick with none lets it ease back to nothing.
+     */
+    public static void lend(float amount) {
+        lendTarget = Math.max(lendTarget, Mth.clamp(amount, 0.0F, 1.0F));
+    }
+
     private static void calm() {
+        lent = 0.0F;
+        lastLent = 0.0F;
+        lendTarget = 0.0F;
         strength = 0.0F;
         lastStrength = 0.0F;
         weather = 0.0F;
@@ -123,6 +155,9 @@ public final class RiftStormSky {
         flash = 0.0F;
         lastFlash = 0.0F;
         BOLTS.clear();
+        RiftStormTears.clear();
+        RiftStormStreaks.clear();
+        RiftStormCloudFlashes.clear();
     }
 
     // ----------------------------------------------------------------- hooks
@@ -135,13 +170,18 @@ public final class RiftStormSky {
         return Mth.lerp(partialTick, lastWeather, weather);
     }
 
+    /** How dark the sky is drawn: the storm's weather, or whatever darkening has been lent it. */
+    private static float skyWeather(float partialTick) {
+        return Math.max(weather(partialTick), Mth.lerp(partialTick, lastLent, lent));
+    }
+
     private static float skyFlash(float partialTick) {
         return Mth.lerp(partialTick, lastFlash, flash);
     }
 
     /** {@code ClientLevel.getSkyColor}. */
     public static Vec3 skyColour(Vec3 original, float partialTick) {
-        float storm = weather(partialTick);
+        float storm = skyWeather(partialTick);
         if (storm <= 0.0F) {
             return original;
         }
@@ -150,20 +190,24 @@ public final class RiftStormSky {
         return new Vec3(c[0], c[1], c[2]);
     }
 
-    /** {@code ClientLevel.getCloudColor}. */
+    /**
+     * {@code ClientLevel.getCloudColor}. Lit by a bolt the way the sky is, and also by the storm's sheet
+     * lightning, which is inside the clouds and lights nothing else.
+     */
     public static Vec3 cloudColour(Vec3 original, float partialTick) {
-        float storm = weather(partialTick);
+        float storm = skyWeather(partialTick);
         if (storm <= 0.0F) {
             return original;
         }
+        float lit = Math.max(skyFlash(partialTick), RiftStormCloudFlashes.glow(partialTick));
         float[] c = RiftStormPalette.clouds((float) original.x, (float) original.y, (float) original.z,
-                storm, skyFlash(partialTick));
+                storm, lit);
         return new Vec3(c[0], c[1], c[2]);
     }
 
     /** {@code ClientLevel.getSkyDarken}: the daylight the lightmap is built from. */
     public static float skyLight(float original, float partialTick) {
-        float storm = weather(partialTick);
+        float storm = skyWeather(partialTick);
         return storm <= 0.0F ? original : RiftStormPalette.skyLight(original, storm, skyFlash(partialTick));
     }
 
@@ -187,7 +231,7 @@ public final class RiftStormSky {
     @SubscribeEvent
     public static void onFogColour(ViewportEvent.ComputeFogColor event) {
         float partialTick = (float) event.getPartialTick();
-        float storm = weather(partialTick);
+        float storm = skyWeather(partialTick);
         if (storm <= 0.0F || event.getCamera().getFluidInCamera() != FogType.NONE) {
             return;
         }
@@ -207,6 +251,9 @@ public final class RiftStormSky {
 
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
+        lastLent = lent;
+        lent += (lendTarget - lent) * 0.08F;
+        lendTarget = 0.0F;
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
         Player player = minecraft.player;
@@ -233,11 +280,16 @@ public final class RiftStormSky {
         // config has loaded, reading one throws.
         lastWeather = weather;
         weather = AWConfig.RIFT_STORM_WEATHER.get() ? strength : 0.0F;
+
+        // Every tick, storm or none: what is already in the sky finishes rather than vanishing mid-flight.
+        RandomSource random = level.getRandom();
+        RiftStormTears.tick(random, weather);
+        RiftStormStreaks.tick(random, weather);
+        RiftStormCloudFlashes.tick(minecraft, level, random, weather);
         if (strength <= 0.0F) {
             return;
         }
 
-        RandomSource random = level.getRandom();
         fallSparks(level, player, random);
 
         if (AWConfig.RIFT_LIGHTNING.get() && --boltCountdown <= 0) {
@@ -329,6 +381,65 @@ public final class RiftStormSky {
     }
 
     // ---------------------------------------------------------------- render
+
+    /**
+     * Keeps the solid world's depth for the rain and aurora to be drawn against. Last of everything at this
+     * stage, so anything solid another mod draws here is kept with it.
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onSolidWorldDrawn(RenderLevelStageEvent event) {
+        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_BLOCK_ENTITIES
+                && weather(event.getPartialTick().getGameTimeDeltaPartialTick(false)) > 0.0F) {
+            CloudlessDepth.keep();
+        }
+    }
+
+    /**
+     * The sky and the rain, after the clouds. Where the clouds cannot be got out from under - Fabulous graphics,
+     * a shader pack, or no clouds at all - the sky is drawn straight after the sky dome instead, as the aurora
+     * always was, and the clouds cover it; see {@link RiftStormAurora}. The cloud flashes are drawn only over the
+     * clouds, never under them, since light inside a cloud that the cloud hid would be no light at all.
+     */
+    @SubscribeEvent
+    public static void onStormDrawn(RenderLevelStageEvent event) {
+        RenderLevelStageEvent.Stage stage = event.getStage();
+        boolean weatherStage = stage == RenderLevelStageEvent.Stage.AFTER_WEATHER;
+        if (!weatherStage && stage != RenderLevelStageEvent.Stage.AFTER_SKY) {
+            return;
+        }
+        float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
+        float storm = weather(partialTick);
+        if (storm > 0.0F) {
+            if (!weatherStage) {
+                if (!CloudlessDepth.available()) {
+                    drawSky(event, partialTick, storm);
+                }
+            } else {
+                CloudlessDepth.drawOver(() -> {
+                    if (CloudlessDepth.available()) {
+                        drawSky(event, partialTick, storm);
+                        RiftStormCloudFlashes.render(event, partialTick, storm);
+                    }
+                    RiftStormRain.render(event, partialTick, storm);
+                });
+            }
+        }
+        if (weatherStage) {
+            // Whether or not anything was drawn: a copy kept this frame is never good for the next.
+            CloudlessDepth.release();
+        }
+    }
+
+    /**
+     * Everything the storm hangs at infinity, furthest first: the tears write depth and must be under the rest,
+     * and each of the others is nearer than the one before it - see {@link SkyFrame}.
+     */
+    private static void drawSky(RenderLevelStageEvent event, float partialTick, float storm) {
+        RiftStormTears.render(event, partialTick, storm);
+        RiftStormVortex.render(event, partialTick, storm);
+        RiftStormAurora.render(event, partialTick, storm);
+        RiftStormStreaks.render(event, partialTick, storm);
+    }
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {

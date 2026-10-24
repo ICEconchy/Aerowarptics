@@ -543,18 +543,19 @@ only one that leaves the player a character to catch up to.
 
 ---
 
-## The two that are still upstream of us
+## Once upstream of us
 
-### Cross-dimension warp
+### Cross-dimension warp — built, experimental, off by default
 
-Warp to an anchor in another dimension. The anchors record their dimension, the whole pipeline is
-dimension-agnostic, and the socket is already cut — register a `CrossDimensionWarp.Handler`, set
-`allowCrossDimensionWarp`, and everything downstream works unchanged. It stays blocked for the same
-honest reason as before: Sable binds a sub-level to one `ServerLevel` and offers no way to hand a plot,
-its chunks and its tickets to another. Rebuilding the ship block by block in the target dimension is
-the thing an addon should not do. Until Sable offers the move, the right behaviour is to keep refusing
-clearly, which is what happens today. Listed here so the next reader does not re-plan it before
-checking whether Sable has grown the hook.
+No longer upstream of us, though still upstream of Sable. Sable offers no way to hand a sub-level to
+another level; [Dimensional Sable](https://modrinth.com/mod/dimensional-sable) does, by rebuilding the
+vessel in the destination, and this mod now calls it at the crossing as an optional dependency — see
+the README's "Into another dimension". The earlier objection, that rebuilding a ship is not an addon's
+job, still stands for *this* addon: the rebuild is Dimensional Sable's, and what lives here is the
+preflight, the clean-up when it throws, and the repairs to this mod's own memories of the ship. Behind
+`permissions.allowCrossDimensionWarp` until it has been proven in a running game. Dimensional Sable's
+author expects the Simulated team to ship an official API for this; `DimensionalSableBridge` is the one
+class to replace when that lands.
 
 ---
 

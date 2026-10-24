@@ -1,0 +1,31 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_plotter"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.over_the_horizon.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.over_the_horizon.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "struck": {
+      "trigger": "aerowarptics:plot_struck",
+      "conditions": {}
+    }
+  },
+  "requirements": [
+    [
+      "struck"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:crossed_the_line"
+}

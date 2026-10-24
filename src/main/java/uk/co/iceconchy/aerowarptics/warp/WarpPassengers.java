@@ -1,10 +1,14 @@
 package uk.co.iceconchy.aerowarptics.warp;
 
-import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3d;
+import org.joml.Vector3dc;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.airship.BorrowedMotion;
+import uk.co.iceconchy.aerowarptics.network.AWNetwork;
+import uk.co.iceconchy.aerowarptics.network.ClientboundSettlePacket;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -117,6 +121,8 @@ public final class WarpPassengers {
         boolean recovering = recoverable(stage);
         int recovered = 0;
         Set<UUID> present = new HashSet<>();
+        // What the deck is doing now, which is all of its motion anyone who has come off it may keep.
+        Vector3d hull = airship.velocity();
 
         for (Entity entity : manifest(airship)) {
             UUID id = entity.getUUID();
@@ -136,7 +142,7 @@ public final class WarpPassengers {
             if (recovering && seat.y - here.y > SLIP) {
                 // Sinking through their own deck: the client has lost the hull and is falling on its
                 // own account, while the server still counts them aboard.
-                reseat(airship, entity, seat);
+                reseat(airship, entity, seat, hull);
                 recovered++;
             }
         }
@@ -146,19 +152,19 @@ public final class WarpPassengers {
             if (present.contains(seat.getKey())) {
                 continue;
             }
-            Entity stray = airship.level().getEntity(seat.getKey());
+            Entity stray = find(airship, seat.getKey());
             if (stray == null || stray.isRemoved()) {
                 lost.add(seat.getKey());
                 continue;
             }
-            calm(stray);
+            calm(stray, hull);
             if (!recovering) {
                 // They are off the ship somewhere real, and that is allowed. Stop remembering them,
                 // or the next stage would haul them back aboard from wherever they landed.
                 lost.add(seat.getKey());
                 continue;
             }
-            reseat(airship, stray, seat.getValue());
+            reseat(airship, stray, seat.getValue(), hull);
             recovered++;
         }
         lost.forEach(seats::remove);
@@ -211,41 +217,88 @@ public final class WarpPassengers {
      */
     public void settle(Airship airship) {
         Set<UUID> aboard = new HashSet<>();
+        Vector3d hull = airship.velocity();
         for (Entity entity : manifest(airship)) {
             aboard.add(entity.getUUID());
-            calm(entity);
+            calm(entity, hull);
         }
         for (Map.Entry<UUID, Vec3> seat : seats.entrySet()) {
             if (aboard.contains(seat.getKey())) {
                 continue;
             }
-            Entity stray = airship.level().getEntity(seat.getKey());
+            Entity stray = find(airship, seat.getKey());
             if (stray != null && !stray.isRemoved()) {
-                reseat(airship, stray, seat.getValue());
+                reseat(airship, stray, seat.getValue(), hull);
             }
         }
         seats.clear();
     }
 
     /**
+     * Moves every remembered seat by {@code shift}.
+     *
+     * <p>Seats are in ship space, and ship space is the hull's plot. A crossing into another dimension can
+     * put the plot in another slot of the grid, which moves every block aboard - and so every seat - by
+     * the same whole number of plots.
+     */
+    public void rebase(Vec3 shift) {
+        seats.replaceAll((id, seat) -> seat.add(shift));
+    }
+
+    /**
+     * A remembered passenger, wherever they are.
+     *
+     * <p>The hull's own level first. A player is then looked up across the whole server, because after a
+     * crossing the one who came off is in the dimension the ship left, not the one it is in.
+     */
+    @org.jetbrains.annotations.Nullable
+    private static Entity find(Airship airship, UUID id) {
+        Entity here = airship.level().getEntity(id);
+        if (here != null) {
+            return here;
+        }
+        return airship.level().getServer().getPlayerList().getPlayer(id);
+    }
+
+    /**
      * Takes back momentum the passenger never asked for.
      *
-     * <p>A player's own client is the authority on where they are, so zeroing the field on the server
-     * is not enough on its own - the motion has to be sent, which is the same packet the game uses to
-     * knock a player back. Everything else is told the ordinary way.
+     * <p>Two kinds of it. The entity's own motion, which is what this used to zero - and Sable's
+     * borrowed motion, which it never touched and which was the one doing the throwing: the distance
+     * the deck carried them last tick, which Sable keeps adding on while they are off it (see
+     * {@link BorrowedMotion}). Somebody in the air when the hull stopped in the corridor kept the
+     * passage speed it had been doing, and was "calmed" every tick without it making any difference.
+     *
+     * <p>What they keep is what the hull is doing now: nothing once it has stopped, and its own flight
+     * while it is still moving, so somebody put back on a moving deck is not left behind by it.
+     *
+     * <p>A player's own client is the authority on their motion, so zeroing the fields on the server
+     * is not enough on its own; the game's own motion packet cannot reach Sable's vector, which is why
+     * this has a packet of its own. Everything else is told the ordinary way.
      */
-    private static void calm(Entity entity) {
-        entity.setDeltaMovement(Vec3.ZERO);
-        entity.fallDistance = 0.0F;
+    public static void calm(Entity entity, Vector3dc hullVelocity) {
+        BorrowedMotion.settle(entity, hullVelocity);
         entity.hurtMarked = true;
         if (entity instanceof ServerPlayer player) {
-            player.connection.send(new ClientboundSetEntityMotionPacket(player));
+            AWNetwork.sendTo(player, ClientboundSettlePacket.of(hullVelocity));
         }
     }
 
     /** Puts a passenger back in the seat they were in, wherever that seat has since got to. */
-    private static void reseat(Airship airship, Entity entity, Vec3 seat) {
+    private static void reseat(Airship airship, Entity entity, Vec3 seat, Vector3dc hullVelocity) {
         Vec3 world = airship.toWorld(seat);
+        if (entity.level() != airship.level()) {
+            // Left behind in the dimension a crossing took the hull out of. Only the dimension-changing
+            // teleport can bring them over; it tells a player's client as well.
+            if (entity instanceof ServerPlayer player) {
+                player.teleportTo(airship.level(), world.x, world.y, world.z, player.getYRot(), player.getXRot());
+            } else {
+                entity.teleportTo(airship.level(), world.x, world.y, world.z, java.util.Set.of(),
+                        entity.getYRot(), entity.getXRot());
+            }
+            calm(entity, hullVelocity);
+            return;
+        }
         if (entity instanceof ServerPlayer player) {
             // Not teleportTo: a player has to be told, and told in a way that resets what their own
             // client thinks it is doing, or it will carry on flying and be corrected back next tick.
@@ -253,7 +306,8 @@ public final class WarpPassengers {
         } else {
             entity.teleportTo(world.x, world.y, world.z);
         }
-        calm(entity);
+        // After the teleport, so the client is already on the deck when it is told to stop.
+        calm(entity, hullVelocity);
     }
 
     // ------------------------------------------------------------------ nbt

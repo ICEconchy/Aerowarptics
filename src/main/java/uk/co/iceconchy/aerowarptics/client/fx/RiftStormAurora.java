@@ -4,13 +4,10 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.util.Mth;
-import net.minecraft.world.level.material.FogType;
 import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
-import uk.co.iceconchy.aerowarptics.AeroWarptics;
 
 /**
  * Curtains of rift light hanging in a storm sky.
@@ -23,25 +20,35 @@ import uk.co.iceconchy.aerowarptics.AeroWarptics;
  * behaves, and it means the storm needs no rule of its own about when to show one.
  *
  * <h2>Why it is drawn where it is</h2>
- * At {@code AFTER_SKY}, straight after the sky and before any terrain, and at a fixed distance from the
- * camera in the sky's own frame - turned with the view, never moved with the player. That is what puts
- * it at infinity: walk a thousand blocks and it has not come any closer, exactly like the stars. And
- * because nothing has been drawn yet that could occlude it, everything drawn afterwards - hills, trees,
- * the hull of the ship - simply paints over it. No depth test, no depth written, nothing to go wrong.
+ * At a fixed distance from the camera in the sky's own frame - turned with the view, never moved with the
+ * player. That is what puts it at infinity: walk a thousand blocks and it has not come any closer, exactly
+ * like the stars. The distance is just inside the far plane, beyond anything the world draws, so a depth
+ * test lets it through only where the sky shows and every hill, tree and hull stands in front of it.
  *
- * <p>Clouds are drawn later than terrain, so they pass in front of it too, which is right.
+ * <p>It used to be drawn first, straight after the sky, where there was nothing to stand in front of it and
+ * no test was needed. But the clouds are drawn after everything solid, and painted over it there just as they
+ * paint over the stars - so in a storm, which is when there is an aurora, it was mostly behind cloud. Now it
+ * is drawn after the clouds, tested against the depth the world had before them ({@link CloudlessDepth}),
+ * so it hangs in front of the clouds and behind everything else. Under Fabulous graphics, which keeps the
+ * clouds in a layer of its own and has no such depth to swap in, it is still drawn straight after the sky,
+ * and the clouds still cover it.
  *
  * <p>Deterministic in the render clock, not rolled: every frame computes the same curtains from the same
  * time, so there is nothing to store and nothing to drift between frames.
  */
-@EventBusSubscriber(modid = AeroWarptics.MODID, value = Dist.CLIENT)
-public final class RiftStormAurora {
+@OnlyIn(Dist.CLIENT)
+final class RiftStormAurora {
 
     private static final int BANDS = 3;
     /** Columns per curtain. Enough that a ripple reads as a curve rather than a zigzag. */
     private static final int COLUMNS = 28;
-    /** How far out the curtains hang. Inside the far plane at the smallest render distance the game allows. */
-    private static final float RADIUS = 100.0F;
+    /**
+     * How far out the curtains hang, as a share of the distance to the far plane. Past every block the
+     * world draws - terrain stops a little beyond the render distance, and the far plane is four times
+     * that - and still inside the plane, which would cut them off. In front of the storm's tears and its
+     * vortex, behind its streaks - see {@link SkyFrame}.
+     */
+    private static final float REACH = 0.9F;
     /** Brightest the hem gets, at full storm, before shimmer. */
     private static final float PEAK_ALPHA = 0.55F;
 
@@ -59,27 +66,18 @@ public final class RiftStormAurora {
     private RiftStormAurora() {
     }
 
-    @SubscribeEvent
-    public static void onRenderLevel(RenderLevelStageEvent event) {
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_SKY) {
-            return;
-        }
-        float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
-        float storm = RiftStormSky.weather(partialTick);
-        if (storm <= 0.0F) {
-            return;
-        }
-        // Vanilla does not draw the sky at all from inside lava or powder snow; neither does this.
-        FogType inside = event.getCamera().getFluidInCamera();
-        if (inside == FogType.LAVA || inside == FogType.POWDER_SNOW) {
+    /**
+     * Draws the curtains, at the stage {@link RiftStormSky} calls this from: {@code AFTER_WEATHER} with the
+     * cloudless depth swapped in, or {@code AFTER_SKY} under Fabulous graphics.
+     */
+    static void render(RenderLevelStageEvent event, float partialTick, float storm) {
+        if (SkyFrame.hidden(event)) {
             return;
         }
 
         float time = event.getRenderTick() + partialTick;
-        // The sky stage hands out no pose stack. The model-view matrix it does hand out is the camera's
-        // rotation alone - the same one vanilla draws the sky dome with - which is what keeps these at
-        // infinity rather than at a place.
-        Matrix4f view = new Matrix4f(event.getModelViewMatrix());
+        float radius = SkyFrame.radius(REACH);
+        Matrix4f view = SkyFrame.view(event);
 
         MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
         VertexConsumer buffer = buffers.getBuffer(AWRenderTypes.RIFT_AURORA);
@@ -106,9 +104,9 @@ public final class RiftStormAurora {
                 float shimmer = 0.55F + 0.45F * Mth.sin(time * 0.09F + t * 23.0F + band * 5.0F);
                 float alpha = PEAK_ALPHA * storm * envelope * shimmer;
 
-                point(hem, bearing, elevation);
-                point(mid, bearing, elevation + height * 0.35F);
-                point(crown, bearing, elevation + height);
+                SkyFrame.point(hem, bearing, elevation, radius);
+                SkyFrame.point(mid, bearing, elevation + height * 0.35F, radius);
+                SkyFrame.point(crown, bearing, elevation + height, radius);
 
                 if (column > 0) {
                     // Hem to middle: cyan into violet, at the hem's brightness.
@@ -129,14 +127,6 @@ public final class RiftStormAurora {
         buffers.endBatch(AWRenderTypes.RIFT_AURORA);
     }
 
-    /** A point on the sky at a bearing and an elevation, both in radians, {@link #RADIUS} from the eye. */
-    private static void point(float[] out, float bearing, float elevation) {
-        float flat = Mth.cos(elevation) * RADIUS;
-        out[0] = Mth.cos(bearing) * flat;
-        out[1] = Mth.sin(elevation) * RADIUS;
-        out[2] = Mth.sin(bearing) * flat;
-    }
-
     private static void quad(VertexConsumer buffer, Matrix4f view,
                              float[] a, float[] b, float[] c, float[] d,
                              int colourA, int colourB, int colourC, int colourD) {
@@ -152,6 +142,6 @@ public final class RiftStormAurora {
     }
 
     private static int argb(int rgb, float alpha) {
-        return (Mth.clamp(Math.round(alpha * 255.0F), 0, 255) << 24) | (rgb & 0xFFFFFF);
+        return SkyFrame.argb(rgb, alpha);
     }
 }

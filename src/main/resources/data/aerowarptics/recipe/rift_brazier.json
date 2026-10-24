@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "S S",
+    "SWS",
+    " C "
+  ],
+  "key": {
+    "S": {
+      "item": "create:brass_sheet"
+    },
+    "W": {
+      "item": "aerowarptics:warp_crystal"
+    },
+    "C": {
+      "item": "aerowarptics:rift_casing"
+    }
+  },
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_brazier"
+  }
+}

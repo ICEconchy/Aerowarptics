@@ -24,8 +24,8 @@ import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 /**
  * The Rift Drive block.
  *
- * <p>A Create kinetic machine: it takes a shaft on the axis it faces, draws stress, and needs a
- * minimum RPM before it will charge. One block class serves every tier; the tier is baked in at
+ * <p>A Create kinetic machine: it takes a shaft on any face, draws stress, and needs a minimum RPM
+ * before it will charge. One block class serves every tier; the tier is baked in at
  * registration so a new tier needs no new logic.
  */
 public class RiftDriveBlock extends DirectionalKineticBlock implements IBE<RiftDriveBlockEntity> {
@@ -62,10 +62,19 @@ public class RiftDriveBlock extends DirectionalKineticBlock implements IBE<RiftD
         return state.getValue(FACING).getAxis();
     }
 
+    /**
+     * A shaft may drive it from any face.
+     *
+     * <p>It used to be only the two ends of its own axis, which suited a lone drive but meant a drive
+     * built into a frame of Drive Extenders had to sit exactly where one of those ends faced outwards.
+     * Create links two kinetic blocks on any shared face both claim a shaft on, without asking about
+     * either one's axis, and a drive is a consumer that cares how fast it is turned rather than which
+     * way - so there was nothing but the restriction itself in the way. The facing still sets which way
+     * the drive is drawn and which way its bow points.
+     */
     @Override
     public boolean hasShaftTowards(LevelReader level, BlockPos pos, BlockState state, Direction face) {
-        // Power enters along the drive's own axis, from either end.
-        return face.getAxis() == state.getValue(FACING).getAxis();
+        return true;
     }
 
     @Override
@@ -84,6 +93,35 @@ public class RiftDriveBlock extends DirectionalKineticBlock implements IBE<RiftD
         return defaultBlockState().setValue(FACING, preferred);
     }
 
+    // -------------------------------------------------------------- extenders
+
+    /**
+     * Builds the drive into whatever frame of Drive Extenders is already waiting for it. Only on a real
+     * arrival: which way a drive faces has no bearing on the frame it can form, so a wrench turning it
+     * has nothing to re-form.
+     */
+    @Override
+    public void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
+        super.onPlace(state, level, pos, oldState, movedByPiston);
+        if (!level.isClientSide && !oldState.is(this)) {
+            DriveAssembly.tryForm(level, pos);
+        }
+    }
+
+    /** Lets go of the drive's extenders when it goes, and offers them to any other drive that wants them. */
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+        java.util.List<BlockPos> freed = java.util.List.of();
+        if (!level.isClientSide && !newState.is(this)
+                && level.getBlockEntity(pos) instanceof RiftDriveBlockEntity drive) {
+            freed = DriveAssembly.unform(level, drive);
+        }
+        super.onRemove(state, level, pos, newState, movedByPiston);
+        if (!freed.isEmpty()) {
+            DriveAssembly.offerTo(level, freed);
+        }
+    }
+
     // ------------------------------------------------------------- appearance
 
     @Override
@@ -97,13 +135,28 @@ public class RiftDriveBlock extends DirectionalKineticBlock implements IBE<RiftD
         return RenderShape.ENTITYBLOCK_ANIMATED;
     }
 
+    // --------------------------------------------------------------- redstone
+
+    /** A comparator reads what the drive is doing - see {@link DriveSignal} for the scale. */
+    @Override
+    protected boolean hasAnalogOutputSignal(BlockState state) {
+        return true;
+    }
+
+    @Override
+    protected int getAnalogOutputSignal(BlockState state, Level level, BlockPos pos) {
+        RiftDriveBlockEntity drive = getBlockEntity(level, pos);
+        return drive == null ? DriveSignal.IDLE : drive.comparatorSignal();
+    }
+
     // ------------------------------------------------------------ interaction
 
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
                                                BlockHitResult hit) {
         RiftDriveBlockEntity drive = getBlockEntity(level, pos);
-        if (drive == null) {
+        // Holding extenders means building a frame round this drive, which starts by laying them against it.
+        if (drive == null || DriveExtenderBlock.isBuilding(player)) {
             return InteractionResult.PASS;
         }
         if (level.isClientSide) {

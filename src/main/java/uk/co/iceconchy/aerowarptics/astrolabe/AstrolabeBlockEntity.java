@@ -26,6 +26,7 @@ import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.airship.DrawnAboard;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchor;
 import uk.co.iceconchy.aerowarptics.warp.WarpCourse;
 import uk.co.iceconchy.aerowarptics.anchor.WarpAnchorRegistry;
@@ -98,8 +99,24 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
     private int ticksSinceAirshipTick = Integer.MAX_VALUE;
     private boolean dirty;
 
+    /**
+     * Whether this cell has confirmed, since it was last loaded, that the table it points at is really
+     * there. See {@link #lazyTick}.
+     */
+    private boolean tableChecked;
+
     public AstrolabeBlockEntity(BlockPos pos, BlockState state) {
         super(AWBlockEntities.ASTROLABE.get(), pos, state);
+    }
+
+    /**
+     * Asks a client to draw this machine, in case it arrived after the blocks round it were drawn - see
+     * {@link DrawnAboard}.
+     */
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        DrawnAboard.redraw(this);
     }
 
     @Override
@@ -281,6 +298,28 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
         }
     }
 
+    /**
+     * Confirms, once per load, that this cell's table actually came with it.
+     *
+     * <p>Placing and breaking keep a table honest, but not every block arrives by being placed. Sable
+     * builds an assembled hull by writing each block straight into the plot with {@code onPlace}
+     * switched off, and a Create contraption sets its blocks down before loading their data. Carry off
+     * part of a table that way and the cells that went still say they are formed and still point at an
+     * origin that stayed behind: there is no plain panel model for a formed cell, and no origin to draw
+     * the table, so they were simply invisible on the deck - and a goggle check called them incomplete.
+     *
+     * <p>Create's lazy tick is the first moment after any of that when the level is whole again, and
+     * {@code initialize} runs one on the very first tick. A check that cannot decide because part of
+     * the table is in a chunk that has not loaded yet is simply asked again next time.
+     */
+    @Override
+    public void lazyTick() {
+        super.lazyTick();
+        if (!tableChecked && level != null && !level.isClientSide) {
+            tableChecked = AstrolabeBlock.checkTable(level, worldPosition);
+        }
+    }
+
     private void survey() {
         boolean present = drive() != null;
         String name = resolveDestinationName();
@@ -364,6 +403,24 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
         return WarpFailure.NONE;
     }
 
+    /**
+     * Tells the drive on this table's hull to hold its altitude on the way to the standing course.
+     *
+     * <p>Nothing is kept on the table. The choice belongs to the course, which is what a redstone
+     * signal fires, so a table remembering its own copy could only ever disagree with the drive.
+     */
+    public WarpFailure setHoldAltitude(ServerPlayer player, boolean hold) {
+        AstrolabeBlockEntity centre = controller();
+        if (centre == null) {
+            return WarpFailure.NO_AIRSHIP;
+        }
+        if (centre != this) {
+            return centre.setHoldAltitude(player, hold);
+        }
+        RiftDriveBlockEntity drive = drive();
+        return drive == null ? WarpFailure.NO_AIRSHIP : drive.setHoldAltitude(player, hold);
+    }
+
     // -------------------------------------------------------------------- nbt
 
     @Override
@@ -404,6 +461,11 @@ public class AstrolabeBlockEntity extends SmartBlockEntity
         destination = tag.hasUUID("Destination") ? tag.getUUID("Destination") : null;
         destinationName = tag.getString("DestinationName");
         hasDrive = tag.getBoolean("HasDrive");
+        if (!clientPacket) {
+            // Whatever put this cell here - a chunk load, an assembler, a contraption - may have brought
+            // it without the rest of its table, so the pointer just read is unproven until checked.
+            tableChecked = false;
+        }
     }
 
     /** The centre draws a hologram that overhangs the whole table, so its box has to cover it. */

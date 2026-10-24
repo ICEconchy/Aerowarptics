@@ -1,0 +1,64 @@
+{
+  "variants": {
+    "charge=0,facing=north": {
+      "model": "aerowarptics:block/rift_sunderer"
+    },
+    "charge=1,facing=north": {
+      "model": "aerowarptics:block/rift_sunderer"
+    },
+    "charge=2,facing=north": {
+      "model": "aerowarptics:block/rift_sunderer"
+    },
+    "charge=3,facing=north": {
+      "model": "aerowarptics:block/rift_sunderer"
+    },
+    "charge=0,facing=east": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 90
+    },
+    "charge=1,facing=east": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 90
+    },
+    "charge=2,facing=east": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 90
+    },
+    "charge=3,facing=east": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 90
+    },
+    "charge=0,facing=south": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 180
+    },
+    "charge=1,facing=south": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 180
+    },
+    "charge=2,facing=south": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 180
+    },
+    "charge=3,facing=south": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 180
+    },
+    "charge=0,facing=west": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 270
+    },
+    "charge=1,facing=west": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 270
+    },
+    "charge=2,facing=west": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 270
+    },
+    "charge=3,facing=west": {
+      "model": "aerowarptics:block/rift_sunderer",
+      "y": 270
+    }
+  }
+}

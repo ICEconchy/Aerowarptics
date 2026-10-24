@@ -10,6 +10,7 @@ import net.minecraft.world.item.DyeColor;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
+import uk.co.iceconchy.aerowarptics.client.fx.ThemeLook;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveState;
 import uk.co.iceconchy.aerowarptics.drive.RiftDriveTier;
 import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity;
@@ -30,6 +31,11 @@ import uk.co.iceconchy.aerowarptics.util.AWLang;
  * at the heart of the rift, right sets the accent colour its rim fades towards. There is no separate
  * mode to switch between them first - a mouse already has two buttons, and a swatch a player wants for
  * both colours is one click of each rather than a click to aim and a click to set.
+ *
+ * <p>A theme that brings its own colours ignores both, so while one is chosen the grid is greyed out
+ * and does nothing, and a note stands where its legend was saying why - see
+ * {@link ThemeLook#takesSwatches}. The colours already picked are kept, and still marked, so switching
+ * back to a theme that uses them finds them where they were left.
  */
 @OnlyIn(Dist.CLIENT)
 public class RiftModulatorScreen extends AbstractSimiScreen {
@@ -88,11 +94,16 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
         return RiftModulatorTheme.byIndex(data.themeOrdinal());
     }
 
+    /** Whether the theme the Modulator is set to reads the swatches at all. */
+    private boolean swatchesUsed() {
+        return ThemeLook.takesSwatches(currentTheme());
+    }
+
     // ------------------------------------------------------------------ input
 
     private void cycleTheme() {
-        // Shift reverses the cycle. With a dozen themes on one button, going one past the one you
-        // wanted otherwise means eleven more clicks to come back round to it.
+        // Shift reverses the cycle. With fifteen themes on one button, going one past the one you
+        // wanted otherwise means thirteen more clicks to come back round to it.
         boolean back = hasShiftDown();
         RiftModulatorTheme next = back ? currentTheme().previous() : currentTheme().next();
         PacketDistributor.sendToServer(ServerboundModulatorPacket.setTheme(data.modulatorPos(), next));
@@ -118,6 +129,11 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
         // Left sets the core colour, right sets the rim - anything else on a swatch falls through
         // rather than doing nothing silently, in case a third mouse button is bound to something else.
         if (index >= 0 && (button == 0 || button == 1)) {
+            if (!swatchesUsed()) {
+                // Greyed out: taken so it does not fall through to anything behind the grid, and
+                // otherwise nothing - a switched-off control does not click.
+                return true;
+            }
             int colour = SWATCHES[index].getTextureDiffuseColor() & 0xFF_FF_FF;
             BlockPos pos = data.modulatorPos();
             PacketDistributor.sendToServer(button == 0
@@ -221,7 +237,10 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
         int left = guiLeft + panel.x();
         int top = guiTop + panel.y();
         int cell = AWLayouts.SWATCH + AWLayouts.SWATCH_GAP;
-        int hovered = swatchAt(mouseX, mouseY);
+        boolean used = swatchesUsed();
+        int hovered = used ? swatchAt(mouseX, mouseY) : -1;
+        int coreRing = used ? AWScreenStyle.ACCENT : AWAnim.greyed(AWScreenStyle.ACCENT);
+        int rimRing = used ? AWScreenStyle.WARN : AWAnim.greyed(AWScreenStyle.WARN);
 
         for (int index = 0; index < SWATCHES.length; index++) {
             int column = index % AWLayouts.SWATCH_COLUMNS;
@@ -232,16 +251,16 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
             boolean rgb = (colour & 0xFF_FF_FF) == data.colour();
             boolean rim = (colour & 0xFF_FF_FF) == data.accentColour();
 
-            graphics.fill(x, y, x + AWLayouts.SWATCH, y + AWLayouts.SWATCH, colour);
+            graphics.fill(x, y, x + AWLayouts.SWATCH, y + AWLayouts.SWATCH, used ? colour : AWAnim.greyed(colour));
             // Two independent rings rather than one that switches colour: a swatch can be both the
             // core and the rim at once, and both should be visible at a glance rather than one of
             // them winning. Nested rather than side by side, so a swatch that is only one of the two
             // still reads as a single clean outline instead of half a ring.
             if (rgb) {
-                ring(graphics, x, y, AWLayouts.SWATCH, 1, AWScreenStyle.ACCENT);
+                ring(graphics, x, y, AWLayouts.SWATCH, 1, coreRing);
             }
             if (rim) {
-                ring(graphics, x, y, AWLayouts.SWATCH, rgb ? 3 : 1, AWScreenStyle.WARN);
+                ring(graphics, x, y, AWLayouts.SWATCH, rgb ? 3 : 1, rimRing);
             }
             if (!rgb && !rim && index == hovered) {
                 graphics.fill(x, y, x + AWLayouts.SWATCH, y + AWLayouts.SWATCH, 0x55_FF_FF_FF);
@@ -251,15 +270,21 @@ public class RiftModulatorScreen extends AbstractSimiScreen {
         // The legend, in the room the four-by-four grid leaves under itself. It belongs beside the
         // swatches rather than over in the detail panel: it says what a click on *this* grid does,
         // and the detail panel is about the drive. It also costs nothing here - that space was empty.
-        int legend = top + rows() * cell + AWLayout.GUTTER;
+        int legend = top + AWLayouts.swatchLegendTop(SWATCHES.length);
+        if (!used) {
+            // A legend saying what a click does would be wrong while a click does nothing, so the room
+            // it takes says why instead.
+            var lines = font.split(AWLang.translate("gui.rift_modulator.theme_colours").component(),
+                    panel.width());
+            for (int line = 0; line < Math.min(lines.size(), AWLayouts.SWATCH_NOTE_LINES); line++) {
+                graphics.drawString(font, lines.get(line), left, legend + line * AWLayouts.NOTE_LINE,
+                        AWScreenStyle.LABEL, false);
+            }
+            return;
+        }
         chip(graphics, left, legend, data.colour(), AWScreenStyle.ACCENT, "gui.rift_modulator.core_hint");
-        chip(graphics, left, legend + AWLayouts.CHIP + 5, data.accentColour(), AWScreenStyle.WARN,
+        chip(graphics, left, legend + AWLayouts.CHIP + AWLayouts.CHIP_GAP, data.accentColour(), AWScreenStyle.WARN,
                 "gui.rift_modulator.rim_hint");
-    }
-
-    /** Rows the swatch grid actually occupies, so the legend under it cannot drift out of step. */
-    private static int rows() {
-        return (SWATCHES.length + AWLayouts.SWATCH_COLUMNS - 1) / AWLayouts.SWATCH_COLUMNS;
     }
 
     /** One legend entry: a colour chip, ringed as its swatch is, and the click that sets it. */

@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "minecraft:sculk_shrieker"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.something_waved_back.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.something_waved_back.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "waved": {
+      "trigger": "aerowarptics:sunderer",
+      "conditions": {
+        "event": "waved"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "waved"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:where_it_went_wrong"
+}

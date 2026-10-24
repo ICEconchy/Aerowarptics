@@ -1,0 +1,19 @@
+{
+  "type": "aerowarptics:folding",
+  "ingredients": [
+    {
+      "item": "minecraft:compass"
+    },
+    {
+      "type": "neoforge:single",
+      "amount": 50,
+      "fluid": "aerowarptics:rift_essence"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:ship_compass"
+    }
+  ],
+  "processing_time": 160
+}

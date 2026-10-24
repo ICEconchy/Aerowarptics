@@ -2,6 +2,17 @@
   "replace": false,
   "values": [
     "aerowarptics:astrolabe",
+    "aerowarptics:collapse_cradle",
+    "aerowarptics:collapse_cradle_base",
+    "aerowarptics:collapse_cradle_part",
+    "aerowarptics:cooling_vent",
+    "aerowarptics:drive_extender",
+    "aerowarptics:rift_bond",
+    "aerowarptics:berth",
+    "aerowarptics:rift_brazier",
+    "aerowarptics:rift_collar",
+    "aerowarptics:rift_sunderer",
+    "aerowarptics:rift_coupler",
     "aerowarptics:rift_drive_creative",
     "aerowarptics:rift_drive_mk_i",
     "aerowarptics:rift_drive_mk_ii",
@@ -9,8 +20,16 @@
     "aerowarptics:rift_drive_singularity",
     "aerowarptics:rift_gate",
     "aerowarptics:rift_gate_frame",
+    "aerowarptics:rift_plotter",
+    "aerowarptics:rift_plotter_base",
+    "aerowarptics:rift_plotter_part",
+    "aerowarptics:rift_ward",
+    "aerowarptics:rift_ward_base",
+    "aerowarptics:rift_ward_part",
+    "aerowarptics:scarred_stone",
     "aerowarptics:spatial_siphon",
-    "aerowarptics:warp_anchor",
-    "aerowarptics:warp_crystal_ore"
+    "aerowarptics:spatial_stabiliser",
+    "aerowarptics:spatial_wave_detector",
+    "aerowarptics:warp_anchor"
   ]
 }

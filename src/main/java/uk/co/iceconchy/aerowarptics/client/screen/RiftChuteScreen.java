@@ -319,7 +319,7 @@ public class RiftChuteScreen extends AbstractSimiScreen {
     private int reasonColour() {
         return switch (data.reason()) {
             case READY -> AWScreenStyle.OK;
-            case EMPTY, WARPING -> AWScreenStyle.LABEL;
+            case EMPTY, WARPING, PARTNER_LOADING -> AWScreenStyle.LABEL;
             case PARTNER_FULL, PARTNER_ABSENT -> AWScreenStyle.WARN;
             case UNBOUND, NO_ESSENCE -> AWScreenStyle.BAD;
         };

@@ -1,6 +1,0 @@
-{
-  "parent": "minecraft:item/generated",
-  "textures": {
-    "layer0": "aerowarptics:item/raw_warp_crystal"
-  }
-}

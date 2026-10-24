@@ -1,0 +1,13 @@
+{
+  "type": "aerowarptics:rifting",
+  "ingredients": [
+    {
+      "item": "minecraft:glass"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:warp_glass"
+    }
+  ]
+}

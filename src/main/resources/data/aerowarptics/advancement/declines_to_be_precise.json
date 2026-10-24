@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:singularity_core"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.declines_to_be_precise.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.declines_to_be_precise.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "flung": {
+      "trigger": "aerowarptics:collapse_finished",
+      "conditions": {
+        "outcome": "flung"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "flung"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:heart_of_a_scar"
+}

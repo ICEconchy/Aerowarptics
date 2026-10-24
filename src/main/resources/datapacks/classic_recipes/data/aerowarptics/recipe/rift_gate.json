@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " L ",
+    "FCF",
+    " S "
+  ],
+  "key": {
+    "L": {
+      "item": "aerowarptics:rift_lens"
+    },
+    "F": {
+      "item": "aerowarptics:rift_gate_frame"
+    },
+    "C": {
+      "item": "create:copper_casing"
+    },
+    "S": {
+      "item": "create:shaft"
+    }
+  },
+  "result": {
+    "id": "aerowarptics:rift_gate",
+    "count": 1
+  }
+}

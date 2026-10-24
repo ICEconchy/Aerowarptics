@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_sunderer"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.where_it_went_wrong.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.where_it_went_wrong.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "torn": {
+      "trigger": "aerowarptics:sunderer",
+      "conditions": {
+        "event": "torn"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "torn"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:wellhead_formed"
+}

@@ -95,7 +95,9 @@ public record RiftChute(UUID id,
         }
         return switch (access) {
             case PUBLIC -> true;
-            case PRIVATE -> isOwnedBy(player.getUUID()) || player.hasPermissions(2);
+            // A chute is never on a network, and its panel never offers the mode. One that says so anyway -
+            // a save edited by hand - is shut like a private one rather than open like a public one.
+            case PRIVATE, NETWORK -> isOwnedBy(player.getUUID()) || player.hasPermissions(2);
         };
     }
 

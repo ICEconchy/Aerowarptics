@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:rift_collar"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.wellhead_formed.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.wellhead_formed.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "formed": {
+      "trigger": "aerowarptics:wellhead",
+      "conditions": {
+        "event": "formed"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "formed"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:rift_goggles"
+}

@@ -1,7 +1,11 @@
 package uk.co.iceconchy.aerowarptics;
 
+import org.joml.Quaterniond;
+import org.joml.Vector3d;
 import org.junit.jupiter.api.Test;
+import uk.co.iceconchy.aerowarptics.airship.HullJump;
 import uk.co.iceconchy.aerowarptics.client.FoldCrossings;
+import uk.co.iceconchy.aerowarptics.network.ClientboundFoldCrossedPacket;
 
 import java.util.UUID;
 
@@ -99,6 +103,28 @@ class FoldCrossingTest {
     }
 
     /**
+     * Stragglers are carried across for long enough to land, and not so long that real flight could be
+     * mistaken for one.
+     *
+     * <p>A snapshot sent before the jump can arrive after the notice, so the near side is looked for
+     * again for a while. But what counts as the near side is nearness to where the hull jumped from, and
+     * a hull that has since flown half-way back would read as a straggler - so the window is kept to a
+     * second, well inside the watch that follows it. At a warp's approach speed a hull covers less than
+     * half the jump threshold in that second, so on any jump long enough to be one, nothing it flies
+     * afterwards is nearer the end it left.
+     */
+    @Test
+    void theRealignmentWindowIsShortEnoughNotToMistakeFlight() {
+        assertTrue(FoldCrossings.realignTicks() >= 10,
+                "stragglers can still be in flight after " + FoldCrossings.realignTicks() + " ticks");
+        assertTrue(FoldCrossings.realignTicks() < FoldCrossings.watchTicks());
+        // An approach runs at 1.6 blocks a tick by default.
+        double approach = 1.6D * FoldCrossings.realignTicks();
+        assertTrue(approach < ClientboundFoldCrossedPacket.JUMP_BLOCKS / 2.0D,
+                "a hull flying back towards its jump could be taken for a straggler");
+    }
+
+    /**
      * The collapse decision is the same whether or not a notice arrived.
      *
      * <p>The whole of phase 5's robustness: the notice is an optimisation, not a requirement. What
@@ -123,10 +149,25 @@ class FoldCrossingTest {
     void aWatchDoesNotSurviveAClear() {
         FoldCrossings.clear();
         assertEquals(0, FoldCrossings.watched());
-        FoldCrossings.expect(UUID.fromString("00000000-0000-0000-0000-0000000000aa"));
-        FoldCrossings.expect(UUID.fromString("00000000-0000-0000-0000-0000000000bb"));
+        HullJump jump = HullJump.between(new Vector3d(), new Quaterniond(),
+                new Vector3d(4000.0D, 0.0D, 0.0D), new Quaterniond());
+        FoldCrossings.watch(UUID.fromString("00000000-0000-0000-0000-0000000000aa"), jump);
+        FoldCrossings.watch(UUID.fromString("00000000-0000-0000-0000-0000000000bb"), jump);
         assertEquals(2, FoldCrossings.watched(), "two ships should be watched");
         FoldCrossings.clear();
         assertEquals(0, FoldCrossings.watched(), "a clear must drop every watch");
+    }
+
+    /** A second jump of the same hull replaces the first rather than stacking on it. */
+    @Test
+    void aNewerJumpReplacesTheWatchOnTheSameHull() {
+        FoldCrossings.clear();
+        UUID ship = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
+        FoldCrossings.watch(ship, HullJump.between(new Vector3d(), new Quaterniond(),
+                new Vector3d(4000.0D, 0.0D, 0.0D), new Quaterniond()));
+        FoldCrossings.watch(ship, HullJump.between(new Vector3d(4000.0D, 0.0D, 0.0D), new Quaterniond(),
+                new Vector3d(0.0D, 0.0D, 0.0D), new Quaterniond()));
+        assertEquals(1, FoldCrossings.watched());
+        FoldCrossings.clear();
     }
 }

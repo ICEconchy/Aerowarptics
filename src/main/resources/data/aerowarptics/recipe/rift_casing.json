@@ -1,0 +1,16 @@
+{
+  "type": "create:item_application",
+  "ingredients": [
+    {
+      "item": "create:brass_casing"
+    },
+    {
+      "item": "aerowarptics:warp_dust"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:rift_casing"
+    }
+  ]
+}

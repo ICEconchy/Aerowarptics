@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "minecraft:lever"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.wellhead_scrammed.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.wellhead_scrammed.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "scrammed": {
+      "trigger": "aerowarptics:wellhead",
+      "conditions": {
+        "event": "scrammed"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "scrammed"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:wellhead_formed"
+}

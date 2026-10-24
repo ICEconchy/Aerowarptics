@@ -29,11 +29,24 @@ public class RiftProbeBlock extends Block implements IBE<RiftProbeBlockEntity> {
 
     public static final MapCodec<RiftProbeBlock> CODEC = simpleCodec(RiftProbeBlock::new);
 
-    /** A squat instrument: a heavy plinth under a dish, so it reads as something that looks outward. */
+    /**
+     * A squat instrument: a foot and a collar, a drum with a lens on each side looking outward, and a framed cap.
+     * Box for box the artist's model, so the outline sits on what is drawn.
+     */
     private static final VoxelShape SHAPE = Shapes.or(
-            Block.box(1.0D, 0.0D, 1.0D, 15.0D, 6.0D, 15.0D),
-            Block.box(4.0D, 6.0D, 4.0D, 12.0D, 11.0D, 12.0D),
-            Block.box(2.0D, 11.0D, 2.0D, 14.0D, 14.0D, 14.0D));
+            Block.box(1.0D, 0.0D, 1.0D, 15.0D, 4.0D, 15.0D),
+            Block.box(2.0D, 4.0D, 2.0D, 14.0D, 7.0D, 14.0D),
+            Block.box(2.0D, 12.0D, 2.0D, 14.0D, 15.0D, 4.0D),
+            Block.box(2.0D, 12.0D, 12.0D, 14.0D, 15.0D, 14.0D),
+            Block.box(2.0D, 12.0D, 4.0D, 4.0D, 15.0D, 12.0D),
+            Block.box(12.0D, 12.0D, 4.0D, 14.0D, 15.0D, 12.0D),
+            Block.box(4.0D, 12.5D, 4.0D, 12.0D, 14.5D, 12.0D),
+            Block.box(3.0D, 4.0D, 3.0D, 13.0D, 12.0D, 13.0D),
+            Block.box(6.0D, 13.0D, 6.0D, 10.0D, 15.0D, 10.0D),
+            Block.box(4.5D, 4.5D, 0.5D, 11.5D, 11.5D, 4.5D),
+            Block.box(4.5D, 4.5D, 11.5D, 11.5D, 11.5D, 15.5D),
+            Block.box(0.5D, 4.5D, 4.5D, 4.5D, 11.5D, 11.5D),
+            Block.box(11.5D, 4.5D, 4.5D, 15.5D, 11.5D, 11.5D));
 
     public RiftProbeBlock(Properties properties) {
         super(properties);

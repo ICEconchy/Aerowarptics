@@ -51,6 +51,16 @@ class ThemeMotesTest {
         assertEquals(ThemeMotes.Motif.STREAK, ThemeMotes.motifFor(RiftModulatorTheme.STARBLOCKS));
         assertEquals(ThemeMotes.Motif.CHECK, ThemeMotes.motifFor(RiftModulatorTheme.LUDICROUS));
         assertEquals(ThemeMotes.Motif.ODDMENT, ThemeMotes.motifFor(RiftModulatorTheme.IMPROBABILITY));
+        assertEquals(ThemeMotes.Motif.EYES, ThemeMotes.motifFor(RiftModulatorTheme.ENDER));
+        assertEquals(ThemeMotes.Motif.SCRIBBLE, ThemeMotes.motifFor(RiftModulatorTheme.SKETCH));
+        assertEquals(ThemeMotes.Motif.THUNDERHEAD, ThemeMotes.motifFor(RiftModulatorTheme.MOSTLY_DANGEROUS));
+    }
+
+    /** The roll an oddment makes counts every motif before it, so it has to be the last one. */
+    @Test
+    void theOddmentIsTheLastMotif() {
+        ThemeMotes.Motif[] motifs = ThemeMotes.Motif.values();
+        assertEquals(ThemeMotes.Motif.ODDMENT, motifs[motifs.length - 1]);
     }
 
     /**

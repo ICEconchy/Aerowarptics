@@ -1,0 +1,53 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.rift_plotter.idle": {
+      "loop": true,
+      "animation_length": 20.0,
+      "bones": {
+        "turntable": {
+          "rotation": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "20.0": [
+              0,
+              360,
+              0
+            ]
+          }
+        },
+        "ring_middle": {
+          "rotation": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "20.0": [
+              0,
+              720,
+              0
+            ]
+          }
+        },
+        "ball": {
+          "rotation": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "20.0": [
+              1080,
+              -1440,
+              0
+            ]
+          }
+        }
+      }
+    }
+  }
+}

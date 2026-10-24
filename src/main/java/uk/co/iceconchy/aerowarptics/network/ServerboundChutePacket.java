@@ -159,9 +159,9 @@ public record ServerboundChutePacket(BlockPos chutePos, Action action, UUID targ
         if (!mayEdit(self, player)) {
             return;
         }
-        WarpAnchorAccess next = self.access().next();
+        // Never on a network, so the cycle is told there is none and skips that mode.
         RiftChuteRegistry.get(level)
-                .register(self.withAccess(next.permitted() ? next : self.access()));
+                .register(self.withAccess(self.access().next(false, WarpAnchorAccess::permitted)));
     }
 
     /** An unowned chute is anybody's, which is what makes one placed by a command block usable. */

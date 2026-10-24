@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/block",
+  "loader": "aerowarptics:connected",
+  "method": "compact",
+  "tiles": "aerowarptics:block/ctm/rift_casing",
+  "textures": {
+    "particle": "aerowarptics:block/rift_casing"
+  }
+}

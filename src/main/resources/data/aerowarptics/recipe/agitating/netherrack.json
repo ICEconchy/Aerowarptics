@@ -1,0 +1,15 @@
+{
+  "type": "aerowarptics:agitating",
+  "ingredients": [
+    {
+      "item": "minecraft:netherrack"
+    }
+  ],
+  "results": [
+    {
+      "id": "aerowarptics:rift_essence",
+      "amount": 3
+    }
+  ],
+  "strain": 0.8
+}

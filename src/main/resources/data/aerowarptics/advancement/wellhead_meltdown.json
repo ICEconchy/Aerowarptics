@@ -1,0 +1,33 @@
+{
+  "display": {
+    "icon": {
+      "count": 1,
+      "id": "aerowarptics:scarred_stone"
+    },
+    "title": {
+      "translate": "advancements.aerowarptics.wellhead_meltdown.title"
+    },
+    "description": {
+      "translate": "advancements.aerowarptics.wellhead_meltdown.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "meltdown": {
+      "trigger": "aerowarptics:wellhead",
+      "conditions": {
+        "event": "meltdown"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "meltdown"
+    ]
+  ],
+  "sends_telemetry_event": false,
+  "parent": "aerowarptics:wellhead_formed"
+}

@@ -10,13 +10,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * That an arrival proves the aperture and throat clear, not just the hull's box.
+ * The shape of the volume an arrival proves clear.
  *
- * <p>The hull comes out of a rift that is wider than it is, and flies out through the throat behind
- * that aperture. A block that clears the hull can still foul the opening it flies through, so the
- * volume each arrival candidate has to prove clear is widened to the aperture's radius. This pins down
- * that widening and that the departure and arrival sides are treated congruently for a symmetric
- * course.
+ * <p>It used to be widened to the aperture's radius on every side, on the reasoning that a block
+ * clearing the hull could still foul the opening it flies out of. The launch side gave that up first -
+ * the rift is a picture, not a solid - and the arrival followed once it turned out the widening, which
+ * grows with the hull, pushed a large ship's tested volume tens of blocks into the ground under its own
+ * keel. The padded box survives as a pure helper the two sides share and the overlay draws; what an
+ * arrival actually tests is {@link SafeArrival#arrivalSegments}.
  */
 class SafeArrivalTest {
 
@@ -46,22 +47,22 @@ class SafeArrivalTest {
     }
 
     /**
-     * A block on the exit plane, just outside the hull but inside the aperture, is inside the volume.
+     * A block beside the hull, inside the aperture's ring but clear of the hull and its clearance, is
+     * not in what an arrival tests - above, beside, or below.
      *
-     * <p>The failure the plain hull sweep missed: the block never touches the hull, so a hull-only
-     * test would clear the candidate and the ship would fly out of an aperture with a block in its
-     * mouth.
+     * <p>Below is the one that mattered: that ring reached under the keel, and for a large hull it
+     * reached further than the search could climb, so every landing over flat ground was refused.
      */
     @Test
-    void aBlockOnTheExitApertureFallsInsideTheTestedVolume() {
+    void theArrivalTestsTheHullAndItsClearanceAndNotTheApertureRing() {
         Vector3d approach = new Vector3d(1.0D, 0.0D, 0.0D);
-        double margin = 4.0D;
-        BoundingBox3d volume = SafeArrival.candidateVolume(hull(), approach, 50.0D, 0.0D, margin);
-        // The hull reaches z=10; the aperture reaches z=14. A block at z=13 is outside the hull and
-        // inside the aperture, and must be covered by the tested volume.
-        assertTrue(volume.maxZ() >= 13.0D,
-                "the aperture ring at the exit plane was left out of the tested volume");
-        assertTrue(volume.minZ() <= -3.0D, "the aperture ring is symmetric about the hull");
+        double clearance = 2.0D;
+        for (BoundingBox3d segment : SafeArrival.arrivalSegments(hull(), approach, 50.0D, clearance)) {
+            assertTrue(segment.maxZ() <= 10.0D + clearance + EPSILON, "reached " + segment.maxZ());
+            assertTrue(segment.minZ() >= -clearance - EPSILON, "reached " + segment.minZ());
+            assertTrue(segment.minY() >= -clearance - EPSILON, "reached under the keel to " + segment.minY());
+            assertTrue(segment.maxY() <= 10.0D + clearance + EPSILON);
+        }
     }
 
     /**

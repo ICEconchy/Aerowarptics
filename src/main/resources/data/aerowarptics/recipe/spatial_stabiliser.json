@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "BSB",
+    "BGB",
+    "BCB"
+  ],
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "S": {
+      "item": "aerowarptics:stabiliser_ring"
+    },
+    "G": {
+      "item": "simulated:gyroscopic_mechanism"
+    },
+    "C": {
+      "item": "aerowarptics:rift_casing"
+    }
+  },
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:spatial_stabiliser"
+  }
+}

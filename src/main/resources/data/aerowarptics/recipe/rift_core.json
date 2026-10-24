@@ -1,32 +1,95 @@
 {
-  "type": "create:mixing",
-  "heat_requirement": "heated",
-  "ingredients": [
-    {
-      "item": "create:precision_mechanism"
-    },
-    {
-      "item": "create:electron_tube"
-    },
-    {
-      "item": "create:electron_tube"
-    },
-    {
-      "item": "create:brass_ingot"
-    },
-    {
-      "item": "create:brass_ingot"
-    },
-    {
-      "item": "aerowarptics:warp_crystal"
-    },
-    {
-      "item": "aerowarptics:warp_crystal"
-    }
-  ],
+  "type": "create:sequenced_assembly",
+  "ingredient": {
+    "item": "create:precision_mechanism"
+  },
+  "loops": 2,
   "results": [
     {
+      "chance": 120.0,
       "id": "aerowarptics:rift_core"
+    },
+    {
+      "chance": 8.0,
+      "id": "create:brass_sheet"
+    },
+    {
+      "chance": 5.0,
+      "id": "create:electron_tube"
+    },
+    {
+      "chance": 5.0,
+      "id": "aerowarptics:warp_dust"
+    },
+    {
+      "chance": 2.0,
+      "id": "create:cogwheel"
     }
-  ]
+  ],
+  "sequence": [
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "aerowarptics:incomplete_rift_core"
+        },
+        {
+          "item": "create:electron_tube"
+        }
+      ],
+      "results": [
+        {
+          "id": "aerowarptics:incomplete_rift_core"
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "aerowarptics:incomplete_rift_core"
+        },
+        {
+          "item": "aerowarptics:warp_crystal"
+        }
+      ],
+      "results": [
+        {
+          "id": "aerowarptics:incomplete_rift_core"
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "aerowarptics:incomplete_rift_core"
+        },
+        {
+          "item": "create:brass_sheet"
+        }
+      ],
+      "results": [
+        {
+          "id": "aerowarptics:incomplete_rift_core"
+        }
+      ]
+    },
+    {
+      "type": "create:pressing",
+      "ingredients": [
+        {
+          "item": "aerowarptics:incomplete_rift_core"
+        }
+      ],
+      "results": [
+        {
+          "id": "aerowarptics:incomplete_rift_core"
+        }
+      ]
+    }
+  ],
+  "transitional_item": {
+    "id": "aerowarptics:incomplete_rift_core"
+  }
 }

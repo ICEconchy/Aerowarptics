@@ -49,7 +49,14 @@ public final class AstrolabeProjections {
      * than the middle of the picture: a little above the 13/16 the model stands, and the whole
      * landscape then sits between chest and eye height for somebody leaning on it.
      */
-    private static final double PROJECTION_HEIGHT = 1.0D;
+    public static final double PROJECTION_HEIGHT = 1.0D;
+
+    /**
+     * The same for a one-block table, whose map is no wider than the instrument it stands over: a pixel
+     * above the tip of the compass needle (20/16), so the map floats over the compass rather than the
+     * needle poking up through it. {@code ResourceIntegrityTest} holds it over the one-block model.
+     */
+    public static final double SINGLE_PROJECTION_HEIGHT = 21.0D / 16.0D;
 
     /** Ticks the projection takes to fade up, so forming a table is an event rather than a pop. */
     private static final float FADE_TICKS = 20.0F;
@@ -73,6 +80,11 @@ public final class AstrolabeProjections {
     private AstrolabeProjections() {
     }
 
+    /** Drops every projection, for a client whose world has just been replaced. */
+    public static void clear() {
+        LIVE.clear();
+    }
+
     /** Called from the table's renderer each frame, to say the table is still there and in range. */
     public static void seen(AstrolabeBlockEntity table, long gameTime) {
         LIVE.computeIfAbsent(table, key -> new Projection()).seenAt = gameTime;
@@ -80,6 +92,10 @@ public final class AstrolabeProjections {
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
+        // Under a shader pack this is drawn once the pack has finished the frame - see AfterShaders.
+        if (AfterShaders.defer(event)) {
+            return;
+        }
         // After the world's translucent blocks, which is after its block entities - so every table
         // that is going to report in this frame already has.
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS || LIVE.isEmpty()) {
@@ -98,7 +114,7 @@ public final class AstrolabeProjections {
         float sweep = ((gameTime % 160L) + partialTick) / 160.0F;
 
         PoseStack poseStack = event.getPoseStack();
-        MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
+        MultiBufferSource.BufferSource buffers = AfterShaders.buffers();
         VertexConsumer buffer = buffers.getBuffer(AWRenderTypes.HOLOGRAM);
         boolean drew = false;
 
@@ -138,7 +154,8 @@ public final class AstrolabeProjections {
             }
             // Clearance above the tabletop, measured up the table rather than up the world. centre is
             // the middle of the block, so it starts half a block below the base.
-            poseStack.translate(0.0D, PROJECTION_HEIGHT - 0.5D, 0.0D);
+            double height = table.size() <= 1 ? SINGLE_PROJECTION_HEIGHT : PROJECTION_HEIGHT;
+            poseStack.translate(0.0D, height - 0.5D, 0.0D);
             projection.hologram(table.size()).render(poseStack, buffer, sweep, alpha, centre);
             poseStack.popPose();
             drew = true;

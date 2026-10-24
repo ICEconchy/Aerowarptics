@@ -82,6 +82,49 @@ public final class ArrivalHeight {
     }
 
     /**
+     * The arrival height that puts a hull's underside back at the altitude it is flying at now.
+     *
+     * <p>What the Astrolabe's "hold altitude" asks for, expressed as an ordinary height so the arrival
+     * search needs no second mode. Floored at zero - a ship cruising below the target cannot hold that
+     * altitude without arriving inside the ground under it, so it comes in on top of the target block
+     * and climbs from there like any other arrival.
+     *
+     * <p>Deliberately <em>not</em> clamped to {@link #maximum()}. That ceiling bounds the number a player
+     * dials into an anchor or a probe; a pilot holding altitude has not dialled anything, and quietly
+     * lowering a ship flying at two hundred to the ceiling would make the toggle do nothing at exactly
+     * the heights it is most wanted.
+     *
+     * @param hullUnderside the hull's world-space underside as it leaves
+     * @param targetY       the target block the height is measured from
+     */
+    public static int holding(double hullUnderside, int targetY) {
+        if (!Double.isFinite(hullUnderside)) {
+            return serverDefault();
+        }
+        double above = hullUnderside - (targetY + 1.0D);
+        return above <= 0.0D ? 0 : (int) Math.min(Integer.MAX_VALUE, Math.round(above));
+    }
+
+    /**
+     * The height a warp is planned at, having asked whether the course holds its altitude.
+     *
+     * <p>Holding only means anything within one level. Y in the Nether and Y in the Overworld are not
+     * the same altitude in any sense a pilot cares about - a ship cruising at two hundred would come out
+     * on top of the Nether's roof - so a jump to another dimension uses the destination's own height
+     * whatever the toggle says.
+     *
+     * @param requested     the destination's own height, unresolved - an anchor's or a fix's
+     * @param holdAltitude  whether the course asked to keep the current altitude
+     * @param sameLevel     whether the destination is in the level the ship is leaving
+     * @param hullUnderside the hull's world-space underside as it leaves
+     * @param targetY       the target block the height is measured from
+     */
+    public static int planned(int requested, boolean holdAltitude, boolean sameLevel,
+                              double hullUnderside, int targetY) {
+        return holdAltitude && sameLevel ? holding(hullUnderside, targetY) : resolve(requested);
+    }
+
+    /**
      * The lowest the hull's underside can arrive at over a target block of this height.
      *
      * <p>What a panel can honestly promise: the ship comes in at this height or, if something is in

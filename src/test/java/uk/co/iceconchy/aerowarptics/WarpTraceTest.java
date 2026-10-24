@@ -2,6 +2,7 @@ package uk.co.iceconchy.aerowarptics;
 
 import org.joml.Vector3d;
 import org.junit.jupiter.api.Test;
+import uk.co.iceconchy.aerowarptics.warp.WarpCost;
 import uk.co.iceconchy.aerowarptics.warp.WarpTrace;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -117,6 +118,24 @@ class WarpTraceTest {
         assertTrue(WarpTrace.crossingSummary(4626.0D, 128.0D, 3).contains("notice->3 players"));
         assertTrue(WarpTrace.crossingSummary(40.0D, 128.0D, 0).contains("under-threshold"),
                 "a move under the threshold would not fire the collapse, and nobody was told");
+    }
+
+    @Test
+    void aPriceNamesEveryTermAndWhetherItFitsInACharge() {
+        WarpCost.Formula mkI = new WarpCost.Formula(0.20D, 0.00004D, 0.15D, 40_000.0D, 1.0D, 128.0D, 4_000.0D);
+        String over = WarpTrace.pricing(mkI, 1_500.0D, 200_000.0D);
+        assertTrue(over.contains("base 0.200"), over);
+        assertTrue(over.contains("distance 0.060"), over);
+        assertTrue(over.contains("mass 0.750"), over);
+        assertTrue(over.contains("OVER A FULL CHARGE"), "1.01 of a charge must be called out: " + over);
+        assertTrue(over.contains("range 128-4000"), over);
+        assertTrue(over.contains("reach at this mass 1250"),
+                "the line has to show the reach falling short of the range - that is the whole diagnosis: " + over);
+
+        String fits = WarpTrace.pricing(mkI, 1_500.0D, 40_000.0D);
+        assertFalse(fits.contains("OVER"), fits);
+        assertTrue(fits.contains("reach at this mass 4000"), fits);
+        assertTrue(WarpTrace.pricing(mkI, 100.0D, 300_000.0D).contains("reach at this mass NONE"));
     }
 
     @Test

@@ -12,15 +12,15 @@ import net.neoforged.api.distmarker.OnlyIn;
 import software.bernie.geckolib.cache.object.BakedGeoModel;
 import software.bernie.geckolib.cache.object.GeoBone;
 import software.bernie.geckolib.renderer.GeoBlockRenderer;
+import uk.co.iceconchy.aerowarptics.airship.DrawnAboard;
 import uk.co.iceconchy.aerowarptics.client.model.RiftModulatorModel;
 import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity;
 
 /**
  * Draws the Rift Modulator.
  *
- * <p>Only the {@code lens} bone is tinted, to whatever colour the block entity is holding - the plinth
- * and the pillar underneath it are machined brass and stay machined brass whatever the rift ends up
- * looking like. An unlinked or unfuelled Modulator draws its lens in a flat, unlit grey rather than the
+ * <p>Only the gem on top (the artist's {@code gem} bone) is tinted, to whatever colour the block entity is
+ * holding - the brass cage and the plinth under it stay brass whatever the rift ends up looking like. An unlinked or unfuelled Modulator draws its lens in a flat, unlit grey rather than the
  * chosen colour, so a glance at the block already answers "is this actually doing anything" without
  * needing the goggles.
  */
@@ -28,7 +28,7 @@ import uk.co.iceconchy.aerowarptics.modulator.RiftModulatorBlockEntity;
 public class RiftModulatorRenderer extends GeoBlockRenderer<RiftModulatorBlockEntity> {
 
     private static final int FULL_BRIGHT = 0xF0_00F0;
-    private static final String LENS_BONE = "lens";
+    private static final String LENS_BONE = "gem";
     /** What the lens draws as while it has nothing to show - unlit glass, not a colour choice. */
     private static final int IDLE_TINT = 0xFF_6E_6A_78;
 
@@ -58,6 +58,16 @@ public class RiftModulatorRenderer extends GeoBlockRenderer<RiftModulatorBlockEn
                 ? Axis.XP.rotationDegrees(90.0F)
                 : Axis.XN.rotationDegrees(90.0F));
         poseStack.translate(0.0D, -HALF_BLOCK, 0.0D);
+    }
+
+    /**
+     * Only in the world, the way the drive it dresses is. Aboard a ship the off-screen list is the one a
+     * warp can quietly empty, and a Modulator on a section of its own has nothing to fill it again - see
+     * {@link DrawnAboard}.
+     */
+    @Override
+    public boolean shouldRenderOffScreen(RiftModulatorBlockEntity modulator) {
+        return DrawnAboard.offScreen(modulator);
     }
 
     @Override

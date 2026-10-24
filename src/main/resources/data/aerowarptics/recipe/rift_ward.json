@@ -1,0 +1,36 @@
+{
+  "type": "create:mechanical_crafting",
+  "key": {
+    "A": {
+      "item": "aerowarptics:relic_armillary"
+    },
+    "F": {
+      "item": "aerowarptics:folded_warp_crystal"
+    },
+    "G": {
+      "item": "aerowarptics:warp_glass"
+    },
+    "S": {
+      "item": "aerowarptics:spatial_stabiliser"
+    },
+    "R": {
+      "item": "aerowarptics:rift_core"
+    },
+    "M": {
+      "item": "create:precision_mechanism"
+    },
+    "C": {
+      "item": "aerowarptics:rift_casing"
+    }
+  },
+  "pattern": [
+    " FAF ",
+    "GSRSG",
+    "CCMCC"
+  ],
+  "result": {
+    "count": 1,
+    "id": "aerowarptics:rift_ward"
+  },
+  "accept_mirrored": false
+}

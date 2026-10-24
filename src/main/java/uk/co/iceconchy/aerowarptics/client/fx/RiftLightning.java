@@ -79,11 +79,19 @@ public final class RiftLightning {
     }
 
     private static Emitter[] field(int seed, int count, int base) {
+        return field(seed, count, base, PERIOD_MIN, PERIOD_MAX);
+    }
+
+    /**
+     * A field on clocks of its own choosing, for something that sparks more often than a rim does - a
+     * capital ship's cloud, whose lightning never stops. See {@link Nebula}.
+     */
+    static Emitter[] field(int seed, int count, int base, float periodMin, float periodMax) {
         Emitter[] emitters = new Emitter[count];
         for (int index = 0; index < count; index++) {
             int n = base + index * 9;
             float anchor = RiftShatter.noise(seed, n) * (float) (Math.PI * 2.0D);
-            float period = PERIOD_MIN + (PERIOD_MAX - PERIOD_MIN) * RiftShatter.noise(seed, n + 1);
+            float period = periodMin + (periodMax - periodMin) * RiftShatter.noise(seed, n + 1);
             float phase = RiftShatter.noise(seed, n + 2) * period;
             emitters[index] = new Emitter(anchor, period, phase);
         }

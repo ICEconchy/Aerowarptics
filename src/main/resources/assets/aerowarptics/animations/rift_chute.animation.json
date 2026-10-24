@@ -3,28 +3,8 @@
   "animations": {
     "animation.rift_chute.idle": {
       "loop": true,
-      "animation_length": 6.0,
-      "bones": {
-        "cap": {
-          "position": {
-            "0.0": [
-              0,
-              0,
-              0
-            ],
-            "3.0": [
-              0,
-              0.15,
-              0
-            ],
-            "6.0": [
-              0,
-              0,
-              0
-            ]
-          }
-        }
-      }
+      "animation_length": 1.0,
+      "bones": {}
     }
   }
 }

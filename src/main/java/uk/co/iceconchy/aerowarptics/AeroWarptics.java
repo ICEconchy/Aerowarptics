@@ -8,8 +8,11 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import org.slf4j.Logger;
 import uk.co.iceconchy.aerowarptics.advancement.AWCriteria;
+import uk.co.iceconchy.aerowarptics.astrolabe.AstrolabeBlock;
 import uk.co.iceconchy.aerowarptics.compat.display.AWDisplaySources;
 import uk.co.iceconchy.aerowarptics.fissure.RiftGogglesItem;
+import uk.co.iceconchy.aerowarptics.hold.AirshipResidency;
+import uk.co.iceconchy.aerowarptics.hold.Holds;
 import uk.co.iceconchy.aerowarptics.network.AWNetwork;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
@@ -17,11 +20,13 @@ import uk.co.iceconchy.aerowarptics.registry.AWCapabilities;
 import uk.co.iceconchy.aerowarptics.registry.AWCreativeTab;
 import uk.co.iceconchy.aerowarptics.registry.AWFluids;
 import uk.co.iceconchy.aerowarptics.registry.AWDataComponents;
+import uk.co.iceconchy.aerowarptics.registry.AWEntities;
+import uk.co.iceconchy.aerowarptics.registry.AWRecipeTypes;
+import uk.co.iceconchy.aerowarptics.pack.ClassicRecipes;
 import uk.co.iceconchy.aerowarptics.registry.AWItems;
 import uk.co.iceconchy.aerowarptics.registry.AWParticles;
 import uk.co.iceconchy.aerowarptics.registry.AWSounds;
 import uk.co.iceconchy.aerowarptics.registry.AWStress;
-import uk.co.iceconchy.aerowarptics.warp.AirshipResidency;
 
 /**
  * Create: Aeronautics warp-travel addon.
@@ -46,16 +51,33 @@ public class AeroWarptics {
         AWSounds.register(modEventBus);
         AWParticles.register(modEventBus);
         AWDataComponents.register(modEventBus);
+        AWEntities.register(modEventBus);
+        AWRecipeTypes.register(modEventBus);
+        uk.co.iceconchy.aerowarptics.registry.AWMenus.register(modEventBus);
+        uk.co.iceconchy.aerowarptics.registry.AWFanTypes.register(modEventBus);
         AWCreativeTab.register(modEventBus);
         AWCriteria.register(modEventBus);
+        // Before any level loads: Sable reads saved ship tickets by type name as each one does.
+        Holds.bootstrap();
 
         modEventBus.addListener(AirshipResidency::onRegisterControllers);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.hold.RailWake::onRegisterControllers);
         modEventBus.addListener(AWNetwork::register);
         modEventBus.addListener(AWDisplaySources::onRegister);
         modEventBus.addListener(AWDisplaySources::onCommonSetup);
         modEventBus.addListener(AWStress::onCommonSetup);
         modEventBus.addListener(RiftGogglesItem::onCommonSetup);
+        modEventBus.addListener(AstrolabeBlock::onCommonSetup);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.rail.RiftPortalTracks::onCommonSetup);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.fissure.RiftFissureBlock::onCommonSetup);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.collapse.CollapseCradleBlock::onCommonSetup);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.plotter.RiftPlotterBlock::onCommonSetup);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.ward.RiftWardBlock::onCommonSetup);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.berth.BerthBlock::onCommonSetup);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.wellhead.RiftCollarBlock::onCommonSetup);
+        modEventBus.addListener(uk.co.iceconchy.aerowarptics.sunderer.RiftSundererBlock::onCommonSetup);
         modEventBus.addListener(AWCapabilities::register);
+        modEventBus.addListener(ClassicRecipes::onAddPackFinders);
 
         modContainer.registerConfig(ModConfig.Type.SERVER, AWConfig.SERVER_SPEC);
         modContainer.registerConfig(ModConfig.Type.CLIENT, AWConfig.CLIENT_SPEC);

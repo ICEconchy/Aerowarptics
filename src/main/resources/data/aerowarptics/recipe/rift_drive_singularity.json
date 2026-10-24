@@ -17,13 +17,13 @@
       "item": "create:railway_casing"
     },
     "B": {
-      "item": "create:brass_casing"
+      "item": "aerowarptics:rift_casing"
     },
     "H": {
       "item": "minecraft:echo_shard"
     },
     "L": {
-      "item": "aerowarptics:rift_lens"
+      "item": "aerowarptics:opened_rift_lens"
     }
   },
   "pattern": [

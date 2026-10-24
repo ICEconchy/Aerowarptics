@@ -9,7 +9,6 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.fluids.FluidStack;
@@ -23,6 +22,7 @@ import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 import uk.co.iceconchy.aerowarptics.airship.Airship;
+import uk.co.iceconchy.aerowarptics.airship.DrawnAboard;
 import uk.co.iceconchy.aerowarptics.client.AWClientHooks;
 import uk.co.iceconchy.aerowarptics.registry.AWBlockEntities;
 import uk.co.iceconchy.aerowarptics.registry.AWFluids;
@@ -41,21 +41,14 @@ import java.util.List;
  *
  * <p>The yield is a lottery rather than a rate. A jump either shakes something loose or it does not,
  * and a longer throw widens the odds without guaranteeing anything - which keeps it a by-product of
- * travelling rather than a reason to bounce a ship between two anchors.
+ * travelling rather than a reason to bounce a ship between two anchors. It is one lottery per jump,
+ * shared between every vessel aboard - see {@link SiphonPool}.
  */
 public class SpatialSiphonBlockEntity extends SmartBlockEntity
         implements GeoBlockEntity, IHaveGoggleInformation {
 
     /** How much the vessel holds, in millibuckets. Four buckets: enough to be worth piping out. */
     public static final int CAPACITY = 4 * AWFluids.BUCKET;
-
-    /** Millibuckets every completed jump is worth before distance is considered. */
-    private static final int BASE_YIELD = 40;
-    private static final int BASE_SPREAD = 160;
-
-    /** Extra millibuckets a jump at {@link #REACH_REFERENCE} blocks can add, on top of the base. */
-    private static final int REACH_BONUS = 300;
-    private static final double REACH_REFERENCE = 4_000.0D;
 
     private static final RawAnimation IDLE = RawAnimation.begin().thenLoop("animation.spatial_siphon.idle");
     private static final RawAnimation DRAWING = RawAnimation.begin().thenLoop("animation.spatial_siphon.drawing");
@@ -82,8 +75,24 @@ public class SpatialSiphonBlockEntity extends SmartBlockEntity
     /** Ticks left of the drawing-in animation, so a capture reads as an event rather than a number. */
     private int drawTicks;
 
+    /** Every level's rift-rain ledger, by dimension - see {@link RainLedger}. */
+    private static final java.util.Map<net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>, RainLedger> RAIN =
+            new java.util.HashMap<>();
+
+    private int rainTimer;
+
     public SpatialSiphonBlockEntity(BlockPos pos, BlockState state) {
         super(AWBlockEntities.SPATIAL_SIPHON.get(), pos, state);
+    }
+
+    /**
+     * Asks a client to draw this machine, in case it arrived after the blocks round it were drawn - see
+     * {@link DrawnAboard}.
+     */
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        DrawnAboard.redraw(this);
     }
 
     @Override
@@ -119,19 +128,61 @@ public class SpatialSiphonBlockEntity extends SmartBlockEntity
         if (drawTicks > 0) {
             drawTicks--;
         }
+        if (level instanceof net.minecraft.server.level.ServerLevel server && ++rainTimer >= 20) {
+            rainTimer = 0;
+            catchRain(server);
+        }
     }
 
     /**
-     * Takes a draught out of a completed warp.
+     * Catches this vessel's share of a Rift Storm's rain: the storm's rain "is not water", and a glass vessel
+     * left out in it fills. A third way to essence, and one for a player with no drive at all.
      *
-     * @param distance blocks the hull crossed, used only to widen the odds
-     * @param random   the level's own generator, so the roll is part of world randomness
+     * <p>Shared, never stacked: rain is a per-second budget for each chunk of open ground, or for each ship,
+     * split between the siphons standing in it - see {@link RainLedger}. Under open sky only, which aboard a ship
+     * is asked in plot space and so means "not under its own deck"; and a vessel above the clouds, measured by
+     * where it really is through the ship's pose, catches more.
+     */
+    private void catchRain(net.minecraft.server.level.ServerLevel server) {
+        int rate = uk.co.iceconchy.aerowarptics.AWConfig.RIFT_RAIN_RATE.get();
+        if (rate <= 0 || room() <= 0 || !uk.co.iceconchy.aerowarptics.weather.RiftStorm.ragingOver(server)
+                || !server.canSeeSky(worldPosition.above())
+                // Nor in ground a meltdown has left unsettled: nothing settles there, essence included.
+                || uk.co.iceconchy.aerowarptics.wellhead.ScarZones.within(server, worldPosition)) {
+            return;
+        }
+        Airship ship = Airship.containing(this);
+        double worldY = ship == null ? worldPosition.getY()
+                : ship.toWorld(net.minecraft.world.phys.Vec3.atCenterOf(worldPosition)).y;
+        Object key = ship == null ? (Object) net.minecraft.world.level.ChunkPos.asLong(worldPosition) : ship.uuid();
+        double multiplier = worldY > uk.co.iceconchy.aerowarptics.AWConfig.RIFT_RAIN_CLOUD_HEIGHT.get()
+                ? uk.co.iceconchy.aerowarptics.AWConfig.RIFT_RAIN_CLOUD_MULTIPLIER.get() : 1.0D;
+        int budget = (int) Math.round(rate * multiplier);
+        long second = server.getGameTime() / 20L;
+        RainLedger ledger = RAIN.computeIfAbsent(server.dimension(), dimension -> new RainLedger());
+        if (ledger.size() > 4_096) {
+            ledger.forgetBefore(second);
+        }
+        int caught = ledger.take(key, second, room(), budget);
+        if (caught > 0) {
+            tank.fill(new FluidStack(AWFluids.RIFT_ESSENCE.get(), caught), IFluidHandler.FluidAction.EXECUTE);
+            drawTicks = Math.max(drawTicks, 10);
+        }
+    }
+
+    /**
+     * Takes this vessel's share of a completed warp's draught.
+     *
+     * <p>The draught is rolled once for the whole ship and shared out by {@link #harvest}, so this decides
+     * nothing: it only reports what it managed to hold.
+     *
      * @return millibuckets actually captured, which is zero once the vessel is full
      */
-    public int capture(double distance, RandomSource random) {
-        double reach = Mth.clamp(distance / REACH_REFERENCE, 0.0D, 1.0D);
-        int offered = BASE_YIELD + random.nextInt(BASE_SPREAD) + random.nextInt(1 + (int) (reach * REACH_BONUS));
-        int accepted = tank.fill(new FluidStack(AWFluids.RIFT_ESSENCE.get(), offered), IFluidHandler.FluidAction.EXECUTE);
+    private int capture(int share) {
+        if (share <= 0) {
+            return 0;
+        }
+        int accepted = tank.fill(new FluidStack(AWFluids.RIFT_ESSENCE.get(), share), IFluidHandler.FluidAction.EXECUTE);
         if (accepted > 0) {
             drawTicks = 60;
             if (level != null && !level.isClientSide) {
@@ -177,18 +228,25 @@ public class SpatialSiphonBlockEntity extends SmartBlockEntity
     }
 
     /**
-     * Runs every siphon aboard an airship after a completed jump.
+     * Shares one completed jump's draught between the siphons aboard an airship.
      *
-     * <p>Each rolls separately, so a ship carrying several fills faster - which is the obvious thing
-     * to try and deserves to work, and costs nothing to allow given there is no rate to balance yet.
+     * <p>One draught per jump, however many vessels catch it - see {@link SiphonPool}. A ship carrying
+     * several fills no faster than one with room to spare; what the others buy is somewhere to put it once
+     * the first is full, which is the same lesson a fissure's drain teaches.
      *
      * @return total millibuckets captured across the hull
      */
     public static int harvest(Airship airship, double distance, RandomSource random) {
+        List<SpatialSiphonBlockEntity> siphons = airship.machines(SpatialSiphonBlockEntity.class);
+        int draught = SiphonPool.draught(distance, random.nextDouble(), random.nextDouble());
+        int[] shares = SiphonPool.pour(draught, siphons.stream().mapToInt(SpatialSiphonBlockEntity::room).toArray());
         int total = 0;
-        for (SpatialSiphonBlockEntity siphon : airship.machines(SpatialSiphonBlockEntity.class)) {
-            total += siphon.capture(distance, random);
+        for (int i = 0; i < siphons.size(); i++) {
+            total += siphons.get(i).capture(shares[i]);
         }
+        uk.co.iceconchy.aerowarptics.trace.Trace.log(uk.co.iceconchy.aerowarptics.trace.Trace.SIPHON,
+                "ship {} after {} blocks: a draught of {} mB, {} siphon(s) aboard caught {} mB",
+                airship.uuid(), uk.co.iceconchy.aerowarptics.trace.Trace.blocks(distance), draught, siphons.size(), total);
         return total;
     }
 

@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "aerowarptics:block/rift_gate_frame"
+  }
+}

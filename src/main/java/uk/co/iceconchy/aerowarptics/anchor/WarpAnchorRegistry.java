@@ -12,6 +12,8 @@ import net.minecraft.world.level.saveddata.SavedData;
 import org.jetbrains.annotations.Nullable;
 import uk.co.iceconchy.aerowarptics.AWConfig;
 import uk.co.iceconchy.aerowarptics.AeroWarptics;
+import uk.co.iceconchy.aerowarptics.trace.Trace;
+import uk.co.iceconchy.aerowarptics.warpnet.Membership;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -73,6 +75,14 @@ public class WarpAnchorRegistry extends SavedData {
         if (previous != null) {
             byName.remove(key(previous.name()), previous.id());
         }
+        // Re-registered every time an anchor's chunk loads, so only a real change is worth a line.
+        if (!anchor.equals(previous)) {
+            Trace.log(Trace.ANCHOR, "{} {} \"{}\" at {} in {} owner={} access={} network={} enabled={}"
+                            + " arrivalHeight={} ({} registered)", previous == null ? "registered" : "updated",
+                    anchor.id(), anchor.name(), Trace.pos(anchor.pos()), anchor.dimension().location(),
+                    anchor.ownerName(), anchor.access(), anchor.network(), anchor.enabled(), anchor.arrivalHeight(),
+                    byId.size());
+        }
         indexName(anchor);
         setDirty();
     }
@@ -82,6 +92,8 @@ public class WarpAnchorRegistry extends SavedData {
         if (removed == null) {
             return false;
         }
+        Trace.log(Trace.ANCHOR, "removed {} \"{}\" at {} ({} left)", id, removed.name(), Trace.pos(removed.pos()),
+                byId.size());
         byName.remove(key(removed.name()), id);
         setDirty();
         return true;
@@ -101,6 +113,8 @@ public class WarpAnchorRegistry extends SavedData {
         if (!trimmed.isEmpty()) {
             UUID existing = byName.get(key(trimmed));
             if (existing != null && !existing.equals(id)) {
+                Trace.log(Trace.ANCHOR, "rename of {} to \"{}\" refused: {} already has that name", id, trimmed,
+                        existing);
                 return false;
             }
         }
@@ -147,11 +161,37 @@ public class WarpAnchorRegistry extends SavedData {
     /**
      * Anchors a player is allowed to see, sorted by display name.
      *
+     * @param networks      who is in which network, for the anchors set to Network access
      * @param sameDimension when non-null, only anchors in that dimension are returned
      */
-    public List<WarpAnchor> visibleTo(Player player, @Nullable net.minecraft.resources.ResourceKey<Level> sameDimension) {
-        return filtered(anchor -> anchor.isVisibleTo(player)
+    public List<WarpAnchor> visibleTo(Player player, Membership networks,
+                                      @Nullable net.minecraft.resources.ResourceKey<Level> sameDimension) {
+        return filtered(anchor -> anchor.isVisibleTo(player, networks)
                 && (sameDimension == null || anchor.dimension().equals(sameDimension)));
+    }
+
+    /**
+     * Takes every anchor the predicate picks off its network, and says which they were.
+     *
+     * <p>For a network disbanded, or a member gone from one: their anchors come off it here, in the record,
+     * whether or not the blocks are loaded. A loaded block has then to be told as well, or it will write
+     * the network straight back the next time it re-asserts itself - the caller's job, since this class
+     * knows nothing of the world.
+     */
+    public List<WarpAnchor> detach(Predicate<WarpAnchor> which) {
+        List<WarpAnchor> changed = new ArrayList<>();
+        for (Map.Entry<UUID, WarpAnchor> entry : byId.entrySet()) {
+            WarpAnchor anchor = entry.getValue();
+            if (anchor.network() != null && which.test(anchor)) {
+                WarpAnchor off = anchor.withoutNetwork();
+                entry.setValue(off);
+                changed.add(off);
+            }
+        }
+        if (!changed.isEmpty()) {
+            setDirty();
+        }
+        return changed;
     }
 
     public List<WarpAnchor> filtered(Predicate<WarpAnchor> predicate) {
