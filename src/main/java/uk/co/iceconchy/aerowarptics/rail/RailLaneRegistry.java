@@ -174,13 +174,30 @@ public class RailLaneRegistry extends SavedData {
 
     /** Whether any lane runs through this cell of a gate, at either of its ends. */
     public boolean isLaneCell(ResourceKey<Level> dimension, BlockPos cell) {
+        return atCell(dimension, cell) != null;
+    }
+
+    /**
+     * A lane at one of its two cells, and which end this is.
+     *
+     * @param nearEnd whether this is the cell the lane runs <em>into</em> - the end a train goes in at - rather
+     *                than the far cell it comes out of
+     */
+    public record End(RailLane lane, boolean nearEnd) {
+    }
+
+    /** The lane running through this cell of a gate, at either of its ends, or {@code null} if none does. */
+    @Nullable
+    public End atCell(ResourceKey<Level> dimension, BlockPos cell) {
         for (RailLane lane : lanes.values()) {
-            if (lane.dimension().equals(dimension) && lane.cell().equals(cell)
-                    || dimension.equals(lane.farDimension()) && cell.equals(lane.farCell())) {
-                return true;
+            if (lane.dimension().equals(dimension) && lane.cell().equals(cell)) {
+                return new End(lane, true);
+            }
+            if (dimension.equals(lane.farDimension()) && cell.equals(lane.farCell())) {
+                return new End(lane, false);
             }
         }
-        return false;
+        return null;
     }
 
     public Set<Integer> usedSlots() {

@@ -19,12 +19,14 @@ Built, unit-tested, and run in game through the Minecraft MCP (flat creative wor
     itself;
   - the dial's Rails line.
 - **Not tried in game:**
-  - the corridor rescue;
+  - the corridor rescue for a *train* - the stall itself was found in game and the rules under it are tested, but
+    the push that sends one on has not been watched;
   - a hang-up refused mid-transit;
   - a carriage too long for the corridor;
   - several lanes in one gate;
   - a gate aboard a ship refusing a lane;
   - how the corridor and its starlines look while riding (only stills were taken, none in the corridor).
+  - the Ponder scene, which has been read but not watched.
 
 ### Where the build differs from this plan
 
@@ -40,13 +42,51 @@ Built, unit-tested, and run in game through the Minecraft MCP (flat creative wor
   air beside a socket, so every socket took itself away a minute or two after its gate shut, taking the lane with it.
 - **`WorldDimensionsMixin`** leaves the corridor out of vanilla's count of dimensions. Without it, every world with
   the mod said "Worlds using Experimental Settings are not supported" each time it was opened.
-- **The far end is held three chunks round while it is laid.** Laying a stub changes Create's graph along the track
-  it joins, and a station there falls out of the graph until its own tick re-attaches it. This is Create's own
-  behaviour when track changes under a station; a station further along re-attaches when somebody next loads it.
+- **The far end is held three chunks round while it is laid**, so the stub and the track it joins are loaded when
+  `layFar` runs. The reason first written here - that a station falls out of the graph "until its own tick
+  re-attaches it", so the hold had to be wide enough to tick it - **was wrong, and the fix of 2026-10-25 replaces
+  it.** A station never re-attaches on a tick; see that entry below. The wide hold is still wanted for laying, so
+  it stays.
 - **Shift-click Dial** sets the route without dialling, as well as **Set Route** for a gate in another dimension.
-- **Not built:** the Ponder scene.
+- **The Ponder scene was built on 2026-10-25**, after the rest: a third gate scene, *Trains through a Rift
+  Gate*, on the Rift Gate and its frame, with its own schematic (`rift_gate_rail`) - the ring laid out as the
+  other two gate scenes lay it, and straight track on a low bed running into the bottom row of the opening.
+  It shows no train, as Create's own train scenes show none: a Ponder level has no track graph to bind a
+  carriage to. Ten lines cover the route, the row, the far apron, the self-dial and who pays, dialling ahead,
+  the gate shutting behind the last carriage, and the redstone hold. **Not watched in game.**
 - **Built beyond the plan:** the corridor's sky, a violet void with the free cruise's starlines while riding
   (`client/fx/CorridorView`).
+- **Stations stayed off the graph entirely until 2026-10-25, so no schedule ever worked through a gate.** Reported
+  as "trains can't see stations linked via a gate"; it was worse than that - `Points { create:station: [] }` on the
+  one merged graph, the *near* station included, from the moment the first lane was laid. The merge itself was
+  always right (one graph, 37 nodes, both dimensions, and Create carries points across a merge correctly). The
+  fault is that `TrackPropagator.onRailAdded` tears the network down first and `TrackEdgePoint.invalidate` resolves
+  each point's block entity out of whichever level is being propagated, ignoring the point's own
+  `blockEntityDimension` - so joining the corridor's end with the corridor's level strips every station in the
+  player's world and resets none of them, and `TrackTargetingBehaviour.tick` never builds them again. `RailPoints`
+  finds each one in its own level and invalidates it there. A Create bug this mod is the first thing to hit,
+  because it is the first thing to build a cross-dimensional graph outside a Nether portal; worth reporting
+  upstream, and worth keeping the workaround either way. Also fixed in passing: the apron was laid with a full
+  update and never joined to the graph at all, so a station built on it had nothing to attach to.
+- **The stalled-train rescue did not work until 2026-10-31, and a corridor now has a door.** Players still found
+  trains stuck in the corridor after the push was built, and the reason was underneath it: nothing held a
+  corridor's chunks once its gate stopped working, so fifteen seconds after the linger the carriage was no longer
+  being ticked and no speed set on it could move it. The warden now holds each occupied corridor's ground itself.
+  With that fixed, two more cases went: a derailed train is lifted back on and driven out instead of being left
+  (there is no player who can reach it to pick it up), and anything else loose in a corridor is put out - never a
+  carriage, never a rider, because a train goes out whole or not at all. And because the person who could drive a
+  stopped train out was the one person who could not get to it, a gate with a lane is now a door: right-click the
+  cell the rails go into, open or shut, and you step in beside the track at that gate's end; right-click either
+  mouth and you are back where you clicked. Three minutes by default (`visitTicks`), counted down on the view.
+- **A corridor now sends a stalled train on (2026-10-25), which the plan had no answer for.** Found in game on the
+  rail test bench, driving by hand: a rider knocked off the controls mid-crossing leaves the train with no driver
+  and no navigation, `Train.tickPassiveSlowdown` stops it, and it stands in the corridor for good - nobody can
+  reach it, nobody may build to it, and the lane stays in transit so the gate cannot even be hung up. The save
+  showed the carriage at x=12.6 of a 160-block corridor, `Speed: 0.0`, `TargetSpeed: 1.05`, schedule paused for
+  manual controls. `CorridorWarden.tickTrains` now pushes anything standing still past `rescueGraceTicks` on out
+  the way it was going, by setting `manualTick` and a speed every tick as Create's own controls do. The plan had
+  expected this to want "an operator's rescue command" (unknown 6); it wants no command, because a corridor that
+  strands a train is the bug. A derailed one is still nobody's to mend here, and is traced and left.
 
 ## Context
 

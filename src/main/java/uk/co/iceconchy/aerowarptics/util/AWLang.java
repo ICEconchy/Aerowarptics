@@ -93,6 +93,19 @@ public final class AWLang {
     }
 
     /**
+     * Ticks as a clock, {@code m:ss}, for something counting down on a player's view.
+     *
+     * <p>Rounded up, not down, so a clock showing {@code 0:01} has a second left rather than none: a countdown
+     * that reads zero while there is still time is a countdown nobody trusts the second time. Minutes are not
+     * padded and seconds always are, and a count beyond an hour is still minutes - nothing the mod counts runs
+     * that long, and {@code 75:00} is read at a glance where {@code 1:15:00} is not.
+     */
+    public static String clock(int ticks) {
+        int seconds = (Math.max(0, ticks) + 19) / 20;
+        return seconds / 60 + ":" + (seconds % 60 < 10 ? "0" : "") + seconds % 60;
+    }
+
+    /**
      * How far a drive reaches: a distance, or "Infinite" for one no world is wide enough to test - see
      * {@link WarpCost#unlimited}. A creative drive's configured hundred thousand kilometres used to be printed
      * as exactly that, which is a limit it does not have.

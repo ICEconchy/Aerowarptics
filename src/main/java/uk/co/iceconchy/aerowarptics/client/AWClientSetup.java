@@ -184,6 +184,10 @@ public final class AWClientSetup {
     public static void registerGuiLayers(net.neoforged.neoforge.client.event.RegisterGuiLayersEvent event) {
         event.registerAboveAll(AeroWarptics.id("gate_passage"),
                 uk.co.iceconchy.aerowarptics.client.fx.GatePassageOverlay::render);
+        // Above all for the same reason, and after the passage: somebody who has just come through a gate on a
+        // train is behind the veil for a moment, and a clock drawn under it would read through the flare.
+        event.registerAboveAll(AeroWarptics.id("corridor_visit"),
+                uk.co.iceconchy.aerowarptics.client.fx.CorridorVisitOverlay::render);
     }
 
     /** The Collapse Cradle's panel, the mod's one container screen. */

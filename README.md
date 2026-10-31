@@ -2414,10 +2414,10 @@ that as a bug. Everybody notices the page looking wrong.
 ### Ponder scenes
 
 Holding **[W]** over any of this mod's items plays a scene explaining it, in the same window Create
-uses for its own. Nineteen of them: the Spatial Siphon, the Warp Anchor, the Astrolabe, the Rift Probe,
-the Rift Drive, the Drive Extender, the Rift Chute, the Rift Modulator, the Spatial Stabiliser, the
-Cooling Vent, the Spatial Wave Detector, the Rift Beacon, the Rift Brazier, the Collapse Cradle (folding and collapsing), two for the Rift Gate — building the ring, and getting something
-through it — and two for the Rift Fissure, which is finding one and closing it. They are grouped into two chapters of the Ponder index, `Warp Travel` and `Rift Gates`, so
+uses for its own. Twenty-three of them: the Spatial Siphon, the Warp Anchor, the Astrolabe, the Rift Probe,
+the Rift Drive, the Drive Extender, the Rift Chute, the Rift Modulator, the Rift Coupler, the Spatial Stabiliser, the
+Cooling Vent, the Spatial Wave Detector, the Rift Beacon, the Rift Brazier, the Rift Wellhead, the Rift Sunderer, the Collapse Cradle (folding and collapsing), three for the Rift Gate — building the ring, getting something
+through it, and running trains through it — and two for the Rift Fissure, which is finding one and closing it. They are grouped into two chapters of the Ponder index, `Warp Travel` and `Rift Gates`, so
 a player who only wanted a doorway between two bases does not have to read about airships to find it.
 
 The Navigator's Handbook is listed in both chapters and has no scene of its own, deliberately. A scene
@@ -2425,10 +2425,10 @@ shows a mechanism working and a book has no mechanism; a Ponder scene explaining
 the mod would be a lesson about a table of contents. What it wants is to be somewhere the index will
 show it, which is what a tag does.
 
-Six scenes do not show the thing they are about, deliberately. A warp moves a Sable sub-level and a
-Ponder scene has no airship in it; a gate's aperture is drawn by the client from live gate state and a
-Ponder level has none; a rift's colour only means anything once one is actually torn, and a Ponder
-level tears none either. Rather than animate a lie, those scenes teach what a player can act on before
+Several scenes do not show the thing they are about, deliberately. A warp moves a Sable sub-level and a
+Ponder scene has no airship in it; a rift's colour only means anything once one is actually torn, and a
+Ponder level tears none either; a train is a contraption bound to a track graph, and a Ponder level has
+no graph to bind one to - which is why Create's own train scenes show no train either. Rather than animate a lie, those scenes teach what a player can act on before
 they reach the console — where the machine goes, what it consumes, what decides whether it will run —
 and leave the spectacle to be seen from the deck. That is the more useful half anyway: what people get
 wrong about a gate is the ring, the power and the pairing, none of which an animation would have told

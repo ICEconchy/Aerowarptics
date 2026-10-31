@@ -29,7 +29,7 @@ class WardWiringTest {
 
     private static String source(String path) {
         try {
-            return Files.readString(SOURCES.resolve(path), StandardCharsets.UTF_8);
+            return Files.readString(SOURCES.resolve(path), StandardCharsets.UTF_8).replace("\r\n", "\n");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

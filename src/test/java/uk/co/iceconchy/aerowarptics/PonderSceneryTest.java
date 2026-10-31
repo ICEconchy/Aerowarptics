@@ -14,6 +14,7 @@ import java.util.zip.GZIPInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -23,7 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * It cannot prove the words are about the build, and several of these scenes do more than talk about
  * theirs: they reach into it by coordinate. The extender scene forms a frame it declares the size and
  * corner of, the stabiliser scene throws a switch by flipping whatever is powered in two named blocks,
- * and the detector scene lights a wire it names block by block.
+ * the detector scene lights a wire it names block by block, and the rail scene outlines the row a lane has
+ * to run into and points at the track running into it.
  *
  * <p>Every one of those is a silent failure if {@code tools/ponder_schematics.py} moves. A frame
  * declared round a cube that is no longer there draws a drive the wrong size with loose casing still
@@ -46,6 +48,9 @@ class PonderSceneryTest {
     private static final String FISSURE = "aerowarptics:rift_fissure";
     private static final String DETECTOR = "aerowarptics:spatial_wave_detector";
     private static final String VENT = "aerowarptics:cooling_vent";
+    private static final String GATE = "aerowarptics:rift_gate";
+    private static final String FRAME = "aerowarptics:rift_gate_frame";
+    private static final String TRACK = "create:track";
 
     // ------------------------------------------------------------- extenders
 
@@ -239,6 +244,61 @@ class PonderSceneryTest {
         assertEquals(0, sumX, "the cage is lopsided east-west");
         assertEquals(0, sumZ, "the cage is lopsided north-south");
         assertEquals(8, scene.positionsOf("create:depot").size(), "the ring is eight depots");
+    }
+
+    // ------------------------------------------------------------------ rails
+
+    /**
+     * {@code RailScenes.trains} teaches a railway run into the bottom row of a gate's opening, and says so by
+     * pointing at the track and the cell it reaches. Every one of those claims is a coordinate: the track has
+     * to be in line with the lane cell at (3, 2, 4), level with it, straight along the lane, standing on
+     * something, and reaching the ring. A run that moved would illustrate the one arrangement the game refuses.
+     */
+    @Test
+    void theRailSceneRunsLevelTrackIntoTheBottomRowOfTheOpening() {
+        Schematic scene = read("rift_gate_rail");
+
+        assertEquals(List.of(new Pos(3, 1, 4)), scene.positionsOf(GATE),
+                "the storyboard points at the controller at (3, 1, 4), directly under the lane cell");
+
+        List<Pos> track = scene.positionsOf(TRACK);
+        assertEquals(4, track.size(), "the storyboard shows four blocks of approach track");
+        for (Pos rail : track) {
+            assertEquals(3, rail.x(), rail + " is out of line with the lane cell at (3, 2, 4)");
+            assertEquals(2, rail.y(), rail + " is not level with the bottom row of the opening");
+            assertEquals("zo", scene.at(rail).properties().get("shape"),
+                    rail + " is not straight along the lane, which is the one way in a gate refuses");
+            assertNotNull(scene.at(new Pos(rail.x(), rail.y() - 1, rail.z())),
+                    "the track at " + rail + " has nothing under it, and a lane runs on a bed");
+        }
+        assertTrue(track.contains(new Pos(3, 2, 3)),
+                "the track stops short of the ring, so nothing shown runs into the gate");
+    }
+
+    /**
+     * The opening ships empty, like the dialling scene's: the storyboard sets the pane itself, at the beat the
+     * gate dials for a train, and hides it again when the gate shuts. Anything standing there would be a
+     * doorway the scene never opened - and the ring round it has to be whole, since the scene reveals it as one
+     * selection and a gap would simply be a hole in the gate.
+     */
+    @Test
+    void theRailSceneShipsAnEmptyOpeningInAWholeRing() {
+        Schematic scene = read("rift_gate_rail");
+
+        for (int x = 1; x <= 5; x++) {
+            for (int y = 1; y <= 5; y++) {
+                Pos cell = new Pos(x, y, 4);
+                boolean edge = x == 1 || x == 5 || y == 1 || y == 5;
+                if (!edge) {
+                    assertNull(scene.at(cell), cell + " stands in the opening the scene fills with panes itself");
+                } else if (cell.equals(new Pos(3, 1, 4))) {
+                    assertEquals(GATE, scene.at(cell).name(), "the controller has left the bottom row");
+                } else {
+                    assertEquals(FRAME, scene.at(cell) == null ? null : scene.at(cell).name(),
+                            "the ring has a gap at " + cell);
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------- nbt

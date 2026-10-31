@@ -107,6 +107,7 @@ public final class AWConfig {
     public static final ModConfigSpec.IntValue RAIL_APRON_LENGTH;
     public static final ModConfigSpec.IntValue RAIL_RESCUE_GRACE_TICKS;
     public static final ModConfigSpec.IntValue RAIL_PRE_DIAL_DISTANCE;
+    public static final ModConfigSpec.IntValue RAIL_VISIT_TICKS;
 
     public static final ModConfigSpec.IntValue CHUTE_COST_PER_ITEM;
     public static final ModConfigSpec.IntValue CHUTE_BATCH_SIZE;
@@ -760,10 +761,19 @@ public final class AWConfig {
                         "one drawn off the apron is not.")
                 .defineInRange("apronLength", 2, 0, 16);
         RAIL_RESCUE_GRACE_TICKS = SERVER_BUILDER
-                .comment("Ticks a player may stand in the Rift Corridor off a train before being put back at the",
-                        "gate they came through. Create lifts a rider off and puts them back as a carriage",
-                        "crosses, so this is not zero.")
+                .comment("Ticks anything may stand still in the Rift Corridor before the corridor puts it right: a",
+                        "player off a train is put back at the gate they came through, and a train with nothing",
+                        "driving it is sent on out the way it was going. Create lifts a rider off and puts them",
+                        "back as a carriage crosses, so this is not zero.")
                 .defineInRange("rescueGraceTicks", 60, 10, 6_000);
+        RAIL_VISIT_TICKS = SERVER_BUILDER
+                .comment("Ticks a player who steps into the Rift Corridor through a gate's own opening may stay",
+                        "there before the corridor puts them back where they came in. Right-clicking a gate that",
+                        "has track run into it is the way in - a door for getting at a train that has stopped in a",
+                        "corridor - and right-clicking the mouth at either end is the way out again. Their time",
+                        "left is counted down on their own view, and standing on a train does not spend it.",
+                        "Default is three minutes.")
+                .defineInRange("visitTicks", 3_600, 100, 72_000);
         RAIL_PRE_DIAL_DISTANCE = SERVER_BUILDER
                 .comment("How far ahead, in blocks, a scheduled train whose path runs through a gate asks it to",
                         "dial, so that the gate is open when it gets there instead of stopping it dead. 0 waits",

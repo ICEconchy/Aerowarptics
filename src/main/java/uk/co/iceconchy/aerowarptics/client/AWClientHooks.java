@@ -456,6 +456,13 @@ public final class AWClientHooks {
         }
     }
 
+    /** How long this player has left standing in the Rift Corridor, for the clock on their own view. */
+    public static void setCorridorVisit(int ticks) {
+        if (client()) {
+            uk.co.iceconchy.aerowarptics.client.fx.CorridorVisitOverlay.set(ticks);
+        }
+    }
+
     public static void openHandbook() {
         if (client()) {
             ClientRuntime.openHandbook();

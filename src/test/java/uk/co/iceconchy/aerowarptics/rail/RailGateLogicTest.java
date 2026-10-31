@@ -3,6 +3,7 @@ package uk.co.iceconchy.aerowarptics.rail;
 import org.junit.jupiter.api.Test;
 import uk.co.iceconchy.aerowarptics.rail.RailGateLogic.Admission;
 import uk.co.iceconchy.aerowarptics.rail.RailGateLogic.Call;
+import uk.co.iceconchy.aerowarptics.rail.RailGateLogic.Stranded;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -83,5 +84,56 @@ class RailGateLogicTest {
     void nothingIsShutOrTurnedOnATrain() {
         assertFalse(RailGateLogic.mayChange(true));
         assertTrue(RailGateLogic.mayChange(false));
+    }
+
+    /**
+     * A train that stops in a corridor is sent on, because a corridor is a place nobody can reach it.
+     *
+     * <p>This is the bug a rider knocked off the controls half way through a crossing found in game: the train
+     * coasted to a halt eleven blocks into a hundred and sixty of corridor, and there was no way left to get it
+     * back. Standing still is the whole test - a train being driven is moving.
+     */
+    @Test
+    void aTrainStandingStillInACorridorIsSentOn() {
+        assertEquals(Stranded.SEND_ON, RailGateLogic.stranded(0.0D, false, false, false, 60, 60));
+        assertEquals(Stranded.NOTHING, RailGateLogic.stranded(0.0D, false, false, false, 59, 60), "still in grace");
+        assertEquals(Stranded.NOTHING, RailGateLogic.stranded(0.2D, false, false, false, 10_000, 60), "moving");
+        assertEquals(Stranded.NOTHING, RailGateLogic.stranded(-0.2D, false, false, false, 10_000, 60), "backwards");
+        assertEquals(Stranded.NOTHING, RailGateLogic.stranded(0.0D, true, false, false, 10_000, 60),
+                "a schedule will carry it out on its own");
+        assertEquals(Stranded.WAITING, RailGateLogic.stranded(0.0D, false, true, false, 10_000, 60),
+                "its chunks are not there yet; it moves when they are");
+        assertEquals(Stranded.LIFT_AND_SEND, RailGateLogic.stranded(0.0D, false, false, true, 60, 60));
+    }
+
+    /**
+     * A derailed train is lifted back on and sent on, rather than left where it is.
+     *
+     * <p>It used to be left: a train off its track is normally a player's to pick up and set down again. But in a
+     * corridor there is no player who can reach it - which is what the whole of this rescue is about - so being
+     * derailed in one was still being lost for good. Reported by players still finding trains stuck after the
+     * first fix (2026-10-31).
+     */
+    @Test
+    void aDerailedTrainIsLiftedBackOnAndSentOn() {
+        for (boolean navigating : BOTH) {
+            for (boolean chunks : BOTH) {
+                assertEquals(Stranded.LIFT_AND_SEND,
+                        RailGateLogic.stranded(0.0D, navigating, chunks, true, 10_000, 60),
+                        "neither a schedule nor a chunk excuses leaving it there");
+                assertEquals(Stranded.NOTHING, RailGateLogic.stranded(0.0D, navigating, chunks, true, 0, 60),
+                        "but not at once - it is given the same grace as anything else");
+            }
+        }
+    }
+
+    /** It finishes the crossing it started, rather than reversing into the gate it has just come through. */
+    @Test
+    void aTrainIsSentOnTheWayItWasGoing() {
+        assertEquals(1.0D, RailGateLogic.onward(0.8D, -1.0D), "the way it was last seen moving");
+        assertEquals(-1.0D, RailGateLogic.onward(-0.8D, 1.0D));
+        assertEquals(1.0D, RailGateLogic.onward(0.0D, 1.05D), "what its driver last asked for");
+        assertEquals(-1.0D, RailGateLogic.onward(0.0D, -1.05D));
+        assertEquals(1.0D, RailGateLogic.onward(0.0D, 0.0D), "nothing to go on: either mouth is a way out");
     }
 }

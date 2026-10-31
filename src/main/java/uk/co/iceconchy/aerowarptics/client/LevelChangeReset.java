@@ -74,5 +74,8 @@ public final class LevelChangeReset {
     private static void resetSession() {
         WarpCorridorOverlay.clear();
         HyperspaceStreaks.clear();
+        // Session, not level: stepping into the Rift Corridor is itself a change of dimension, so clearing this
+        // with the level would wipe the clock at the very moment it started counting.
+        uk.co.iceconchy.aerowarptics.client.fx.CorridorVisitOverlay.clear();
     }
 }

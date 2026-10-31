@@ -416,6 +416,40 @@ def rift_gate():
     return scene
 
 
+def rift_gate_rail():
+    """
+    The same ring as `rift_gate`, with a railway run into the bottom row of its opening.
+
+    Its own schematic rather than the shared gate one, because a lane needs scenery the other two
+    scenes have no use for: the opening's bottom row sits a block above the ground a gate stands on,
+    so a track into it runs along a low bed, and the bed and the track would be two more things for
+    the assembly and dialling scenes to keep hidden.
+
+    The ring stands across X at z=4, which leaves four cells of approach in front of it and room for
+    the controller's shaft behind. The lane cell is (3, 2, 4) - the middle of the bottom row, directly
+    above the controller - and the track runs up to it along z, so a straight `zo` track is the whole
+    run. Nothing stands in the opening: the storyboard puts the pane in itself, at the beat the gate
+    dials for a train.
+    """
+    scene = Scene((7, 6, 7))
+    scene.base_plate(7)
+
+    ring_z = 4
+    for x in range(1, 6):
+        for y in range(1, 6):
+            if x in (1, 5) or y in (1, 5):
+                scene.put(x, y, ring_z, FRAME)
+    # The controller in the bottom row, under the lane cell, with its shaft behind the ring.
+    scene.put(3, 1, ring_z, GATE, facing="south")
+    scene.motor_line(3, 1, ring_z + 1, 1, "z", "north")
+
+    # The lane: straight track on a low bed, running level into the bottom row of the opening.
+    for z in range(0, ring_z):
+        scene.put(3, 1, z, "create:railway_casing")
+        scene.put(3, 2, z, "create:track", shape="zo", turn="false", waterlogged="false")
+    return scene
+
+
 def rift_fissure():
     """A scar with a tear standing in it, and a vessel to close it with.
 
@@ -555,6 +589,7 @@ SCENES = {
     "cooling_vent": cooling_vent,
     "spatial_wave_detector": spatial_wave_detector,
     "rift_gate": rift_gate,
+    "rift_gate_rail": rift_gate_rail,
     "rift_fissure": rift_fissure,
     "rift_beacon": rift_beacon,
     "rift_brazier": rift_brazier,

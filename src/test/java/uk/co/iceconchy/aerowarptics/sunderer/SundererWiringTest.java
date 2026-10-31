@@ -25,7 +25,7 @@ class SundererWiringTest {
 
     private static String source(Path file) {
         try {
-            return Files.readString(file);
+            return Files.readString(file).replace("\r\n", "\n");
         } catch (IOException failure) {
             throw new UncheckedIOException(failure);
         }

@@ -15,6 +15,7 @@
   - Riders pass through the Rift Corridor, a few seconds of track in a violet void. Anyone left standing in it is put back at the gate they came through.
   - A gate won't be hung up, or routed elsewhere, while a train is part of the way through.
   - New advancement: *Mind the Gap*.
+  - A third Ponder scene on the Rift Gate, *Trains through a Rift Gate*, and two more pages in the Navigator's Handbook's **Rift Gates** chapter.
   - Settings are under `gates.rail` in the server config.
 
 - **Rift Sunderer.** A new single-use machine that tears a Rift Fissure open where you want one, so a Rift Wellhead can be built at home.

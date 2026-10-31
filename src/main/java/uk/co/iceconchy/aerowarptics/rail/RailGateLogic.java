@@ -19,6 +19,8 @@ package uk.co.iceconchy.aerowarptics.rail;
  *   rides on the upkeep being paid.</li>
  *   <li>A gate a train opened shuts once nothing has used it for a while. One a player opened is theirs, and is
  *   left alone.</li>
+ *   <li>A corridor never keeps a train. One that stands in a corridor with nothing driving it is sent on the way
+ *   it was going, because nobody can reach it there to drive it out.</li>
  * </ul>
  */
 public final class RailGateLogic {
@@ -131,5 +133,75 @@ public final class RailGateLogic {
      */
     public static boolean mayChange(boolean trainInTransit) {
         return !trainInTransit;
+    }
+
+    /** What to do about a train standing still in a corridor. */
+    public enum Stranded {
+        /** It is going somewhere, or will be: leave it. */
+        NOTHING,
+        /** Create is holding it for chunks. It moves when they arrive, and the corridor's hold sees that they do. */
+        WAITING,
+        /** Off the track. Put it back on the rails first, then send it on. */
+        LIFT_AND_SEND,
+        /** Nothing is driving it and nothing will. Send it on out of the corridor. */
+        SEND_ON
+    }
+
+    /**
+     * What to do about a train standing in a corridor.
+     *
+     * <p>A corridor is a tube with a mouth at each end, no way in but a gate, and nothing a player may build in
+     * it. So a train that stops in one is lost for good: nobody can reach it to drive it out, and Create will not
+     * move it of its own accord - {@code Train.tickPassiveSlowdown} brings a train with no driver and no schedule
+     * to a halt and then leaves it exactly where it stopped. That is a rider knocked off the controls half way
+     * through, and it cost somebody their train in game (2026-10-25). A corridor keeps nobody, so it keeps no
+     * train either.
+     *
+     * <p>Standing still is the whole test, and it is enough: a train being driven is moving, and one whose driver
+     * has let go stops within a second of letting go. A train parked in a corridor on purpose is a train in a
+     * place nothing should be parked.
+     *
+     * @param speed            how fast it is going as Create has it, signed along its own direction of travel
+     * @param navigating       whether a schedule is steering it, which will carry it out without help
+     * @param waitingForChunks whether Create is holding it for chunks that are not loaded yet
+     * @param derailed         whether it has come off the track
+     * @param stalledTicks     how long it has stood still in the corridor
+     * @param graceTicks       how long it may stand still before it is sent on
+     */
+    public static Stranded stranded(double speed, boolean navigating, boolean waitingForChunks, boolean derailed,
+                                    int stalledTicks, int graceTicks) {
+        if (derailed) {
+            // Not left alone any more. A derailed train is normally a player's to pick up and set down again, and
+            // in a corridor there is no player who can reach it - so the corridor lifts it back on itself.
+            return stalledTicks >= graceTicks ? Stranded.LIFT_AND_SEND : Stranded.NOTHING;
+        }
+        if (speed != 0.0D) {
+            return Stranded.NOTHING;
+        }
+        if (waitingForChunks) {
+            return Stranded.WAITING;
+        }
+        if (navigating) {
+            return Stranded.NOTHING;
+        }
+        return stalledTicks >= graceTicks ? Stranded.SEND_ON : Stranded.NOTHING;
+    }
+
+    /**
+     * Which way to send a stranded train, as the sign to put on its speed.
+     *
+     * <p>The way it was already going, so a train knocked out of somebody's hands finishes the crossing it had
+     * started rather than reversing into the gate it has just come through. Failing that, the way its controls
+     * were last set to, which is what its driver wanted before they were knocked off. Failing both - a train that
+     * entered and stopped in the same tick - forwards, because either mouth is a way out.
+     *
+     * @param lastSpeed   the last speed it was seen moving at in the corridor, or 0 if it was never seen moving
+     * @param targetSpeed what its controls were last set to
+     */
+    public static double onward(double lastSpeed, double targetSpeed) {
+        if (lastSpeed != 0.0D) {
+            return Math.signum(lastSpeed);
+        }
+        return targetSpeed != 0.0D ? Math.signum(targetSpeed) : 1.0D;
     }
 }

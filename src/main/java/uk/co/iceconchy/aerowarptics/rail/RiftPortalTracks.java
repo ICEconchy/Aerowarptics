@@ -129,6 +129,9 @@ public final class RiftPortalTracks {
         RailWorks.layFar(server, lane);
         gate.laneCellsChanged();
         RailWorks.joinSoon(RailWorks.westTrack(slot));
+        // Create lays and binds the near pair itself once this returns, which tears the graph down as surely as
+        // anything here does.
+        RailPoints.disturbed();
         return new PortalTrackProvider.Exit(corridor, new BlockFace(RailWorks.westTrack(slot), Direction.WEST));
     }
 
@@ -152,6 +155,7 @@ public final class RiftPortalTracks {
             RailLaneRegistry.get(level.getServer()).put(lane.withState(RailLaneState.READY));
         }
         RailWorks.joinSoon(end);
+        RailPoints.disturbed();
         return new PortalTrackProvider.Exit(corridor,
                 new BlockFace(end, nearEnd ? Direction.WEST : Direction.EAST));
     }

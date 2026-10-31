@@ -342,6 +342,9 @@ public final class RailTransit {
             RailPreDial.look(server);
         }
         CorridorWarden.tick(server, now);
+        // The occupancy itself, not a flattened set: the warden holds each occupied corridor's ground, and for
+        // that it has to know which corridors those are.
+        CorridorWarden.tickTrains(server, now, Map.copyOf(OCCUPANCY));
     }
 
     @SubscribeEvent

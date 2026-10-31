@@ -157,6 +157,9 @@ public final class AWNetwork {
         registrar.playToClient(ClientboundCorridorPacket.TYPE,
                 ClientboundCorridorPacket.STREAM_CODEC,
                 ClientboundCorridorPacket::handle);
+        registrar.playToClient(ClientboundCorridorVisitPacket.TYPE,
+                ClientboundCorridorVisitPacket.STREAM_CODEC,
+                ClientboundCorridorVisitPacket::handle);
         registrar.playToClient(ClientboundSupercruisePacket.TYPE,
                 ClientboundSupercruisePacket.STREAM_CODEC,
                 ClientboundSupercruisePacket::handle);

@@ -281,7 +281,7 @@ these icons, and none should start to. Edit those files directly.
 
 ## Testing
 
-207 test classes, **1856 tests, all passing** (one skipped unless Dimensional Sable's jar is in `Depends/`, and `PassageShaderTest`'s seven where no OpenGL context can be made). The suite is the main safety net and is unusually load-
+210 test classes, **1891 tests, all passing** (one skipped unless Dimensional Sable's jar is in `Depends/`, and `PassageShaderTest`'s seven where no OpenGL context can be made). The suite is the main safety net and is unusually load-
 bearing here, because most failure modes in this mod are *silent* — a panel four pixels off, a
 translation key that renders raw, a recipe that quietly asks for four complete drives.
 
@@ -297,6 +297,17 @@ Conventions worth preserving:
   overlaps, handedness on a round trip, coverage of lang keys and capabilities.
 - Guards are verified by breaking them. `CapabilityCoverageTest` was checked by removing the
   registration and watching it fail — "a guard that has never failed is a guard nobody has checked."
+- **In-game work starts from the test bench, not an empty world.** `debug/aerowarptics_test` is a
+  datapack: `/function aerowarptics_test:build` lays a pad with every machine on it, and
+  `:rails` lays the rail-gate yard — three gates round a shared hub, four lanes, full tanks and
+  routes written straight into the block entities, which is the geometry easiest to get silently
+  wrong. `TestBenchTest` runs those functions over an empty map and puts the result through the
+  mod's own rules: every ring through `RiftGateStructure`, every track run into one through
+  `RailLaneMap`, and each lane's far end worked out so the ground the bench left for it can be
+  checked as still empty. It also pins the order the routes depend on — a ring is closed only
+  after its id is written, because a gate mints a random one the moment `tryForm` asks. The pack
+  is declared an input to the `test` task in `build.gradle`, because it is on no classpath and
+  Gradle cannot otherwise see a bench somebody has just broken.
 
 Add a test with any behavioural change. If a change cannot be tested without a running game, say so
 plainly rather than asserting something weaker and calling it covered.
@@ -369,6 +380,23 @@ These have each cost a real bug. Breaking one usually produces something that dr
   of radius one block-ticks only its centre, so `RailWorks.holdCorridor` puts one on every chunk of a corridor, and
   `joinGraph` calls `TrackPropagator.onRailAdded` as each piece is laid. Held every other chunk, half a corridor was
   never in a graph and schedules found no path through it (seen in game, 2026-10-18).
+- **Joining a graph takes every station, signal and observer off it, and only this mod has to put them back.**
+  `TrackPropagator.onRailAdded` tears the connected network down before it rebuilds it, walking out to 1000 nodes
+  and calling `TrackGraph.removeNode`, which strips every edge point it reaches. That is normally invisible:
+  `removeNode` first calls `TrackEdgePoint.invalidate`, which resets the station's block entity so its next tick
+  builds the point again. But `invalidate` resolves that block entity out of **the level it was handed**, ignoring
+  the point's own `blockEntityDimension` - and a lane's graph spans two dimensions, so `layFar` joining the
+  corridor's end with the *corridor's* level strips every point standing in the player's world and invalidates
+  none of them. `TrackTargetingBehaviour.tick` is `if (edgePoint != null) return;`, so a point never invalidated
+  never comes back. `RailPoints` is the answer: it finds each block entity by walking the chunks it could stand in,
+  which means it is found **in its own level**, and only then invalidates it. A point still properly registered is
+  left alone, because `invalidate` does not take the old registration off and two of one point is worse than none.
+  Every site that lays or takes up track calls `RailPoints.disturbed()`; `RailWiringTest` holds all of them.
+  Found in game 2026-10-25: one graph, 37 nodes, both dimensions, `Points { create:station: [] }`, with both
+  stations' blocks standing there bound and healthy, and every schedule saying *No station on graph matches*.
+  The old claim here that a station "re-attaches when somebody next loads it" was only half true - it re-attaches
+  by being **unloaded and loaded**, never by being ticked, which is why widening a chunk hold never fixed it.
+  **The repair itself has not been watched in game.**
 - **A train is held at a gate by answering Create's portal listener, never by cutting track.** `CarriageMixin`
   wraps the listener `Carriage.travel` passes to `TravellingPoint.travel`, found by the call and not by Create's
   lambda's synthetic name. `RailTransit.holds` lets through anything already crossing - straddling the pane, or
@@ -378,8 +406,45 @@ These have each cost a real bug. Breaking one usually produces something that dr
   on a tick the gates held it. Everything there fails open (`RailGates`). The gate dials for a waiting train from
   the server tick, through `dialForTrain`, which pays as a dial does and never changes the gate's route; a
   connection a train struck (`railOpened`) shuts itself when `RailTransit.busy` has been false for `lingerTicks`.
+- **A corridor keeps no train.** `Train.tickPassiveSlowdown` brings a train with no driver and no schedule to a halt
+  and leaves it exactly where it stopped, and a corridor is the one place nobody can ever reach it: no way in but a
+  gate, and `CorridorWarden` refuses every block anybody would lay to get there. A rider knocked off the controls
+  half way through a manual crossing lost a train that way (2026-10-25, found in game; its carriage sat at x=12.6
+  of 160 with `Speed: 0.0`, `TargetSpeed: 1.05` and its schedule paused). So `CorridorWarden.tickTrains` sends on
+  anything standing still in a corridor past `rescueGraceTicks`, the way it was going - the same bargain the
+  barrier floor and the grace period already struck for a stranded player. The push is `manualTick` **and** a
+  speed: `manualTick` is the flag Create's own controls set and the only thing that stops the slowdown undoing the
+  speed on the next tick, and because that tick clears it again the push is remade every tick until the train is
+  out. A train already being sent on is pushed again rather than judged afresh, or it would read as a moving train,
+  be left alone, coast to a stop and have to be found all over again. The decision is pure
+  (`RailGateLogic.stranded`, `onward`); only the push is not.
+- **A push is no use to a train nobody is ticking, which is why the first version of it did not work.** Players
+  still found trains stuck after that fix (2026-10-31). Nothing held a corridor's chunks once its gate stopped
+  working: `holdCorridor` is called from the works paths only and its ticket lasts `WORKS_LIFESPAN` (300 ticks), so
+  a quarter of a minute after the linger the chunks went out, the carriage could no longer tick, and no speed set
+  on it moved anything - while `stranded` read `carriageWaitingForChunks` and politely waited for chunks nobody was
+  ever going to ask for again. So `CorridorWarden.tickTrains` now takes the occupancy rather than a flat set of
+  trains and holds each occupied corridor's ground itself, renewed every twenty ticks for as long as anything is in
+  there. Two other things went with it: a **derailed** train in a corridor is now lifted back on and driven out
+  (`Stranded.LIFT_AND_SEND`, `train.derailed = false`) rather than traced and left, because the usual answer - a
+  player picking it up - is the one thing a corridor makes impossible; and `evictStrays` puts out anything else
+  loose in there, never a carriage and never a rider, because taking one carriage out by hand is how a train comes
+  apart. **None of this has been watched in game.**
+- **A gate with a lane is also a door into its corridor.** Right-click a lane's cell - the pane while the gate is
+  open, the socket while it is shut - and `CorridorDoor` puts you beside the track at that gate's own end of the
+  corridor, where the train would have gone; right-click either mouth and you are back exactly where you clicked
+  from, facing as you were. It exists because a corridor that has stopped a train is a corridor the one person who
+  could drive it out cannot reach. Anyone may use it, open or shut, and a visit lasts `visitTicks` (three minutes
+  by default) counted down on the player's own view by `CorridorVisitOverlay` - never in chat, and the server
+  re-sends the figure each second because the clock stops while a visitor is riding, which a client could not know.
+  The socket had to be given a shape to be clickable at all: a block whose `getShape` is empty cannot be
+  right-clicked, the ray finds nothing and passes through, which is why a shut gate with track in it now shows a
+  faint outline where the rails go in. Nothing about a visit is saved, so a restart forgets the way back and the
+  warden puts them at the lane's railhead instead.
 - **Create reads driving keys straight from GLFW,** so a train cannot be driven by hand through the Minecraft MCP.
   Test with a schedule and a Blaze Burner conductor: the burner goes on the side each Controls block *faces*.
+  A manually driven train is also the one case with no safety net of its own: it has no navigation, so nothing
+  resumes it if its driver lets go, which is what the rule above exists for.
 - **A passage's timing is `GatePassage`, one function of the clock and of when the server said it was
   over - and the veil is not a style's to leave out.** The client is told a forecast and then, separately,
   that the traveller has arrived; a late server is waited for in white and an early word starts the flare
@@ -1437,6 +1502,11 @@ the Probe's UI says "Scan ahead", not "Throw sounding", deliberately.
     corridor as seen while riding. Create stations on track whose graph a lane changes sit out of the graph until their
     own chunk ticks; the far end's hold covers the near ones. Never `/ride` a carriage when testing: Create crashes at
     the portal on a passenger with no seat.
+  - *Added on 2026-10-25:* the Ponder scene the plan left out - `RailScenes.trains`, "Trains through a Rift Gate",
+    a third storyboard on the Rift Gate and its frame, with its own schematic (`rift_gate_rail`: the gate scenes'
+    ring, and track on a low bed running into the bottom row of the opening). It shows no train, because a Ponder
+    level has no track graph to bind a carriage to - which is why Create's own train scenes show none either.
+    `PonderSceneryTest` holds the schematic to the coordinates the storyboard points at. **Not watched in game.**
 
 - **The Sunderer's scene was redone on 2026-10-17** at the owner's word: the ring unravels round a black seed, and
   the newborn tear is seen by everyone for ten seconds. *Seen in game:* the point and its starlines, the lens bending

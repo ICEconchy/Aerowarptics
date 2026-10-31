@@ -3,16 +3,22 @@ package uk.co.iceconchy.aerowarptics.gate;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.PathComputationType;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import uk.co.iceconchy.aerowarptics.rail.CorridorDoor;
 import uk.co.iceconchy.aerowarptics.rail.RailLaneRegistry;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
 
@@ -36,8 +42,30 @@ public class RiftSocketBlock extends Block {
 
     public static final MapCodec<RiftSocketBlock> CODEC = simpleCodec(RiftSocketBlock::new);
 
+    /**
+     * Something to aim at, and the one way a socket is not untouchable.
+     *
+     * <p>A shut gate's lane cell is the door into the corridor ({@link CorridorDoor}), and a block with no shape at
+     * all cannot be right-clicked - a ray finds nothing to hit and passes straight through. So there is a box here,
+     * for pointing at only: no collision, still invisible, and sized small and central so that it is a target
+     * rather than a wall across the opening. It is why a shut gate with track run into it shows a faint outline
+     * where the rails go in.
+     */
+    private static final VoxelShape DOOR = Block.box(4.0D, 0.0D, 4.0D, 12.0D, 16.0D, 12.0D);
+
     public RiftSocketBlock(Properties properties) {
         super(properties);
+    }
+
+    @Override
+    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
+                                               BlockHitResult hit) {
+        if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {
+            return CorridorDoor.enter(serverLevel, pos, serverPlayer);
+        }
+        // A socket only ever stands in a lane's cell, so every one of them is a door: the client may swing for it
+        // and wait to be moved.
+        return InteractionResult.SUCCESS;
     }
 
     @Override
@@ -52,7 +80,7 @@ public class RiftSocketBlock extends Block {
 
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return Shapes.empty();
+        return DOOR;
     }
 
     @Override

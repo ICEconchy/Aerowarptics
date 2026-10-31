@@ -12,6 +12,7 @@ import uk.co.iceconchy.aerowarptics.compat.ponder.scene.GateScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.MachineScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.CouplerScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.ModulatorScenes;
+import uk.co.iceconchy.aerowarptics.compat.ponder.scene.RailScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.DetectorScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.CoolingScenes;
 import uk.co.iceconchy.aerowarptics.compat.ponder.scene.StabiliserScenes;
@@ -27,7 +28,8 @@ import java.util.List;
  * {@code assets/aerowarptics/ponder/}, which {@code tools/ponder_schematics.py} writes. Two gate
  * scenes share one schematic on purpose: building the ring and using it are separate lessons, but
  * they are lessons about the same object, and a second copy of the ring would only be a second thing
- * to keep in step.
+ * to keep in step. The third, the rail lesson, does have its own: a track into a gate needs a bed to
+ * run along, and that bed would be scenery the first two had to keep hidden.
  */
 public final class AWPonderScenes {
 
@@ -116,7 +118,8 @@ public final class AWPonderScenes {
         // controller - a player holding a stack of frame is exactly the player who needs them.
         scenes.forComponents(AWItems.RIFT_GATE.get(), AWItems.RIFT_GATE_FRAME.get())
                 .addStoryBoard("rift_gate", GateScenes::assembly)
-                .addStoryBoard("rift_gate", GateScenes::dialling);
+                .addStoryBoard("rift_gate", GateScenes::dialling)
+                .addStoryBoard("rift_gate_rail", RailScenes::trains);
     }
 
     private static List<ItemLike> drives() {

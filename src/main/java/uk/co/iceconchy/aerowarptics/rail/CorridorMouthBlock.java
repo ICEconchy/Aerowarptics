@@ -3,11 +3,16 @@ package uk.co.iceconchy.aerowarptics.rail;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -53,6 +58,22 @@ public class CorridorMouthBlock extends Block {
     @Override
     protected boolean skipRendering(BlockState state, BlockState adjacent, Direction side) {
         return adjacent.is(this) || super.skipRendering(state, adjacent, side);
+    }
+
+    /**
+     * The way back out: a right-click here returns a visitor to the spot they stepped in from.
+     *
+     * <p>Either mouth does it, not only the one they came in by - somebody who has walked the length of a corridor
+     * after a train should not have to walk back to leave. Anybody the corridor has no record of, which is a rider
+     * a train left behind or a visitor a restart forgot, is put out at the lane's own railhead instead.
+     */
+    @Override
+    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
+                                               BlockHitResult hit) {
+        if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {
+            return CorridorDoor.leave(serverLevel, pos, serverPlayer);
+        }
+        return InteractionResult.SUCCESS;
     }
 
     @Override

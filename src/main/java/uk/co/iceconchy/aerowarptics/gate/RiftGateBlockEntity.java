@@ -47,6 +47,7 @@ import uk.co.iceconchy.aerowarptics.rail.RailLane;
 import uk.co.iceconchy.aerowarptics.rail.RailLaneMap;
 import uk.co.iceconchy.aerowarptics.rail.RailLaneRegistry;
 import uk.co.iceconchy.aerowarptics.rail.RailLaneState;
+import uk.co.iceconchy.aerowarptics.rail.RailPoints;
 import uk.co.iceconchy.aerowarptics.rail.RailTransit;
 import uk.co.iceconchy.aerowarptics.rail.RailWorks;
 import uk.co.iceconchy.aerowarptics.rail.RiftPortalTracks;
@@ -1137,6 +1138,9 @@ public class RiftGateBlockEntity extends KineticBlockEntity implements IHaveGogg
                 if (RiftPortalTracks.runsInto(laid, normal) && lanes.atTrack(serverLevel.dimension(), track) == null) {
                     serverLevel.setBlock(cell, AWBlocks.RIFT_SOCKET.get().defaultBlockState(), Block.UPDATE_CLIENTS);
                     serverLevel.scheduleTick(track, laid.getBlock(), 1);
+                    // That tick is Create's, and it tears the graph down to rebuild it. RailPoints puts back the
+                    // stations it takes off on the way.
+                    RailPoints.disturbed();
                     Trace.log(Trace.RAIL, "{} noticed track at {} run up to it while shut", Trace.pos(worldPosition),
                             Trace.pos(track));
                     break;

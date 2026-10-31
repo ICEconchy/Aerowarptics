@@ -4,8 +4,11 @@ import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
@@ -16,8 +19,10 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import uk.co.iceconchy.aerowarptics.rail.CorridorDoor;
 import uk.co.iceconchy.aerowarptics.registry.AWBlocks;
 import uk.co.iceconchy.aerowarptics.registry.AWParticles;
 
@@ -113,6 +118,23 @@ public class RiftPortalBlock extends Block {
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
         return state.getValue(AXIS) == Direction.Axis.X ? ALONG_X : ALONG_Z;
+    }
+
+    /**
+     * A cell with a lane running through it is a door into the corridor, not only a way across to the far gate.
+     *
+     * <p>Only those cells: the bottom row a train goes in at. Anywhere else in the opening a right-click is
+     * nothing, and the pane stays what it has always been - something to walk into. See {@link CorridorDoor}.
+     */
+    @Override
+    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
+                                               BlockHitResult hit) {
+        if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {
+            return CorridorDoor.enter(serverLevel, pos, serverPlayer);
+        }
+        // Most of an opening is not a lane's cell, and only the server knows which are, so the client leaves the
+        // click alone rather than swallowing every one of them.
+        return InteractionResult.PASS;
     }
 
     /**

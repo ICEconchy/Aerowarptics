@@ -28,6 +28,7 @@ public final class ClientTrace {
     public static final String FLEET = "fleet";
     public static final String STORM = "storm";
     public static final String WARD = "ward";
+    public static final String RAIL = "rail";
     public static final String SESSION = "session";
 
     private static final TraceMemo MEMO = new TraceMemo(512);

@@ -155,6 +155,13 @@ tasks.named('test', Test) {
     testLogging {
         events "passed", "skipped", "failed"
     }
+
+    // TestBenchTest reads the debug datapack, which is on no classpath and so invisible to Gradle's
+    // up-to-date check: without this the task stays UP-TO-DATE over a bench somebody has just broken,
+    // and the first anybody hears of it is a setblock erroring in chat.
+    inputs.dir('debug/aerowarptics_test')
+            .withPropertyName('testBench')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

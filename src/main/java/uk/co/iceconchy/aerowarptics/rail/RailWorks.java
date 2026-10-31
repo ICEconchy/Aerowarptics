@@ -139,6 +139,7 @@ public final class RailWorks {
                 }
             }
         }
+        RailPoints.disturbed();
         Trace.log(Trace.RAIL, "took up corridor {}", slot);
     }
 
@@ -158,7 +159,7 @@ public final class RailWorks {
      * scheduled tick in a chunk that does not block-tick never runs - so held every other chunk, as this once was,
      * half the corridor's track was never part of any graph and no train could find a path through it.
      */
-    private static void holdCorridor(ServerLevel corridor, int slot, int length) {
+    static void holdCorridor(ServerLevel corridor, int slot, int length) {
         int chunkZ = CorridorSlots.z(slot) >> 4;
         for (int chunkX = (CorridorSlots.westMouth() - 1) >> 4; chunkX <= (length + 1) >> 4; chunkX++) {
             Holds.ground(corridor, RAIL_WORKS, new ChunkPos(chunkX, chunkZ), 1);
@@ -171,11 +172,15 @@ public final class RailWorks {
      * <p>A belt and braces: the tick still comes, and asks again, which Create takes in its stride. But a lane that
      * waited for it was only as good as the chunks' ticket levels at the moment, and a train's path search sees the
      * graph, not the blocks.
+     *
+     * <p>Every join is also a disturbance: Create tears the graph down before it builds it again, and takes every
+     * station, signal and observer on it off as it goes. {@link RailPoints} puts them back.
      */
     private static void joinGraph(ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         if (state.getBlock() instanceof TrackBlock) {
             TrackPropagator.onRailAdded(level, pos, state);
+            RailPoints.disturbed();
         }
     }
 
@@ -210,9 +215,9 @@ public final class RailWorks {
         if (exit == null) {
             return settle(lanes, lane, RailLaneState.NO_ROUTE);
         }
-        // Wider than the stub's own chunk, and block-ticking across it: laying the stub changes Create's graph along
-        // the track it joins, and a station on that track re-attaches to the graph only on its own tick. Held to the
-        // stub's chunk alone, the station a little way along it sat out of the graph until somebody walked by.
+        // Wider than the stub's own chunk, so the track the stub joins is loaded and joins the graph with it. This
+        // once claimed to be what got a station on that track back onto the graph; it never was - a station does not
+        // re-attach on a tick at all, which is what RailPoints is for.
         holdGround(farLevel, exit.stub(), FAR_HOLD_RADIUS);
         if (!farLevel.isLoaded(exit.stub()) || !farLevel.isLoaded(exit.cell())) {
             Trace.changed("rail-far:" + lane.id(), Trace.RAIL, "lane {} waiting for {} to load before laying its far"
@@ -271,6 +276,9 @@ public final class RailWorks {
                 break; // somebody's own track, or something in the way: the apron is a courtesy, not a demand
             }
             farLevel.setBlock(apron, ProperWaterloggedBlock.withWater(farLevel, straight, apron), Block.UPDATE_ALL);
+            // Joined like the two bound ends above. Left to its scheduled tick, an apron a player builds a station
+            // on can sit outside the graph, and the station then has nothing to attach itself to.
+            joinGraph(farLevel, apron);
         }
 
         RailLane laid = lane.withFarEnd(far.dimension(), exit.cell(), exit.stub(), exit.heading());
@@ -306,6 +314,7 @@ public final class RailWorks {
             BlockPos east = eastTrack(lane.slot(), lane.length());
             unbind(corridor, east);
             corridor.setBlock(east, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            RailPoints.disturbed();
         }
         if (lane.farDimension() == null || lane.farStub() == null || lane.farCell() == null) {
             return;
@@ -339,6 +348,7 @@ public final class RailWorks {
             level.setBlock(lane.track(), there.setValue(TrackBlock.SHAPE,
                     lane.heading().getAxis() == Direction.Axis.X ? TrackShape.XO : TrackShape.ZO)
                     .setValue(TrackBlock.HAS_BE, false), Block.UPDATE_ALL);
+            RailPoints.disturbed();
         }
     }
 
@@ -366,6 +376,7 @@ public final class RailWorks {
             level.setBlock(owed.cell(), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
         }
         lanes.settled(owed);
+        RailPoints.disturbed();
         Trace.log(Trace.RAIL, "took up an old far stub at {} in {}", Trace.pos(owed.stub()),
                 owed.dimension().location());
     }
@@ -514,6 +525,9 @@ public final class RailWorks {
             TO_JOIN.clear();
         }
         long now = server.overworld().getGameTime();
+        // Every tick, and above the works interval below: the drain just above may have joined a graph, and the
+        // points it knocked off are put back a tick or two later rather than on the next twentieth.
+        RailPoints.tick(server, now);
         if (now % WORK_INTERVAL != 0L) {
             return;
         }

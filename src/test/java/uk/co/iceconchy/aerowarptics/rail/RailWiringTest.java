@@ -161,6 +161,183 @@ class RailWiringTest {
         assertTrue(hangUp.contains("RailTransit.inTransitBetween"));
     }
 
+    /**
+     * A train sent on out of a corridor is sent on in the one way that sticks.
+     *
+     * <p>{@code Train.tickPassiveSlowdown} takes the speed straight back off a train with no driver and no
+     * schedule, unless {@code manualTick} is set - the flag Create's own controls set, and the flag that same tick
+     * clears again. Set the speed without it and the push is undone before the train has moved a block: a silent
+     * failure that leaves exactly the stranded train this is here to rescue.
+     */
+    @Test
+    void aTrainIsSentOnOutOfACorridorAsADriverWould() {
+        String warden = source("rail/CorridorWarden.java");
+        String push = method(warden, "private static double push(");
+        assertTrue(push.contains("train.manualTick = true;"),
+                "without manualTick, Create undoes the speed on the train's next tick");
+        assertTrue(before(push, "train.manualTick = true;", "train.speed ="),
+                "the flag goes on before the speed, so no tick can land between them");
+        assertTrue(push.contains("RailGateLogic.onward("), "the direction is the pure rule's to decide");
+
+        String trains = method(warden, "static void tickTrains(");
+        assertTrue(before(trains, "SENDING.contains(id)", "RailGateLogic.stranded("),
+                "a train already being sent on is pushed again, not judged afresh as a moving train and left");
+        assertTrue(source("rail/RailTransit.java").contains("CorridorWarden.tickTrains("),
+                "nothing ever looks for a stranded train");
+    }
+
+    // ------------------------------------------------------- the corridor's door
+
+    /**
+     * A corridor's ground is held for as long as anything is standing in it.
+     *
+     * <p>The reason trains were still stuck after they were being pushed: nothing held a corridor's chunks once
+     * its gate stopped working. The ticket that laid it lasts 300 ticks, so a quarter of a minute later the chunks
+     * went out, the carriage stopped ticking, and no push could move a train that was not being ticked - while the
+     * rescue read it as "waiting for chunks" and waited for chunks nobody was going to ask for (2026-10-31).
+     */
+    @Test
+    void aCorridorsGroundIsHeldWhileATrainIsInIt() {
+        String warden = source("rail/CorridorWarden.java");
+        String trains = method(warden, "static void tickTrains(");
+        assertTrue(trains.contains("RailWorks.holdCorridor("),
+                "unheld, a corridor's chunks go out and the train in it can no longer be ticked at all");
+        assertTrue(source("rail/RailTransit.java").contains("CorridorWarden.tickTrains(server, now,"),
+                "the warden needs the occupancy and the tick to know which corridors to hold, and how often");
+    }
+
+    /**
+     * Nothing takes a carriage out of a corridor by hand.
+     *
+     * <p>The stray sweep puts out everything loose in a corridor, and a train is the one thing that is not loose:
+     * lifting one carriage of it out is how a train comes apart. It goes out whole, driven, or not at all.
+     */
+    @Test
+    void theStraySweepNeverTouchesATrain() {
+        String strays = method(source("rail/CorridorWarden.java"), "private static void evictStrays(");
+        assertTrue(strays.contains("AbstractContraptionEntity"), "a carriage is a contraption entity");
+        assertTrue(strays.contains("isPassenger()"), "and so is anybody riding one");
+        assertTrue(before(strays, "AbstractContraptionEntity", "changeDimension"),
+                "the guard has to come before anything is moved");
+    }
+
+    /** The door is on all three blocks it needs to be on, and the socket can be clicked at all. */
+    @Test
+    void theDoorIsOnTheOpeningAndOnTheMouth() {
+        assertTrue(method(source("gate/RiftPortalBlock.java"), "protected InteractionResult useWithoutItem(")
+                .contains("CorridorDoor.enter("), "an open gate's pane is a door");
+        String socket = source("gate/RiftSocketBlock.java");
+        assertTrue(method(socket, "protected InteractionResult useWithoutItem(").contains("CorridorDoor.enter("),
+                "a shut gate's socket is a door too, which is when a stuck train most needs one");
+        assertFalse(method(socket, "protected VoxelShape getShape(").contains("Shapes.empty()"),
+                "a block with no shape cannot be right-clicked: the ray finds nothing and passes through");
+        assertTrue(method(source("rail/CorridorMouthBlock.java"), "protected InteractionResult useWithoutItem(")
+                .contains("CorridorDoor.leave("), "and the mouth is the way back out");
+    }
+
+    /**
+     * A visitor's clock is the server's, is said on the view, and stops while they ride.
+     *
+     * <p>Stops because riding a stopped train out is the whole reason for going in, and is said rather than
+     * counted on the client because a client cannot know the clock has stopped.
+     */
+    @Test
+    void theVisitClockIsToldNotShouted() {
+        String warden = source("rail/CorridorWarden.java");
+        String tick = method(warden, "static void tick(");
+        assertTrue(tick.contains("CorridorDoor.visitTicks()"), "a visitor gets the visit, not the short grace");
+        assertTrue(tick.contains("CorridorDoor.tell(player,"), "and is told what is left of it");
+        assertTrue(before(tick, "player.isPassenger()", "STRANDED.remove(player.getUUID())"),
+                "riding stops the clock");
+        assertTrue(method(source("rail/CorridorDoor.java"), "static void tell(")
+                        .contains("ClientboundCorridorVisitPacket"),
+                "told by packet, for the clock on their view - never by a line of chat a second");
+        assertTrue(source("network/AWNetwork.java").contains("ClientboundCorridorVisitPacket.TYPE"),
+                "an unregistered payload is a crash the first time anybody steps in");
+        assertTrue(source("client/AWClientSetup.java").contains("CorridorVisitOverlay::render"),
+                "and an unregistered layer is a clock nobody ever sees");
+    }
+
+    /** A visitor goes back exactly where they clicked from, and is only forgotten once they are out. */
+    @Test
+    void aVisitorGoesBackWhereTheyCameFrom() {
+        String door = source("rail/CorridorDoor.java");
+        assertTrue(method(door, "static boolean sendBack(").contains("entry.yaw()"),
+                "facing the way they were facing, or stepping back out spins them round");
+        assertTrue(method(source("rail/CorridorWarden.java"), "private static void rescue(")
+                        .contains("CorridorDoor.sendBack("),
+                "even when it is the corridor putting them out rather than them leaving");
+        assertTrue(method(door, "static void prune(").contains("player.level() != corridor"),
+                "forgotten only once they are somewhere else - one who logged out inside keeps their way back");
+    }
+
+    // -------------------------------------------------------------- edge points
+
+    /**
+     * Every site that changes track owns up to it, so the points knocked off the graph are put back.
+     *
+     * <p>Create tears a graph down before it builds it again and takes every station, signal and observer on it
+     * off as it goes - invalidating each against whichever level it happened to be propagating, which for half of
+     * a lane's graph is the wrong world and a silent no-op. Nothing shows until a schedule cannot find a station
+     * standing in front of the train (2026-10-25: one graph, 37 nodes, and not one station on it).
+     */
+    @Test
+    void everySiteThatChangesTrackSaysSoSoThePointsGoBack() {
+        String works = source("rail/RailWorks.java");
+        assertTrue(method(works, "private static void joinGraph(").contains("RailPoints.disturbed();"),
+                "a join is a teardown, and takes every point on the graph off with it");
+        for (String site : List.of("public static void clearCorridor(", "public static void takeUpFar(",
+                "public static void takeUpNear(", "private static void settle(")) {
+            assertTrue(method(works, site).contains("RailPoints.disturbed();"),
+                    site + " takes track up, which tears the graph down just as laying it does");
+        }
+        String tracks = source("rail/RiftPortalTracks.java");
+        assertTrue(method(tracks, "static PortalTrackProvider.Exit fromGate(").contains("RailPoints.disturbed();"),
+                "Create lays and binds the near pair itself once this returns");
+        assertTrue(method(tracks, "private static PortalTrackProvider.Exit relay(")
+                .contains("RailPoints.disturbed();"));
+        assertTrue(method(source("gate/RiftGateBlockEntity.java"), "private void noticeTracks(")
+                .contains("RailPoints.disturbed();"), "the tick scheduled there is Create's own propagation");
+    }
+
+    /**
+     * A point is put back using the level it was found in.
+     *
+     * <p>This is the one thing Create gets wrong and the whole reason {@code RailPoints} exists, so it is also the
+     * one line most worth holding: invalidated against any other level, the call finds no block entity, returns
+     * quietly, and the station is lost for the life of the chunk.
+     */
+    @Test
+    void aPointIsPutBackUsingItsOwnLevel() {
+        String points = source("rail/RailPoints.java");
+        String reattach = method(points, "private static boolean reattach(");
+        assertTrue(reattach.contains("point.invalidate(level)"),
+                "invalidated against any level but the one it was found in, this does nothing at all");
+        assertTrue(before(reattach, "if (on == point)", "point.invalidate(level)"),
+                "an attached point is left alone - invalidate does not take the old registration off, so putting"
+                        + " back one that is already on would leave two of it");
+        assertTrue(method(points, "private static Map<ResourceKey<Level>, Set<BlockPos>> everyGraph(")
+                        .contains("node.getDimension()"),
+                "a lane's graph has nodes in two worlds, and filing them all under one would send the sweep hunting"
+                        + " for stations in the wrong one");
+    }
+
+    /** The sweep is ticked every tick, not on the works interval, or its settle counts the wrong ticks. */
+    @Test
+    void theSweepIsTickedAboveTheWorksInterval() {
+        String tick = method(source("rail/RailWorks.java"), "public static void onServerTick(");
+        assertTrue(before(tick, "RailPoints.tick(server, now)", "now % WORK_INTERVAL"),
+                "below the interval guard it would run only every twentieth tick");
+    }
+
+    /** A station a player builds on the apron has to find the apron in the graph to attach itself to. */
+    @Test
+    void theApronIsJoinedLikeTheBoundEndsAre() {
+        String layFar = method(source("rail/RailWorks.java"), "public static RailLane layFar(");
+        assertTrue(before(layFar, "for (BlockPos apron :", "joinGraph(farLevel, apron)"),
+                "the apron was laid with a full update and never joined");
+    }
+
     @Test
     void anArrivalIsHeardByTheDetectors() {
         String transit = source("rail/RailTransit.java");
@@ -171,7 +348,8 @@ class RailWiringTest {
     @Test
     void theTrainsOwnerIsToldByKey() {
         JsonObject lang = json("assets/aerowarptics/lang/en_us.json");
-        for (String key : List.of("gate.rail.held", "gate.rail.opening", "gate.rail.rescued")) {
+        for (String key : List.of("gate.rail.held", "gate.rail.opening", "gate.rail.rescued",
+                "gate.rail.sent_on")) {
             assertTrue(lang.has("aerowarptics." + key), key);
         }
     }

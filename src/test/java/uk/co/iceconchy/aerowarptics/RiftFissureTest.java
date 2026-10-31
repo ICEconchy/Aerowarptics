@@ -256,7 +256,7 @@ class RiftFissureTest {
 
     private static String source(Path path) {
         try {
-            return Files.readString(path, StandardCharsets.UTF_8);
+            return Files.readString(path, StandardCharsets.UTF_8).replace("\r\n", "\n");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
